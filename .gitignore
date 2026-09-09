@@ -1,0 +1,12 @@
+node_modules/
+
+# Perfil persistente del navegador: contiene la sesión iniciada de WhatsApp Web.
+# NUNCA debe subirse a git.
+session/*
+!session/.gitkeep
+
+# Resultados de ejecuciones reales (pueden contener números y mensajes reales).
+logs/*.csv
+!logs/.gitkeep
+
+.env.local
