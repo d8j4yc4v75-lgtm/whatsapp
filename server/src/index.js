@@ -5,14 +5,18 @@ import multer from 'multer'
 import { WebSocketServer } from 'ws'
 import { db } from './db.js'
 import { API_TOKEN, PORT } from './config.js'
-import { SessionManager } from './sessions.js'
+import { SessionManager, diag, note } from './sessions.js'
 import { VAPID_PUBLIC_KEY, saveSubscription } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hasFfmpeg, toM4a, toMp4, toOpus } from './ffmpeg.js'
 
+const STARTED_AT = new Date().toISOString()
 const manager = new SessionManager()
+
+process.on('uncaughtException', e => { note(null, 'uncaught', e.stack || e.message); console.error(e) })
+process.on('unhandledRejection', e => { note(null, 'unhandled', e?.stack || e); console.error(e) })
 const app = express()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 64 * 1024 * 1024 } })
 
@@ -24,6 +28,13 @@ app.use(express.static(PUBLIC_DIR, { maxAge: 0, etag: true }))
 // Railway define RAILWAY_VOLUME_MOUNT_PATH solo cuando hay un volumen conectado
 const persistent = () => !process.env.RAILWAY_ENVIRONMENT || Boolean(process.env.RAILWAY_VOLUME_MOUNT_PATH)
 app.get('/health', (req, res) => res.json({ ok: true, volume: process.env.RAILWAY_VOLUME_MOUNT_PATH || null }))
+
+// Diagnóstico de conexiones (sin datos personales) para depurar desconexiones
+app.get('/diag', (req, res) => res.json({
+	startedAt: STARTED_AT,
+	accounts: manager.accounts().map(a => ({ id: a.id, status: a.status })),
+	events: diag
+}))
 
 const tokenOf = req => req.get('authorization')?.replace(/^Bearer\s+/i, '') || req.query.token
 
@@ -111,7 +122,7 @@ app.delete('/api/accounts/:id', route(async req => {
 	await manager.remove(id)
 	db.prepare('DELETE FROM accounts WHERE id = ?').run(id)
 	// Las conversaciones que quedaron sin ninguna cuenta pierden sus etiquetas
-	db.prepare('DELETE FROM conversation_labels WHERE jid NOT IN (SELECT jid FROM chats)').run()
+	db.prepare('DELETE FROM conversation_labels WHERE jid LIKE ?').run(`${id}:%`)
 	manager.emit('event', { type: 'account.removed', data: { id } })
 	return { ok: true }
 }))
@@ -124,29 +135,42 @@ app.get('/api/conversations', route(req => manager.conversations({
 	q: req.query.q ? String(req.query.q) : null
 })))
 
-app.get('/api/conversations/:jid', route(req => {
-	const conv = manager.conversation(req.params.jid)
+// La clave de conversación es "cuenta:jid"
+const convKey = key => {
+	const i = String(key).indexOf(':')
+	const accountId = Number(String(key).slice(0, i))
+	const jid = String(key).slice(i + 1)
+	if (i < 1 || !accountId || !jid) throw Object.assign(new Error('Conversación inválida'), { status: 404 })
+	return { accountId, jid, key: `${accountId}:${jid}` }
+}
+
+app.get('/api/conversations/:key', route(req => {
+	const { accountId, jid } = convKey(req.params.key)
+	const conv = manager.conversation(accountId, jid)
 	if (!conv) throw Object.assign(new Error('Conversación no encontrada'), { status: 404 })
 	return conv
 }))
 
-app.get('/api/conversations/:jid/messages', route(req =>
-	manager.messages(req.params.jid, { before: req.query.before, limit: Math.min(200, Number(req.query.limit) || 50) })))
+app.get('/api/conversations/:key/messages', route(req => {
+	const { accountId, jid } = convKey(req.params.key)
+	return manager.messages(accountId, jid, { before: req.query.before, limit: Math.min(200, Number(req.query.limit) || 50) })
+}))
 
-app.post('/api/conversations/:jid/read', route(async req => {
-	await manager.markRead(req.params.jid)
+app.post('/api/conversations/:key/read', route(async req => {
+	const { accountId, jid } = convKey(req.params.key)
+	await manager.markRead(accountId, jid)
 	return { ok: true }
 }))
 
-app.put('/api/conversations/:jid/labels', route(req => {
-	const jid = req.params.jid
+app.put('/api/conversations/:key/labels', route(req => {
+	const { accountId, jid, key } = convKey(req.params.key)
 	const ids = (req.body.labelIds || []).map(Number).filter(Boolean)
 	db.transaction(() => {
-		db.prepare('DELETE FROM conversation_labels WHERE jid = ?').run(jid)
+		db.prepare('DELETE FROM conversation_labels WHERE jid = ?').run(key)
 		const ins = db.prepare('INSERT OR IGNORE INTO conversation_labels (jid, label_id) SELECT ?, id FROM labels WHERE id = ?')
-		for (const id of ids) ins.run(jid, id)
+		for (const id of ids) ins.run(key, id)
 	})()
-	const conv = manager.conversation(jid)
+	const conv = manager.conversation(accountId, jid)
 	manager.emit('event', { type: 'conversation.update', data: conv })
 	return conv
 }))

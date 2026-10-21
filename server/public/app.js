@@ -54,7 +54,10 @@ const enc = encodeURIComponent
 const mediaURL = m => `/api/media/${m.accountId}/${enc(m.id)}?token=${enc(S.token)}${m.type === 'audio' ? '&format=m4a' : ''}`
 const account = id => S.accounts.find(a => a.id === id)
 const label = id => S.labels.find(l => l.id === id)
-const conv = jid => S.convs.find(c => c.jid === jid)
+const conv = key => S.convs.find(c => c.key === key)
+const keyOf = m => m.accountId + ':' + m.jid
+const accOf = key => Number(String(key).split(':')[0])
+const jidOf = key => String(key).slice(String(key).indexOf(':') + 1)
 const convName = c => c?.name || (c?.isGroup ? 'Grupo' : c?.phone ? '+' + c.phone : c?.jid || '')
 const totalUnread = () => S.convs.reduce((n, c) => n + (c.unread || 0), 0)
 
@@ -176,13 +179,13 @@ function refreshStatusDot() {
 
 function upsertConv(c) {
 	if (!c) return
-	S.convs = S.convs.filter(x => x.jid !== c.jid)
+	S.convs = S.convs.filter(x => x.key !== c.key)
 	const i = S.convs.findIndex(x => x.lastTs < c.lastTs)
 	S.convs.splice(i < 0 ? S.convs.length : i, 0, c)
 }
 
 function insertMsg(m) {
-	const list = S.msgs[m.jid]
+	const list = S.msgs[keyOf(m)]
 	if (!list) return true
 	const i = list.findIndex(x => x.id === m.id && x.accountId === m.accountId)
 	if (i >= 0) { list[i] = m; return false }
@@ -220,9 +223,9 @@ function handleEvent({ type, data }) {
 			}
 			break
 		case 'conversation.update':
-			if (data.jid === S.active && data.unread > 0 && document.visibilityState === 'visible') {
+			if (data.key === S.active && data.unread > 0 && document.visibilityState === 'visible') {
 				data.unread = 0
-				api('POST', `/conversations/${enc(data.jid)}/read`).catch(() => {})
+				api('POST', `/conversations/${enc(data.key)}/read`).catch(() => {})
 			}
 			upsertConv(data)
 			updateBadge()
@@ -249,16 +252,7 @@ async function loadMessages(jid, older) {
 	S.more[jid] = page.length === 50
 }
 
-function defaultFrom(jid) {
-	const ok = id => account(id)?.status === 'connected'
-	if (S.reply[jid] && account(S.reply[jid])) return S.reply[jid]
-	const last = [...(S.msgs[jid] || [])].reverse().find(m => ok(m.accountId))
-	if (last) return last.accountId
-	const c = conv(jid)
-	const fromConv = c?.accountIds.find(ok)
-	if (fromConv) return fromConv
-	return S.accounts.find(a => ok(a.id))?.id ?? S.accounts[0]?.id ?? null
-}
+const defaultFrom = key => accOf(key)
 
 // ---------- Navegación ----------
 function route() {
@@ -300,7 +294,7 @@ function filteredConvs() {
 	const q = f.q.trim().toLowerCase()
 	const digits = q.replace(/\D/g, '')
 	return S.convs.filter(c => {
-		if (f.account && !c.accountIds.includes(f.account)) return false
+		if (f.account && c.accountId !== f.account) return false
 		if (f.label && !c.labelIds.includes(f.label)) return false
 		if (f.unread && !c.unread) return false
 		if (q) {
@@ -347,12 +341,12 @@ function renderInboxList() {
 		return
 	}
 	el.innerHTML = list.map(c => `
-		<li><a class="row" href="#/chat/${enc(c.jid)}">
+		<li><a class="row" href="#/chat/${enc(c.key)}">
 			<div class="avatar" style="background:${avatarColor(c.jid)}">${c.isGroup ? '👥' : esc(initials(convName(c)))}</div>
 			<div class="body">
 				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
 				<div class="bottom"><span class="preview">${c.lastFromMe ? 'Tú: ' : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
-				<div class="tags">${c.accountIds.map(accountTag).join('')}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}</div>
+				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}</div>
 			</div>
 		</a></li>`).join('')
 }
@@ -369,16 +363,11 @@ async function renderChat(jid, full) {
 			</header>
 			<div class="msgs" id="msgs"><div class="empty">Cargando…</div></div>
 			<footer class="composer">
-				<div class="from">Enviar desde <select id="from"></select></div>
+				<div class="from">Enviando desde <span id="from"></span></div>
 				<div class="compose-row" id="compose-row"></div>
 				<input type="file" id="file" hidden>
 			</footer>`
 		renderComposer()
-		$('#from').onchange = e => {
-			S.reply[jid] = Number(e.target.value)
-			store.set('reply', S.reply)
-			renderFrom()
-		}
 		$('#file').onchange = e => {
 			const f = e.target.files[0]
 			e.target.value = ''
@@ -401,7 +390,7 @@ async function renderChat(jid, full) {
 
 function renderChatHeader() {
 	const c = conv(S.active)
-	$('#c-title').textContent = c ? convName(c) : '+' + S.active.split('@')[0]
+	$('#c-title').textContent = c ? convName(c) : '+' + jidOf(S.active).split('@')[0]
 	const parts = []
 	if (c?.phone && c.name) parts.push('+' + c.phone)
 	if (c?.labelIds.length) parts.push(c.labelIds.map(label).filter(Boolean).map(l => l.name).join(', '))
@@ -409,16 +398,10 @@ function renderChatHeader() {
 }
 
 function renderFrom() {
-	const sel = $('#from')
-	if (!sel) return
-	const current = defaultFrom(S.active)
-	const sig = current + '|' + S.accounts.map(a => a.id + a.name + a.status + a.color).join(',')
-	if (sel.dataset.sig === sig) return
-	sel.dataset.sig = sig
-	sel.innerHTML = S.accounts.length
-		? S.accounts.map(a => `<option value="${a.id}" ${a.id === current ? 'selected' : ''} ${a.status !== 'connected' ? 'disabled' : ''}>${esc(a.name)}${a.phone ? ' (+' + esc(a.phone) + ')' : ''}${a.status !== 'connected' ? ' · ' + statusText(a) : ''}</option>`).join('')
-		: '<option>Sin cuentas</option>'
-	sel.style.setProperty('--c', account(current)?.color || 'var(--line)')
+	const el = $('#from')
+	if (!el) return
+	const a = account(accOf(S.active))
+	el.innerHTML = `${accountTag(accOf(S.active))}${a?.phone ? ' <small>+' + esc(a.phone) + '</small>' : ''}${a && a.status !== 'connected' ? ` <b style="color:var(--danger)">· ${statusText(a)}</b>` : ''}`
 }
 
 function renderComposer() {
@@ -562,7 +545,7 @@ async function sendText() {
 	ta.value = ''
 	ta.dispatchEvent(new Event('input'))
 	try {
-		const m = await api('POST', '/send', { accountId: from, jid: S.active, text })
+		const m = await api('POST', '/send', { accountId: from, jid: jidOf(S.active), text })
 		insertMsg(m)
 		renderMessages(true)
 	} catch (e) {
@@ -589,7 +572,7 @@ async function sendFile(file, extra = {}) {
 	const finalKind = blob.type === 'image/jpeg' ? 'image' : kind
 	const fd = new FormData()
 	fd.append('accountId', from)
-	fd.append('jid', S.active)
+	fd.append('jid', jidOf(S.active))
 	fd.append('kind', finalKind)
 	fd.append('ptt', extra.ptt ? 'true' : 'false')
 	const caption = $('#text')?.value.trim()
@@ -655,8 +638,8 @@ function stopRecording(send) {
 }
 
 function openLabelsSheet() {
-	const jid = S.active
-	const c = conv(jid)
+	const key = S.active
+	const c = conv(key)
 	if (!S.labels.length) return toast('Primero crea etiquetas en Ajustes')
 	if (!c) return toast('Envía o recibe un mensaje antes de etiquetar')
 	sheet('Etiquetas', `<div class="group">${S.labels.map(l => `
@@ -666,7 +649,7 @@ function openLabelsSheet() {
 			cb.onchange = async () => {
 				const ids = [...el.querySelectorAll('input[data-label]:checked')].map(x => Number(x.dataset.label))
 				try {
-					upsertConv(await api('PUT', `/conversations/${enc(jid)}/labels`, { labelIds: ids }))
+					upsertConv(await api('PUT', `/conversations/${enc(key)}/labels`, { labelIds: ids }))
 					renderChatHeader()
 				} catch (e) { toast(e.message) }
 			}
@@ -694,11 +677,9 @@ function openNewChat() {
 			try {
 				const { jid } = await api('POST', '/resolve', { accountId, phone })
 				if (text) await api('POST', '/send', { accountId, jid, text })
-				S.reply[jid] = accountId
-				store.set('reply', S.reply)
 				closeSheet()
 				S.convs = await api('GET', '/conversations')
-				go('#/chat/' + enc(jid))
+				go('#/chat/' + enc(accountId + ':' + jid))
 			} catch (e) { toast(e.message) }
 		}
 	})

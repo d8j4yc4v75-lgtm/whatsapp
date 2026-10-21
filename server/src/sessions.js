@@ -42,6 +42,14 @@ const EXT = {
 	'audio/mpeg': 'mp3', 'audio/aac': 'aac', 'application/pdf': 'pdf'
 }
 
+// Registro de diagnóstico en memoria (sin números ni contenido de mensajes)
+export const diag = []
+export function note(accountId, event, detail) {
+	const clean = detail === undefined ? undefined : String(detail).replace(/\d{5,}/g, '###').slice(0, 300)
+	diag.push({ at: new Date().toISOString(), accountId, event, detail: clean })
+	if (diag.length > 200) diag.shift()
+}
+
 const toMs = ts => (ts ? Number(ts) * 1000 : Date.now())
 const safe = s => String(s).replace(/[^A-Za-z0-9_-]/g, '_')
 
@@ -169,7 +177,7 @@ export class Session {
 			version,
 			logger,
 			auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
-			browser: Browsers.macOS('MultiWA'),
+			browser: Browsers.macOS('Chrome'),
 			syncFullHistory: false,
 			markOnlineOnConnect: false,
 			getMessage: async key => {
@@ -201,7 +209,7 @@ export class Session {
 				if (typeof c.unreadCount === 'number' && c.unreadCount === 0) {
 					const jid = canonicalJid(c.id)
 					stmt.setChatUnread.run(0, this.accountId, jid)
-					this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(jid) })
+					this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
 				}
 			}
 		})
@@ -232,21 +240,35 @@ export class Session {
 		if (connection === 'open') {
 			this.qr = null
 			this.retries = 0
+			this.loggedOutRetries = 0
 			const phone = this.sock.user?.id ? jidNormalizedUser(this.sock.user.id).split('@')[0] : null
+			note(this.accountId, 'open')
 			this.setStatus('connected', phone)
 		}
 		if (connection === 'close') {
 			const code = lastDisconnect?.error?.output?.statusCode
+			note(this.accountId, 'close', `${code} ${lastDisconnect?.error?.message || ''} ${JSON.stringify(lastDisconnect?.error?.data || '')}`)
 			this.sock = null
 			if (this.stopped) return
 			if (code === DisconnectReason.loggedOut) {
-				fs.rmSync(this.authDir, { recursive: true, force: true })
+				// A veces WhatsApp responde 401 de forma pasajera: se reintenta una vez antes de dar la sesión por cerrada
+				const registered = fs.existsSync(path.join(this.authDir, 'creds.json'))
+				if (registered && (this.loggedOutRetries || 0) < 1) {
+					this.loggedOutRetries = (this.loggedOutRetries || 0) + 1
+					this.setStatus('reconnecting')
+					setTimeout(() => !this.stopped && this.start().catch(e => note(this.accountId, 'start-error', e.message)), 5000)
+					return
+				}
+				// Se guarda una copia por si hace falta revisarla, en lugar de borrarla
+				if (fs.existsSync(this.authDir)) {
+					fs.renameSync(this.authDir, `${this.authDir}-logout-${Date.now()}`)
+				}
 				this.setStatus('logged_out')
 				return
 			}
 			this.setStatus('reconnecting')
 			const delay = code === DisconnectReason.restartRequired ? 0 : Math.min(30000, 2000 * 2 ** this.retries++)
-			setTimeout(() => !this.stopped && this.start().catch(e => logger.error(e)), delay)
+			setTimeout(() => !this.stopped && this.start().catch(e => note(this.accountId, 'start-error', e.message)), delay)
 		}
 	}
 
@@ -280,7 +302,7 @@ export class Session {
 			if (meta?.subject) {
 				this.groupNames.set(jid, meta.subject)
 				stmt.upsertChat.run({ account_id: this.accountId, jid, name: meta.subject, unread: 0, last_ts: 0 })
-				this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(jid) })
+				this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
 			}
 		} catch {}
 	}
@@ -346,16 +368,16 @@ export class Session {
 
 		const formatted = this.manager.formatMessage(stmt.getMessage.get(this.accountId, key.id))
 		this.manager.emit('event', { type: 'message', data: formatted })
-		this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(jid) })
+		this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
 
 		if (live && !fromMe) {
 			if (row.raw) this.downloadMedia(key.id).catch(() => {})
-			const conv = this.manager.conversation(jid)
+			const conv = this.manager.conversation(this.accountId, jid)
 			const account = stmt.getAccount.get(this.accountId)
 			sendPush({
 				title: `${conv?.name || jid.split('@')[0]} · ${account?.name}`,
 				body: (isGroup && row.sender_name ? `${row.sender_name}: ` : '') + preview(row),
-				jid,
+				jid: `${this.accountId}:${jid}`,
 				badge: this.manager.totalUnread()
 			})
 		}
@@ -404,7 +426,14 @@ export class Session {
 
 	async send(jid, content, localMedia) {
 		const sock = this.requireSocket()
-		const sent = await sock.sendMessage(jid, content)
+		let sent
+		try {
+			sent = await sock.sendMessage(jid, content)
+		} catch (e) {
+			note(this.accountId, 'send-error', e.message)
+			throw e
+		}
+		note(this.accountId, 'sent', Object.keys(content)[0])
 		this.saveMessage(sent, false)
 		if (localMedia) {
 			const file = this.writeMedia(sent.key.id, localMedia.buffer, localMedia.mime, localMedia.fileName)
@@ -450,7 +479,9 @@ export class SessionManager extends EventEmitter {
 	async startAll() {
 		for (const { id } of db.prepare('SELECT id FROM accounts').all()) {
 			// Solo se reconectan automáticamente las cuentas ya vinculadas
-			if (fs.existsSync(path.join(AUTH_DIR, String(id), 'creds.json'))) {
+			const linked = fs.existsSync(path.join(AUTH_DIR, String(id), 'creds.json'))
+			note(id, 'boot', linked ? 'linked' : 'not-linked')
+			if (linked) {
 				await this.start(id).catch(e => logger.error(e))
 			} else {
 				stmt.setAccount.run('logged_out', null, id)
@@ -510,43 +541,41 @@ export class SessionManager extends EventEmitter {
 		}
 	}
 
-	conversations({ accountId, labelId, unread, q, limit = 300 } = {}) {
-		const where = []
+	/** Cada conversación es la combinación cuenta + contacto; la clave es "cuenta:jid" */
+	conversations({ accountId, labelId, unread, q, limit = 500 } = {}) {
+		const where = ['(c.last_ts > 0 OR c.unread > 0)']
 		const params = {}
 		if (accountId) { where.push('c.account_id = @accountId'); params.accountId = accountId }
-		if (labelId) { where.push('c.jid IN (SELECT jid FROM conversation_labels WHERE label_id = @labelId)'); params.labelId = labelId }
+		if (labelId) { where.push(`(c.account_id || ':' || c.jid) IN (SELECT jid FROM conversation_labels WHERE label_id = @labelId)`); params.labelId = labelId }
+		if (unread) where.push('c.unread > 0')
 		if (q) {
 			where.push('(c.jid LIKE @q OR c.name LIKE @q OR ct.name LIKE @q OR ct.notify LIKE @q)')
 			params.q = `%${q}%`
 		}
 		const rows = db.prepare(`
-			SELECT c.jid,
-				MAX(c.last_ts) AS last_ts,
-				SUM(c.unread) AS unread,
-				GROUP_CONCAT(c.account_id) AS accounts,
-				COALESCE(ct.name, MAX(c.name), ct.notify) AS name
+			SELECT c.account_id, c.jid, c.last_ts, c.unread, COALESCE(ct.name, c.name, ct.notify) AS name
 			FROM chats c LEFT JOIN contacts ct ON ct.jid = c.jid
-			${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-			GROUP BY c.jid
-			${unread ? 'HAVING SUM(c.unread) > 0' : ''}
-			ORDER BY last_ts DESC
+			WHERE ${where.join(' AND ')}
+			ORDER BY c.last_ts DESC
 			LIMIT ${Number(limit)}`).all(params)
-		return rows.filter(r => r.last_ts > 0 || r.unread > 0).map(r => this.formatConversation(r))
+		return rows.map(r => this.formatConversation(r))
 	}
 
-	conversation(jid) {
+	conversation(accountId, jid) {
 		const r = db.prepare(`
-			SELECT c.jid, MAX(c.last_ts) AS last_ts, SUM(c.unread) AS unread,
-				GROUP_CONCAT(c.account_id) AS accounts, COALESCE(ct.name, MAX(c.name), ct.notify) AS name
+			SELECT c.account_id, c.jid, c.last_ts, c.unread, COALESCE(ct.name, c.name, ct.notify) AS name
 			FROM chats c LEFT JOIN contacts ct ON ct.jid = c.jid
-			WHERE c.jid = ? GROUP BY c.jid`).get(jid)
+			WHERE c.account_id = ? AND c.jid = ?`).get(accountId, jid)
 		return r ? this.formatConversation(r) : null
 	}
 
 	formatConversation(r) {
-		const last = db.prepare('SELECT * FROM messages WHERE jid = ? ORDER BY ts DESC LIMIT 1').get(r.jid)
-		const labels = db.prepare('SELECT label_id FROM conversation_labels WHERE jid = ?').all(r.jid).map(l => l.label_id)
+		const key = `${r.account_id}:${r.jid}`
+		const last = db.prepare('SELECT * FROM messages WHERE account_id = ? AND jid = ? ORDER BY ts DESC LIMIT 1').get(r.account_id, r.jid)
+		const labels = db.prepare('SELECT label_id FROM conversation_labels WHERE jid = ?').all(key).map(l => l.label_id)
 		return {
+			key,
+			accountId: r.account_id,
 			jid: r.jid,
 			name: r.name || null,
 			phone: isJidGroup(r.jid) ? null : r.jid.split('@')[0],
@@ -554,17 +583,15 @@ export class SessionManager extends EventEmitter {
 			lastTs: Math.max(r.last_ts, last?.ts || 0),
 			lastText: preview(last),
 			lastFromMe: Boolean(last?.from_me),
-			lastAccountId: last?.account_id ?? Number(String(r.accounts).split(',')[0]),
 			unread: r.unread || 0,
-			accountIds: [...new Set(String(r.accounts).split(',').map(Number))],
 			labelIds: labels
 		}
 	}
 
-	messages(jid, { before, limit = 50 } = {}) {
+	messages(accountId, jid, { before, limit = 50 } = {}) {
 		const rows = db.prepare(`
-			SELECT * FROM messages WHERE jid = @jid ${before ? 'AND ts < @before' : ''}
-			ORDER BY ts DESC LIMIT @limit`).all({ jid, before: Number(before) || 0, limit: Number(limit) })
+			SELECT * FROM messages WHERE account_id = @accountId AND jid = @jid ${before ? 'AND ts < @before' : ''}
+			ORDER BY ts DESC LIMIT @limit`).all({ accountId, jid, before: Number(before) || 0, limit: Number(limit) })
 		return rows.reverse().map(r => this.formatMessage(r))
 	}
 
@@ -572,14 +599,11 @@ export class SessionManager extends EventEmitter {
 		return db.prepare('SELECT COALESCE(SUM(unread), 0) AS n FROM chats').get().n
 	}
 
-	async markRead(jid) {
-		const accounts = db.prepare('SELECT account_id FROM chats WHERE jid = ? AND unread > 0').all(jid)
-		for (const { account_id } of accounts) {
-			const s = this.sessions.get(account_id)
-			if (s) await s.markRead(jid)
-			else stmt.setChatUnread.run(0, account_id, jid)
-		}
-		this.emit('event', { type: 'conversation.update', data: this.conversation(jid) })
+	async markRead(accountId, jid) {
+		const s = this.sessions.get(accountId)
+		if (s) await s.markRead(jid)
+		else stmt.setChatUnread.run(0, accountId, jid)
+		this.emit('event', { type: 'conversation.update', data: this.conversation(accountId, jid) })
 	}
 
 	/** Resuelve un número de teléfono a JID verificando que tenga WhatsApp */

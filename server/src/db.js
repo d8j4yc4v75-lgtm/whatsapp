@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS messages (
   PRIMARY KEY (account_id, id)
 );
 CREATE INDEX IF NOT EXISTS idx_messages_jid_ts ON messages (jid, ts);
+CREATE INDEX IF NOT EXISTS idx_messages_acc_jid_ts ON messages (account_id, jid, ts);
 
 CREATE TABLE IF NOT EXISTS contacts (
   jid TEXT PRIMARY KEY,
