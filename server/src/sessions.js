@@ -24,7 +24,16 @@ import { db } from './db.js'
 import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 
-const logger = pino({ level: process.env.LOG_LEVEL || 'warn' })
+// Los avisos de Baileys también se guardan en el diagnóstico
+const logger = pino({ level: process.env.LOG_LEVEL || 'warn' }, {
+	write(line) {
+		process.stdout.write(line)
+		try {
+			const o = JSON.parse(line)
+			note(null, 'baileys-' + (o.level >= 50 ? 'error' : 'warn'), `${o.msg || ''} ${JSON.stringify(o.attrs || o.err?.message || o.error || '')}`)
+		} catch {}
+	}
+})
 const AUTH_DIR = path.join(DATA_DIR, 'auth')
 export const MEDIA_DIR = path.join(DATA_DIR, 'media')
 
@@ -67,6 +76,7 @@ const stmt = {
 		ON CONFLICT (account_id, id) DO NOTHING`),
 	setMedia: db.prepare('UPDATE messages SET media_path = ? WHERE account_id = ? AND id = ?'),
 	setStatus: db.prepare('UPDATE messages SET status = MAX(status, ?) WHERE account_id = ? AND id = ?'),
+	forceStatus: db.prepare('UPDATE messages SET status = ? WHERE account_id = ? AND id = ?'),
 	setText: db.prepare('UPDATE messages SET text = ? WHERE account_id = ? AND id = ?'),
 	getMessage: db.prepare('SELECT * FROM messages WHERE account_id = ? AND id = ?'),
 	upsertContact: db.prepare(`
@@ -219,7 +229,9 @@ export class Session {
 		sock.ev.on('messages.update', updates => {
 			for (const { key, update } of updates) {
 				if (typeof update.status === 'number') {
-					stmt.setStatus.run(update.status, this.accountId, key.id)
+					note(this.accountId, 'status', `${update.status} ${JSON.stringify(update.messageStubParameters || '')}`)
+					if (update.status === 0) stmt.forceStatus.run(0, this.accountId, key.id)
+					else stmt.setStatus.run(update.status, this.accountId, key.id)
 					this.manager.emit('event', {
 						type: 'message.status',
 						data: { accountId: this.accountId, id: key.id, status: update.status }
