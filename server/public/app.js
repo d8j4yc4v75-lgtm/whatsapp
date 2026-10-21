@@ -219,7 +219,7 @@ function handleEvent({ type, data }) {
 		case 'message.status':
 			for (const list of Object.values(S.msgs)) {
 				const m = list.find(x => x.id === data.id && x.accountId === data.accountId)
-				if (m) m.status = Math.max(m.status, data.status)
+				if (m) m.status = data.status === 0 ? 0 : Math.max(m.status, data.status)
 			}
 			break
 		case 'conversation.update':
@@ -448,7 +448,7 @@ function msgContent(m) {
 }
 
 function ticks(status) {
-	if (status === 0) return '<span style="color:var(--danger)">⚠︎</span>'
+	if (status === 0) return '<span style="color:var(--danger)">⚠︎ No enviado</span>'
 	if (status === 1) return '🕓'
 	if (status === 2) return '✓'
 	if (status === 3) return '✓✓'

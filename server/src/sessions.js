@@ -369,6 +369,17 @@ export class Session {
 			raw: MEDIA_TYPES[getContentType(content)] ? JSON.stringify(m, BufferJSON.replacer) : null
 		}
 		const inserted = stmt.insertMessage.run(row).changes > 0
+		// El estado de error puede llegar fusionado en el mismo evento del mensaje ya guardado
+		if (!inserted && fromMe && typeof m.status === 'number') {
+			if (m.status === 0) {
+				note(this.accountId, 'status', `0 ${JSON.stringify(m.messageStubParameters || '')}`)
+				stmt.forceStatus.run(0, this.accountId, key.id)
+			} else {
+				stmt.setStatus.run(m.status, this.accountId, key.id)
+			}
+			const saved = stmt.getMessage.get(this.accountId, key.id)
+			if (saved) this.manager.emit('event', { type: 'message.status', data: { accountId: this.accountId, id: key.id, status: saved.status } })
+		}
 		stmt.upsertChat.run({
 			account_id: this.accountId,
 			jid,
