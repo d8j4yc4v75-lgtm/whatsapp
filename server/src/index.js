@@ -21,7 +21,9 @@ app.use(express.json({ limit: '1mb' }))
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public')
 app.use(express.static(PUBLIC_DIR, { maxAge: 0, etag: true }))
 
-app.get('/health', (req, res) => res.json({ ok: true }))
+// Railway define RAILWAY_VOLUME_MOUNT_PATH solo cuando hay un volumen conectado
+const persistent = () => !process.env.RAILWAY_ENVIRONMENT || Boolean(process.env.RAILWAY_VOLUME_MOUNT_PATH)
+app.get('/health', (req, res) => res.json({ ok: true, volume: process.env.RAILWAY_VOLUME_MOUNT_PATH || null }))
 
 const tokenOf = req => req.get('authorization')?.replace(/^Bearer\s+/i, '') || req.query.token
 
@@ -57,7 +59,7 @@ const accountParam = req => {
 	return id
 }
 
-app.get('/api/info', route(() => ({ unread: manager.totalUnread() })))
+app.get('/api/info', route(() => ({ unread: manager.totalUnread(), persistent: persistent() })))
 
 app.post('/api/password', route(req => {
 	changePassword(req.body.password)

@@ -880,6 +880,9 @@ function renderSettings() {
 			</div>
 			<p class="hint">Asigna etiquetas con el botón 🏷️ dentro de cada chat y filtra por ellas en la bandeja.</p>
 
+			<div class="section">Almacenamiento</div>
+			<div class="group"><div class="item"><span class="grow">Datos guardados</span><span id="storage">…</span></div></div>
+
 			<div class="section">Seguridad</div>
 			<div class="group">
 				<button class="btn" data-act="change-pw">Cambiar contraseña</button>
@@ -888,6 +891,12 @@ function renderSettings() {
 			<div style="height:30px"></div>
 		</div>`
 	$('#nl-name').value = prevLabel
+	api('GET', '/info').then(info => {
+		const el = $('#storage')
+		if (el) el.innerHTML = info.persistent
+			? '<span style="color:var(--accent)">Permanentes ✅</span>'
+			: '<span style="color:var(--danger)">Temporales ⚠️ falta el disco /data</span>'
+	}).catch(() => {})
 	view.dataset.labelColor = COLORS[1]
 	bindColorPicker(view, c => { view.dataset.labelColor = c })
 }
