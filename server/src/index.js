@@ -238,14 +238,23 @@ app.post('/api/push/subscribe', route(req => {
 const server = http.createServer(app)
 const wss = new WebSocketServer({ noServer: true })
 
-server.on('upgrade', (req, socket, head) => {
+const onUpgrade = (req, socket, head) => {
 	const url = new URL(req.url, 'http://localhost')
 	if (url.pathname !== '/ws' || url.searchParams.get('token') !== API_TOKEN) {
 		socket.destroy()
 		return
 	}
 	wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws))
-})
+}
+server.on('upgrade', onUpgrade)
+
+// Railway asigna su propio PORT; también se escucha en 3000 por si el dominio apunta ahí
+if (PORT !== 3000) {
+	const extra = http.createServer(app)
+	extra.on('upgrade', onUpgrade)
+	extra.on('error', () => {})
+	extra.listen(3000, '0.0.0.0')
+}
 
 wss.on('connection', ws => {
 	ws.isAlive = true
