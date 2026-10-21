@@ -19,7 +19,8 @@ const S = {
 	labels: [],
 	msgs: {},
 	more: {},
-	reply: store.get('reply', {}),
+	campaigns: [],
+	templates: {},
 	filter: { account: null, label: null, unread: false, q: '' },
 	wsOk: false,
 	ws: null,
@@ -62,7 +63,7 @@ const convName = c => c?.name || (c?.isGroup ? 'Grupo' : c?.phone ? '+' + c.phon
 const totalUnread = () => S.convs.reduce((n, c) => n + (c.unread || 0), 0)
 
 function statusText(a) {
-	return { connected: 'Conectado', connecting: 'Conectando…', reconnecting: 'Reconectando…', qr: 'Esperando vinculación', logged_out: 'Sin vincular' }[a.status] || 'Desconectado'
+	return { connected: 'Conectado', connecting: 'Conectando…', reconnecting: 'Reconectando…', qr: 'Esperando vinculación', logged_out: 'Sin vincular', error: 'Error de conexión' }[a.status] || 'Desconectado'
 }
 function statusColor(a) {
 	return a.status === 'connected' ? 'var(--accent)' : ['qr', 'connecting', 'reconnecting'].includes(a.status) ? '#f5a623' : 'var(--danger)'
@@ -230,6 +231,14 @@ function handleEvent({ type, data }) {
 			upsertConv(data)
 			updateBadge()
 			break
+		case 'campaign.update': {
+			if (!data) return
+			const i = S.campaigns.findIndex(c => c.id === data.id)
+			if (i >= 0) S.campaigns[i] = data
+			else S.campaigns.unshift(data)
+			if (route().name === 'campaigns') renderCampaignList()
+			return
+		}
 		case 'conversations.changed':
 			api('GET', '/conversations').then(c => { S.convs = c; updateBadge(); render() }).catch(() => {})
 			return
@@ -276,7 +285,8 @@ function render() {
 		$('#app').innerHTML = `<main class="view" id="view"></main>${tabs(r.name)}`
 	}
 	updateBadge()
-	if (r.name === 'accounts') renderAccounts()
+	if (r.name === 'campaigns') renderCampaigns(changed)
+	else if (r.name === 'accounts') renderAccounts()
 	else if (r.name === 'account') renderAccount(Number(r.arg), changed)
 	else if (r.name === 'settings') { if (changed) renderSettings() }
 	else renderInbox(changed)
@@ -285,7 +295,8 @@ function render() {
 function tabs(active) {
 	const t = (name, icon, text, href) =>
 		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') ? 'active' : ''}"><span>${icon}</span>${text}${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
-	return `<nav class="tabs">${t('inbox', '💬', 'Bandeja', '#/')}${t('accounts', '📱', 'Cuentas', '#/accounts')}${t('settings', '⚙️', 'Ajustes', '#/settings')}</nav>`
+	const sends = S.accounts.some(a => a.kind === 'cloud') ? t('campaigns', '📤', 'Envíos', '#/campaigns') : ''
+	return `<nav class="tabs">${t('inbox', '💬', 'Bandeja', '#/')}${sends}${t('accounts', '📱', 'Cuentas', '#/accounts')}${t('settings', '⚙️', 'Ajustes', '#/settings')}</nav>`
 }
 
 // ---------- Bandeja ----------
@@ -364,6 +375,7 @@ async function renderChat(jid, full) {
 			<div class="msgs" id="msgs"><div class="empty">Cargando…</div></div>
 			<footer class="composer">
 				<div class="from">Enviando desde <span id="from"></span></div>
+				<div class="hint24" id="hint24" hidden>Pasaron más de 24 h desde el último mensaje del cliente: solo puedes enviar una <a href="#" data-act="tpl-chat">plantilla 📋</a>.</div>
 				<div class="compose-row" id="compose-row"></div>
 				<input type="file" id="file" hidden>
 			</footer>`
@@ -402,6 +414,11 @@ function renderFrom() {
 	if (!el) return
 	const a = account(accOf(S.active))
 	el.innerHTML = `${accountTag(accOf(S.active))}${a?.phone ? ' <small>+' + esc(a.phone) + '</small>' : ''}${a && a.status !== 'connected' ? ` <b style="color:var(--danger)">· ${statusText(a)}</b>` : ''}`
+	const hint = $('#hint24')
+	if (hint) {
+		const closed = a?.kind === 'cloud' && !windowOpen(S.active)
+		hint.hidden = !closed
+	}
 }
 
 function renderComposer() {
@@ -414,8 +431,10 @@ function renderComposer() {
 		return
 	}
 	const prev = $('#text')?.value || ''
+	const isCloud = account(accOf(S.active))?.kind === 'cloud'
 	row.innerHTML = `
 		<button class="round ghost" data-act="attach" aria-label="Adjuntar">＋</button>
+		${isCloud ? '<button class="round ghost" data-act="tpl-chat" aria-label="Plantilla" style="font-size:22px">📋</button>' : ''}
 		<textarea id="text" rows="1" placeholder="Mensaje"></textarea>
 		<button class="round" id="send-btn" data-act="send" aria-label="Enviar">🎤</button>`
 	const ta = $('#text')
@@ -477,6 +496,7 @@ function messageItems() {
 			html: `<div class="msg ${m.fromMe ? 'me' : ''}" style="--c:${esc(a?.color || '#8E8E93')}">
 				<div class="head">${accountTag(m.accountId)}${isGroup && !m.fromMe ? `<span class="sender">${esc(m.senderName || (m.sender || '').split('@')[0])}</span>` : ''}</div>
 				${msgContent(m)}
+				${m.fromMe && m.error ? `<div class="err">⚠︎ ${esc(m.error)}</div>` : ''}
 				<div class="meta"></div>
 			</div>`
 		})
@@ -663,26 +683,252 @@ function openNewChat() {
 	if (!connected.length) return toast('No hay cuentas conectadas')
 	sheet('Nuevo chat', `
 		<div class="section">Enviar desde</div>
-		<div class="group"><div class="item"><select id="nc-from">${connected.map(a => `<option value="${a.id}">${esc(a.name)}${a.phone ? ' (+' + esc(a.phone) + ')' : ''}</option>`).join('')}</select></div></div>
-		<div class="section">Número con código de país</div>
-		<div class="group"><div class="item"><input type="tel" id="nc-phone" placeholder="Ej. 5215512345678" inputmode="tel"></div></div>
-		<div class="section">Mensaje (opcional)</div>
-		<div class="group"><div class="item"><textarea id="nc-text" rows="3" placeholder="Escribe un mensaje"></textarea></div></div>
-		<div class="pad"><button class="btn primary" id="nc-go">Abrir chat</button></div>`, el => {
+		<div class="group"><div class="item"><select id="nc-from">${connected.map(a => `<option value="${a.id}">${esc(a.name)}${a.phone ? ' (+' + esc(a.phone) + ')' : ''}${a.kind === 'cloud' ? ' · API' : ''}</option>`).join('')}</select></div></div>
+		<div class="section">Número (10 dígitos o con código de país)</div>
+		<div class="group"><div class="item"><input type="tel" id="nc-phone" placeholder="Ej. 8112345678" inputmode="tel"></div></div>
+		<div id="nc-body"></div>
+		<div class="pad"><button class="btn primary" id="nc-go">Enviar</button></div>`, el => {
+		const accId = () => Number($('#nc-from', el).value)
+		const body = async () => {
+			const a = account(accId())
+			if (a?.kind === 'cloud') {
+				$('#nc-body', el).innerHTML = '<p class="hint">Cargando plantillas…</p>'
+				$('#nc-body', el).innerHTML = await templateForm(a.id)
+			} else {
+				$('#nc-body', el).innerHTML = `<div class="section">Mensaje (opcional)</div>
+					<div class="group"><div class="item"><textarea id="nc-text" rows="3" placeholder="Escribe un mensaje"></textarea></div></div>`
+			}
+			bindTemplateForm(el)
+		}
+		$('#nc-from', el).onchange = body
+		body()
 		$('#nc-go', el).onclick = async () => {
-			const accountId = Number($('#nc-from', el).value)
+			const accountId = accId()
 			const phone = $('#nc-phone', el).value
-			const text = $('#nc-text', el).value.trim()
-			if (phone.replace(/\D/g, '').length < 8) return toast('Escribe el número completo con código de país')
+			if (phone.replace(/\D/g, '').length < 10) return toast('Escribe el número completo (10 dígitos)')
+			const btn = $('#nc-go', el)
+			btn.disabled = true
 			try {
-				const { jid } = await api('POST', '/resolve', { accountId, phone })
-				if (text) await api('POST', '/send', { accountId, jid, text })
+				let jid
+				if (account(accountId)?.kind === 'cloud') {
+					const t = readTemplateForm(el)
+					if (!t) return
+					const m = await api('POST', '/send-template', { accountId, phone, ...t })
+					jid = m.jid
+				} else {
+					jid = (await api('POST', '/resolve', { accountId, phone })).jid
+					const text = $('#nc-text', el)?.value.trim()
+					if (text) await api('POST', '/send', { accountId, jid, text })
+				}
 				closeSheet()
 				S.convs = await api('GET', '/conversations')
 				go('#/chat/' + enc(accountId + ':' + jid))
+			} catch (e) { toast(e.message) } finally { btn.disabled = false }
+		}
+	})
+}
+
+// ---------- Plantillas (API oficial) ----------
+function windowOpen(key) {
+	const last = [...(S.msgs[key] || [])].reverse().find(m => !m.fromMe)
+	return Boolean(last && Date.now() - last.ts < 24 * 3600 * 1000)
+}
+
+async function loadTemplates(accountId, refresh) {
+	if (!refresh && S.templates[accountId]) return S.templates[accountId]
+	S.templates[accountId] = await api('GET', `/accounts/${accountId}/templates${refresh ? '?refresh=1' : ''}`)
+	return S.templates[accountId]
+}
+
+const TPL_STATUS = { APPROVED: ['Aprobada', 'var(--accent)'], PENDING: ['En revisión', '#f5a623'], REJECTED: ['Rechazada', 'var(--danger)'], PAUSED: ['Pausada', '#f5a623'], DISABLED: ['Desactivada', 'var(--danger)'] }
+
+async function templateForm(accountId) {
+	let list
+	try { list = (await loadTemplates(accountId)).filter(t => t.status === 'APPROVED') } catch (e) { return `<p class="hint" style="color:var(--danger)">${esc(e.message)}</p>` }
+	if (!list.length) return `<p class="hint">No tienes plantillas aprobadas todavía. Créalas en <a href="#/account/${accountId}">Cuentas › esta cuenta › Plantillas</a>. Meta tarda de minutos a horas en aprobarlas.</p>`
+	return `<div class="section">Plantilla</div>
+		<div class="group"><div class="item"><select id="tpl-name">${list.map((t, i) => `<option value="${i}">${esc(t.name)} (${esc(t.language)})</option>`).join('')}</select></div></div>
+		<div id="tpl-fields"></div>
+		<textarea hidden id="tpl-data">${esc(JSON.stringify(list))}</textarea>`
+}
+
+function bindTemplateForm(el) {
+	const sel = $('#tpl-name', el)
+	if (!sel) return
+	const list = JSON.parse($('#tpl-data', el).textContent)
+	const draw = () => {
+		const t = list[Number(sel.value)]
+		const fields = Array.from({ length: t.params }, (_, i) =>
+			`<div class="item"><span style="min-width:44px;color:var(--muted)">{{${i + 1}}}</span><input type="text" class="tpl-p" data-i="${i}" placeholder="Valor ${i + 1}"></div>`).join('')
+		$('#tpl-fields', el).innerHTML = `<p class="hint" style="white-space:pre-wrap">${esc(t.body)}</p>${t.params ? `<div class="group">${fields}</div>` : ''}`
+	}
+	sel.onchange = draw
+	draw()
+}
+
+function readTemplateForm(el) {
+	const sel = $('#tpl-name', el)
+	if (!sel) { toast('Necesitas una plantilla aprobada'); return null }
+	const t = JSON.parse($('#tpl-data', el).textContent)[Number(sel.value)]
+	const params = [...el.querySelectorAll('.tpl-p')].map(i => i.value.trim())
+	if (params.some(p => !p)) { toast('Llena todos los valores de la plantilla'); return null }
+	return { template: t.name, language: t.language, params }
+}
+
+async function openTemplateChat() {
+	const key = S.active
+	const accountId = accOf(key)
+	sheet('Enviar plantilla', '<div id="tc-body"><p class="hint">Cargando plantillas…</p></div><div class="pad"><button class="btn primary" id="tc-go">Enviar</button></div>', async el => {
+		$('#tc-body', el).innerHTML = await templateForm(accountId)
+		bindTemplateForm(el)
+		$('#tc-go', el).onclick = async () => {
+			const t = readTemplateForm(el)
+			if (!t) return
+			try {
+				const m = await api('POST', '/send-template', { accountId, jid: jidOf(key), ...t })
+				insertMsg(m)
+				closeSheet()
+				renderMessages(true)
 			} catch (e) { toast(e.message) }
 		}
 	})
+}
+
+// ---------- Envíos masivos ----------
+const CAMPAIGN_STATUS = { running: ['Enviando', 'var(--accent)'], paused: ['En pausa', '#f5a623'], done: ['Terminado', 'var(--muted)'], cancelled: ['Cancelado', 'var(--danger)'] }
+
+async function renderCampaigns(full) {
+	if (full) {
+		$('#view').innerHTML = `
+			<header class="bar"><h1>Envíos</h1><button class="icon-btn" data-act="new-campaign" aria-label="Nuevo envío">＋</button></header>
+			<div class="settings" style="min-height:100%"><div id="camp-list"></div>
+			<p class="hint">Los envíos salen poco a poco, solo en el horario que elijas y sin pasar el límite diario de Meta (250 personas nuevas al día si tu negocio no está verificado). Quien responda «BAJA» no vuelve a recibir mensajes.</p></div>`
+		try { S.campaigns = await api('GET', '/campaigns') } catch (e) { toast(e.message) }
+	}
+	renderCampaignList()
+}
+
+function renderCampaignList() {
+	const el = $('#camp-list')
+	if (!el) return
+	if (!S.campaigns.length) {
+		el.innerHTML = '<div class="empty"><div class="big">📤</div>Toca <b>＋</b> para crear tu primer envío.</div>'
+		return
+	}
+	el.innerHTML = '<div class="section">Tus envíos</div><div class="group">' + S.campaigns.map(c => {
+		const n = c.counts
+		const total = n.pending + n.sent + n.failed + n.skipped
+		const done = n.sent + n.failed + n.skipped
+		const [st, color] = CAMPAIGN_STATUS[c.status] || [c.status, 'var(--muted)']
+		const pct = total ? Math.round(done / total * 100) : 0
+		const why = c.note === 'limit' ? 'Esperando: se alcanzó el límite diario de Meta' : c.note || ''
+		return `<div class="item" style="display:block">
+			<div style="display:flex;gap:8px;align-items:center"><b class="grow">${esc(c.name)}</b>${accountTag(c.accountId)}<span class="status" style="color:${color}">${st}</span></div>
+			<small>Plantilla ${esc(c.template)} · ${c.perHour}/hora · ${c.startHour}:00–${c.endHour}:00</small>
+			<div class="bar-progress"><i style="width:${pct}%"></i></div>
+			<small>✅ ${n.sent} enviados · 👀 ${n.read} leídos · ⚠︎ ${n.failed} fallidos · ⏳ ${n.pending} pendientes${n.skipped ? ` · 🚫 ${n.skipped} con BAJA` : ''}</small>
+			${why ? `<small style="color:${c.note === 'limit' ? 'var(--muted)' : 'var(--danger)'}">${esc(why)}</small>` : ''}
+			<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+				${c.status === 'running' ? `<button class="chip" data-act="camp" data-val="${c.id}:pause">Pausar</button>` : ''}
+				${c.status === 'paused' ? `<button class="chip" data-act="camp" data-val="${c.id}:resume">Reanudar</button>` : ''}
+				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
+				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
+			</div>
+		</div>`
+	}).join('') + '</div>'
+}
+
+function parseList(text) {
+	return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+		const parts = l.split(l.includes('\t') ? '\t' : l.includes(';') ? ';' : ',').map(x => x.trim().replace(/^"|"$/g, ''))
+		return { phone: parts[0], params: parts.slice(1) }
+	}).filter(r => r.phone.replace(/\D/g, '').length >= 10)
+}
+
+function openNewCampaign() {
+	const cloud = S.accounts.filter(a => a.kind === 'cloud' && a.status === 'connected')
+	if (!cloud.length) return toast('Primero conecta una cuenta con la API oficial')
+	sheet('Nuevo envío', `
+		<div class="section">Nombre del envío</div>
+		<div class="group"><div class="item"><input type="text" id="cp-name" placeholder="Ej. Recordatorios lunes"></div></div>
+		<div class="section">Enviar desde</div>
+		<div class="group"><div class="item"><select id="cp-from">${cloud.map(a => `<option value="${a.id}">${esc(a.name)} (+${esc(a.phone || '')})</option>`).join('')}</select></div></div>
+		<div id="cp-tpl"></div>
+		<div class="section">Lista de contactos</div>
+		<div class="group">
+			<div class="item"><textarea id="cp-list" rows="6" placeholder="Un contacto por línea:\nteléfono, valor1, valor2\n8112345678, Juan, 1500"></textarea></div>
+			<label class="btn">📄 Cargar archivo CSV / Excel guardado como CSV<input type="file" id="cp-file" accept=".csv,.txt,text/csv" hidden></label>
+		</div>
+		<p class="hint" id="cp-count">Pega la lista o carga un archivo. La primera columna es el teléfono y las siguientes son los valores {{1}}, {{2}}… de la plantilla.</p>
+		<div class="section">Ritmo y horario</div>
+		<div class="group">
+			<div class="item"><span class="grow">Mensajes por hora</span><input type="number" id="cp-rate" value="50" min="1" max="600" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Desde (hora)</span><input type="number" id="cp-start" value="9" min="0" max="23" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="cp-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
+		</div>
+		<div class="pad"><button class="btn primary" id="cp-go">Iniciar envío</button></div>`, el => {
+		const loadTpl = async () => {
+			$('#cp-tpl', el).innerHTML = '<p class="hint">Cargando plantillas…</p>'
+			$('#cp-tpl', el).innerHTML = await templateForm(Number($('#cp-from', el).value))
+			const sel = $('#tpl-name', el)
+			if (sel) {
+				const list = JSON.parse($('#tpl-data', el).textContent)
+				const show = () => { $('#tpl-fields', el).innerHTML = `<p class="hint" style="white-space:pre-wrap">${esc(list[Number(sel.value)].body)}</p>`; count() }
+				sel.onchange = show
+				show()
+			}
+		}
+		const count = () => {
+			const rows = parseList($('#cp-list', el).value)
+			const sel = $('#tpl-name', el)
+			const t = sel ? JSON.parse($('#tpl-data', el).textContent)[Number(sel.value)] : null
+			const missing = t ? rows.filter(r => r.params.length < t.params).length : 0
+			$('#cp-count', el).innerHTML = rows.length
+				? `<b>${rows.length}</b> contactos.${t && rows[0] ? `<br>Ejemplo del primero: <i>${esc(t.body.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || m))}</i>` : ''}${missing ? `<br><span style="color:var(--danger)">${missing} filas no tienen todos los valores de la plantilla.</span>` : ''}`
+				: 'Pega la lista o carga un archivo. La primera columna es el teléfono y las siguientes son los valores {{1}}, {{2}}… de la plantilla.'
+		}
+		$('#cp-from', el).onchange = loadTpl
+		$('#cp-list', el).oninput = count
+		$('#cp-file', el).onchange = async e => {
+			const f = e.target.files[0]
+			if (!f) return
+			$('#cp-list', el).value = await f.text()
+			count()
+		}
+		loadTpl()
+		$('#cp-go', el).onclick = async () => {
+			const rows = parseList($('#cp-list', el).value)
+			const sel = $('#tpl-name', el)
+			if (!sel) return toast('Necesitas una plantilla aprobada')
+			if (!rows.length) return toast('La lista está vacía')
+			const t = JSON.parse($('#tpl-data', el).textContent)[Number(sel.value)]
+			if (rows.some(r => r.params.length < t.params) && !confirm('Algunas filas no tienen todos los valores. Se enviará «-» en los que falten. ¿Continuar?')) return
+			if (!confirm(`Se enviará la plantilla «${t.name}» a ${rows.length} contactos. ¿Iniciar?`)) return
+			try {
+				const res = await api('POST', '/campaigns', {
+					accountId: Number($('#cp-from', el).value),
+					name: $('#cp-name', el).value.trim() || t.name,
+					template: t.name,
+					language: t.language,
+					perHour: Number($('#cp-rate', el).value),
+					startHour: Number($('#cp-start', el).value),
+					endHour: Number($('#cp-end', el).value),
+					rows
+				})
+				closeSheet()
+				if (res.invalid?.length) toast(`${res.invalid.length} números no válidos se omitieron`, 5000)
+				S.campaigns = [res.campaign, ...S.campaigns.filter(c => c.id !== res.campaign.id)]
+				renderCampaignList()
+			} catch (e) { toast(e.message) }
+		}
+	})
+}
+
+async function showFailed(id) {
+	try {
+		const items = await api('GET', `/campaigns/${id}/items?status=failed`)
+		sheet('Envíos fallidos', `<div class="group">${items.map(i => `<div class="item" style="display:block"><b>+${esc(i.phone)}</b><small>${esc(i.error || '')}</small></div>`).join('') || '<p class="hint">Sin fallidos</p>'}</div>`)
+	} catch (e) { toast(e.message) }
 }
 
 // ---------- Cuentas ----------
@@ -714,23 +960,111 @@ function bindColorPicker(el, onPick) {
 
 function openAddAccount() {
 	let color = COLORS[S.accounts.length % COLORS.length]
+	let kind = 'cloud'
 	sheet('Nueva cuenta', `
+		<div class="section">Tipo de conexión</div>
+		<div class="group">
+			<label class="item"><input type="radio" name="na-kind" value="cloud" checked><span class="grow"><b>API oficial de WhatsApp</b><small>Recomendado. Sin riesgo de bloqueo por la app. Necesitas los datos de Meta.</small></span></label>
+			<label class="item"><input type="radio" name="na-kind" value="baileys"><span class="grow"><b>WhatsApp normal (código o QR)</b><small>Gratis, pero WhatsApp puede restringir el número.</small></span></label>
+		</div>
 		<div class="section">Nombre</div>
-		<div class="group"><div class="item"><input type="text" id="na-name" placeholder="Ej. Ventas, Personal, Soporte"></div></div>
+		<div class="group"><div class="item"><input type="text" id="na-name" placeholder="Ej. Cobranza, Ventas"></div></div>
 		<div class="section">Color</div>
 		<div class="group">${colorPicker(color)}</div>
-		<div class="pad"><button class="btn primary" id="na-go">Crear y vincular</button></div>`, el => {
+		<div id="na-cloud">
+			<div class="section">Datos de Meta</div>
+			<div class="group">
+				<div class="item"><input type="text" id="na-pnid" inputmode="numeric" placeholder="Identificador del número de teléfono"></div>
+				<div class="item"><input type="text" id="na-waba" inputmode="numeric" placeholder="Identificador de la cuenta de WhatsApp Business"></div>
+				<div class="item"><input type="password" id="na-token" placeholder="Token permanente" autocomplete="off"></div>
+				<div class="item"><input type="password" id="na-secret" placeholder="Clave secreta de la app (opcional)" autocomplete="off"></div>
+			</div>
+			<p class="hint">Los dos identificadores están en developers.facebook.com › tu app › WhatsApp › Configuración de la API. La clave secreta está en Configuración de la app › Básica.</p>
+		</div>
+		<div class="pad"><button class="btn primary" id="na-go">Crear cuenta</button></div>`, el => {
 		bindColorPicker(el, c => { color = c })
+		el.querySelectorAll('input[name=na-kind]').forEach(r => {
+			r.onchange = () => { kind = r.value; $('#na-cloud', el).hidden = kind !== 'cloud' }
+		})
 		$('#na-go', el).onclick = async () => {
 			const name = $('#na-name', el).value.trim() || `WhatsApp ${S.accounts.length + 1}`
+			const body = { name, color, kind }
+			if (kind === 'cloud') {
+				Object.assign(body, {
+					phoneNumberId: $('#na-pnid', el).value.trim(),
+					wabaId: $('#na-waba', el).value.trim(),
+					token: $('#na-token', el).value.trim(),
+					appSecret: $('#na-secret', el).value.trim()
+				})
+				if (!body.phoneNumberId || !body.wabaId || !body.token) return toast('Llena los dos identificadores y el token')
+			}
+			const btn = $('#na-go', el)
+			btn.disabled = true
 			try {
-				const a = await api('POST', '/accounts', { name, color })
+				const a = await api('POST', '/accounts', body)
 				if (!account(a.id)) S.accounts.push(a)
 				closeSheet()
 				go('#/account/' + a.id)
-			} catch (e) { toast(e.message) }
+			} catch (e) { toast(e.message) } finally { btn.disabled = false }
 		}
 	})
+}
+
+async function renderCloudAccount(a) {
+	const link = $('#ac-link')
+	const sig = JSON.stringify([a.status, a.error, a.cloud])
+	if (link.dataset.sig === sig) return
+	link.dataset.sig = sig
+	const c = a.cloud || {}
+	const quality = { GREEN: ['Alta', 'var(--accent)'], YELLOW: ['Media', '#f5a623'], RED: ['Baja', 'var(--danger)'] }[c.quality] || null
+	let setup = { callbackUrl: '…', verifyToken: '…', privacyUrl: '…' }
+	try { setup = await api('GET', '/cloud/setup') } catch {}
+	link.innerHTML = `
+		${a.error ? `<p class="hint" style="color:var(--danger)">⚠︎ ${esc(a.error)}</p>` : ''}
+		<div class="section">API oficial</div>
+		<div class="group">
+			${c.displayName ? `<div class="item"><span class="grow">Nombre visible</span><span>${esc(c.displayName)}${c.nameStatus && c.nameStatus !== 'APPROVED' ? ` <small style="display:inline;color:#f5a623">(${esc(c.nameStatus)})</small>` : ''}</span></div>` : ''}
+			${quality ? `<div class="item"><span class="grow">Calidad del número</span><span style="color:${quality[1]}">${quality[0]}</span></div>` : ''}
+			<div class="item"><span class="grow">Límite diario de envíos</span><input type="number" id="cl-limit" value="${c.dailyLimit || 250}" min="1" style="text-align:right;max-width:90px"></div>
+			<div class="item"><input type="password" id="cl-token" placeholder="Nuevo token (déjalo vacío para no cambiarlo)" autocomplete="off"></div>
+			<div class="item"><input type="password" id="cl-secret" placeholder="${c.hasSecret ? 'Clave secreta guardada ✓ (escribe otra para cambiarla)' : 'Clave secreta de la app (opcional)'}" autocomplete="off"></div>
+			<button class="btn" data-act="cl-save">Guardar y reconectar</button>
+		</div>
+
+		<div class="section">Conectar los mensajes entrantes (una sola vez)</div>
+		<div class="group">
+			<div class="item" style="display:block"><small>URL de devolución de llamada</small><code style="user-select:all;word-break:break-all">${esc(setup.callbackUrl)}</code></div>
+			<div class="item" style="display:block"><small>Token de verificación</small><code style="user-select:all">${esc(setup.verifyToken)}</code></div>
+		</div>
+		<p class="hint">En developers.facebook.com › tu app › WhatsApp › <b>Configuración</b> › Webhook › <b>Editar</b>, pega estos dos datos y toca «Verificar y guardar». Luego, en «Campos del webhook», activa <b>messages</b>. Para recibir mensajes reales, la app de Meta debe estar <b>Publicada</b>: usa como política de privacidad <code style="user-select:all;word-break:break-all">${esc(setup.privacyUrl)}</code></p>
+
+		<div class="section">Plantillas <a href="#" data-act="tpl-refresh" style="float:right;text-transform:none">Actualizar</a></div>
+		<div class="group" id="tpl-list"><p class="hint">Cargando…</p></div>
+		<div class="section">Nueva plantilla</div>
+		<div class="group">
+			<div class="item"><input type="text" id="nt-name" placeholder="Nombre (ej. recordatorio_pago)"></div>
+			<div class="item"><select id="nt-cat"><option value="UTILITY">Utilidad (recordatorios, avisos) · más barata</option><option value="MARKETING">Marketing (promociones, descuentos)</option></select></div>
+			<div class="item"><textarea id="nt-body" rows="5" placeholder="Hola {{1}}, te recordamos que tienes un saldo pendiente de \${{2}}. Responde a este mensaje para revisar opciones de pago. Si no deseas recibir más mensajes, responde BAJA."></textarea></div>
+			<div class="item"><input type="text" id="nt-ex" placeholder="Ejemplos separados por coma: Juan, 1500"></div>
+			<button class="btn" data-act="tpl-create">Enviar a revisión de Meta</button>
+		</div>
+		<p class="hint">Usa {{1}}, {{2}}… donde va el dato de cada persona (nombre, monto, fecha). Meta revisa la plantilla en minutos u horas. Si el texto ofrece descuentos u ofertas, Meta la cobra como marketing.</p>`
+	renderTemplateList(a.id)
+}
+
+async function renderTemplateList(accountId, refresh) {
+	const el = $('#tpl-list')
+	if (!el) return
+	try {
+		const list = await loadTemplates(accountId, refresh)
+		el.innerHTML = list.length ? list.map(t => {
+			const [st, color] = TPL_STATUS[t.status] || [t.status, 'var(--muted)']
+			return `<div class="item" style="display:block"><div style="display:flex;gap:8px"><b class="grow">${esc(t.name)}</b><small style="display:inline;color:var(--muted)">${t.category === 'MARKETING' ? 'Marketing' : t.category === 'UTILITY' ? 'Utilidad' : esc(t.category)}</small><span class="status" style="color:${color}">${st}</span></div>
+				<small style="white-space:pre-wrap">${esc(t.body)}</small>${t.rejectedReason ? `<small style="color:var(--danger)">Motivo: ${esc(t.rejectedReason)}</small>` : ''}</div>`
+		}).join('') : '<p class="hint">Aún no tienes plantillas.</p>'
+	} catch (e) {
+		el.innerHTML = `<p class="hint" style="color:var(--danger)">${esc(e.message)}</p>`
+	}
 }
 
 function renderAccount(id, full) {
@@ -768,6 +1102,15 @@ function renderAccount(id, full) {
 	$('#ac-status').style.color = statusColor(a)
 	$('#ac-phone').textContent = a.phone ? '+' + a.phone : '—'
 
+	if (a.kind === 'cloud') {
+		renderCloudAccount(a)
+		const actionsEl = $('#ac-actions')
+		if (actionsEl.dataset.sig !== 'cloud') {
+			actionsEl.dataset.sig = 'cloud'
+			actionsEl.innerHTML = '<button class="btn" data-act="ac-connect">Reconectar</button><button class="btn danger" data-act="ac-delete">Eliminar cuenta</button>'
+		}
+		return
+	}
 	const link = $('#ac-link')
 	const mode = a.status === 'qr' ? 'qr' : a.status === 'connecting' || a.status === 'reconnecting' ? 'wait' : 'none'
 	if (link.dataset.mode !== mode) {
@@ -826,6 +1169,25 @@ async function accountAction(act) {
 			S.accounts = S.accounts.filter(a => a.id !== id)
 			S.convs = await api('GET', '/conversations')
 			go('#/accounts')
+		} else if (act === 'cl-save') {
+			const body = { dailyLimit: Number($('#cl-limit').value) || 250 }
+			const token = $('#cl-token').value.trim()
+			const secret = $('#cl-secret').value.trim()
+			if (token) body.token = token
+			if (secret) body.appSecret = secret
+			Object.assign(account(id), await api('PUT', `/accounts/${id}/cloud`, body))
+			toast(account(id).status === 'connected' ? 'Conectado ✅' : 'Guardado')
+			render()
+		} else if (act === 'tpl-refresh') {
+			renderTemplateList(id, true)
+		} else if (act === 'tpl-create') {
+			const examples = $('#nt-ex').value.split(',').map(x => x.trim()).filter(Boolean)
+			const res = await api('POST', `/accounts/${id}/templates`, {
+				name: $('#nt-name').value, category: $('#nt-cat').value, body: $('#nt-body').value, examples, language: 'es_MX'
+			})
+			toast(`Plantilla «${res.name}» enviada a revisión`)
+			$('#nt-name').value = ''; $('#nt-body').value = ''; $('#nt-ex').value = ''
+			renderTemplateList(id, true)
 		} else if (act === 'ac-pair') {
 			const phone = $('#ac-pair-phone').value
 			if (phone.replace(/\D/g, '').length < 8) return toast('Escribe el número completo con código de país')
@@ -951,6 +1313,22 @@ document.addEventListener('click', async e => {
 			return document.body.appendChild(v)
 		}
 		case 'add-account': return openAddAccount()
+		case 'tpl-chat': e.preventDefault(); return openTemplateChat()
+		case 'new-campaign': return openNewCampaign()
+		case 'camp': {
+			const [id, action] = val.split(':')
+			if (action === 'cancel' && !confirm('¿Cancelar este envío? Los pendientes ya no se mandarán.')) return
+			try {
+				const c = await api('POST', `/campaigns/${id}/${action}`)
+				S.campaigns = S.campaigns.map(x => x.id === c.id ? c : x)
+				renderCampaignList()
+			} catch (err) { toast(err.message) }
+			return
+		}
+		case 'camp-failed': return showFailed(Number(val))
+		case 'cl-save': case 'tpl-refresh': case 'tpl-create':
+			e.preventDefault()
+			return accountAction(act)
 		case 'ac-save': case 'ac-connect': case 'ac-logout': case 'ac-delete': case 'ac-pair':
 			return accountAction(act)
 		case 'push': return enablePush()

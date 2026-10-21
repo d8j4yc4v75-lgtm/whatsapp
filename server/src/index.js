@@ -11,16 +11,19 @@ import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hasFfmpeg, toM4a, toMp4, toOpus } from './ffmpeg.js'
+import { CloudSession, validSignature, webhookVerifyToken } from './cloud.js'
+import { CampaignRunner } from './campaigns.js'
 
 const STARTED_AT = new Date().toISOString()
 const manager = new SessionManager()
+const campaigns = new CampaignRunner(manager)
 
 process.on('uncaughtException', e => { note(null, 'uncaught', e.stack || e.message); console.error(e) })
 process.on('unhandledRejection', e => { note(null, 'unhandled', e?.stack || e); console.error(e) })
 const app = express()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 64 * 1024 * 1024 } })
 
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '5mb', verify: (req, res, buf) => { req.rawBody = buf } }))
 
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public')
 app.use(express.static(PUBLIC_DIR, { maxAge: 0, etag: true }))
@@ -37,6 +40,34 @@ app.get('/diag', (req, res) => res.json({
 }))
 
 const tokenOf = req => req.get('authorization')?.replace(/^Bearer\s+/i, '') || req.query.token
+
+// ---- Webhook de la API oficial de WhatsApp ----
+app.get('/webhook', (req, res) => {
+	if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === webhookVerifyToken(API_TOKEN)) {
+		note(null, 'webhook-verified')
+		return res.type('text').send(String(req.query['hub.challenge'] || ''))
+	}
+	res.sendStatus(403)
+})
+
+app.post('/webhook', (req, res) => {
+	const sessions = [...manager.sessions.values()].filter(s => s instanceof CloudSession)
+	const secrets = sessions.map(s => s.config.appSecret).filter(Boolean)
+	if (!validSignature(req.rawBody, req.get('x-hub-signature-256'), secrets)) {
+		note(null, 'webhook-bad-signature')
+		return res.sendStatus(401)
+	}
+	res.sendStatus(200)
+	for (const entry of req.body?.entry || []) {
+		for (const change of entry.changes || []) {
+			const value = change.value || {}
+			const pnid = value.metadata?.phone_number_id
+			const session = sessions.find(s => s.config.phoneNumberId === pnid)
+			if (!session) { note(null, 'webhook-unknown-number'); continue }
+			try { session.handleWebhook(value) } catch (e) { note(session.accountId, 'webhook-error', e.message) }
+		}
+	}
+})
 
 // ---- Acceso con contraseña ----
 app.get('/auth/status', (req, res) => res.json({ hasPassword: hasPassword() }))
@@ -80,11 +111,30 @@ app.post('/api/password', route(req => {
 // ---- Cuentas ----
 app.get('/api/accounts', route(() => manager.accounts()))
 
+const cloudConfig = (body, prev = {}) => {
+	const cfg = {
+		phoneNumberId: String(body.phoneNumberId ?? prev.phoneNumberId ?? '').replace(/\D/g, ''),
+		wabaId: String(body.wabaId ?? prev.wabaId ?? '').replace(/\D/g, ''),
+		token: String(body.token || prev.token || '').trim(),
+		appSecret: body.appSecret !== undefined ? String(body.appSecret).trim() : prev.appSecret || '',
+		dailyLimit: Math.max(1, Number(body.dailyLimit ?? prev.dailyLimit ?? 250) || 250)
+	}
+	if (!cfg.phoneNumberId || !cfg.wabaId || !cfg.token) throw new Error('Faltan datos: identificador del número, de la cuenta y token')
+	return cfg
+}
+
 app.post('/api/accounts', route(async req => {
 	const name = String(req.body.name || '').trim() || 'WhatsApp'
 	const color = /^#[0-9a-f]{6}$/i.test(req.body.color) ? req.body.color : '#25D366'
-	const { lastInsertRowid } = db.prepare('INSERT INTO accounts (name, color, created_at) VALUES (?, ?, ?)')
-		.run(name, color, Date.now())
+	const kind = req.body.kind === 'cloud' ? 'cloud' : 'baileys'
+	const cloud = kind === 'cloud' ? JSON.stringify(cloudConfig(req.body)) : null
+	if (cloud) {
+		const pnid = JSON.parse(cloud).phoneNumberId
+		const dup = db.prepare("SELECT cloud FROM accounts WHERE kind = 'cloud'").all().some(r => JSON.parse(r.cloud || '{}').phoneNumberId === pnid)
+		if (dup) throw new Error('Ese número ya está agregado como cuenta')
+	}
+	const { lastInsertRowid } = db.prepare('INSERT INTO accounts (name, color, created_at, kind, cloud) VALUES (?, ?, ?, ?, ?)')
+		.run(name, color, Date.now(), kind, cloud)
 	const id = Number(lastInsertRowid)
 	await manager.start(id)
 	return manager.accountInfo(id)
@@ -98,6 +148,31 @@ app.patch('/api/accounts/:id', route(req => {
 	manager.emit('event', { type: 'account.update', data: info })
 	return info
 }))
+
+app.put('/api/accounts/:id/cloud', route(async req => {
+	const id = accountParam(req)
+	const a = db.prepare('SELECT kind, cloud FROM accounts WHERE id = ?').get(id)
+	if (a.kind !== 'cloud') throw new Error('Esta cuenta no usa la API oficial')
+	db.prepare('UPDATE accounts SET cloud = ? WHERE id = ?').run(JSON.stringify(cloudConfig(req.body, JSON.parse(a.cloud || '{}'))), id)
+	await manager.start(id)
+	return manager.accountInfo(id)
+}))
+
+const cloudSession = id => {
+	const s = manager.sessions.get(id)
+	if (!(s instanceof CloudSession)) throw new Error('Esta función solo está disponible con la API oficial')
+	return s
+}
+
+app.get('/api/accounts/:id/templates', route(req => cloudSession(accountParam(req)).listTemplates(req.query.refresh === '1')))
+
+app.post('/api/accounts/:id/templates', route(req => cloudSession(accountParam(req)).createTemplate(req.body)))
+
+app.get('/api/cloud/setup', route(req => ({
+	callbackUrl: `https://${req.get('host')}/webhook`,
+	verifyToken: webhookVerifyToken(API_TOKEN),
+	privacyUrl: `https://${req.get('host')}/privacidad.html`
+})))
 
 app.post('/api/accounts/:id/connect', route(async req => {
 	const id = accountParam(req)
@@ -176,6 +251,36 @@ app.put('/api/conversations/:key/labels', route(req => {
 }))
 
 // ---- Envío ----
+app.post('/api/send-template', route(async req => {
+	const accountId = accountParam(req)
+	const { message } = await cloudSession(accountId).sendTemplate(req.body.jid || req.body.phone, {
+		name: req.body.template, language: req.body.language, params: req.body.params || []
+	})
+	return message
+}))
+
+// ---- Envíos masivos ----
+app.get('/api/campaigns', route(() => campaigns.list()))
+
+app.post('/api/campaigns', route(req => {
+	const accountId = accountParam(req)
+	cloudSession(accountId)
+	return campaigns.create({ ...req.body, accountId })
+}))
+
+app.get('/api/campaigns/:cid/items', route(req => campaigns.items(Number(req.params.cid), req.query.status || null)))
+
+app.post('/api/campaigns/:cid/:action', route(req => {
+	const id = Number(req.params.cid)
+	const c = campaigns.get(id)
+	if (!c) throw Object.assign(new Error('Envío no encontrado'), { status: 404 })
+	const next = { pause: 'paused', resume: 'running', cancel: 'cancelled' }[req.params.action]
+	if (!next) throw new Error('Acción inválida')
+	if (c.status === 'done' || c.status === 'cancelled') throw new Error('Este envío ya terminó')
+	campaigns.setStatus(id, next)
+	return campaigns.get(id)
+}))
+
 app.post('/api/resolve', route(async req => {
 	const jid = await manager.resolvePhone(accountParam(req), req.body.phone)
 	return { jid }

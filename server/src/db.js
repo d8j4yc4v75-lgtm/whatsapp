@@ -78,3 +78,46 @@ CREATE TABLE IF NOT EXISTS devices (
   created_at INTEGER NOT NULL
 );
 `)
+
+// Migraciones para la API oficial (Cloud API) y los envíos masivos
+for (const sql of [
+	"ALTER TABLE accounts ADD COLUMN kind TEXT NOT NULL DEFAULT 'baileys'",
+	'ALTER TABLE accounts ADD COLUMN cloud TEXT',
+	'ALTER TABLE messages ADD COLUMN error TEXT'
+]) {
+	try { db.exec(sql) } catch {}
+}
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS campaigns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  template TEXT NOT NULL,
+  language TEXT NOT NULL,
+  per_hour INTEGER NOT NULL DEFAULT 50,
+  start_hour INTEGER NOT NULL DEFAULT 9,
+  end_hour INTEGER NOT NULL DEFAULT 19,
+  status TEXT NOT NULL DEFAULT 'running',
+  last_sent_at INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS campaign_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  params TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  message_id TEXT,
+  sent_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_items_campaign ON campaign_items (campaign_id, status);
+
+CREATE TABLE IF NOT EXISTS optouts (
+  phone TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
+);
+`)

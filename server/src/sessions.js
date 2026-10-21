@@ -23,6 +23,7 @@ import makeWASocket, {
 import { db } from './db.js'
 import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
+import { CloudSession, normalizePhone } from './cloud.js'
 
 // Los avisos de Baileys también se guardan en el diagnóstico
 const logger = pino({ level: process.env.LOG_LEVEL || 'warn' }, {
@@ -62,7 +63,7 @@ export function note(accountId, event, detail) {
 const toMs = ts => (ts ? Number(ts) * 1000 : Date.now())
 const safe = s => String(s).replace(/[^A-Za-z0-9_-]/g, '_')
 
-const stmt = {
+export const stmt = {
 	upsertChat: db.prepare(`
 		INSERT INTO chats (account_id, jid, name, unread, last_ts) VALUES (@account_id, @jid, @name, @unread, @last_ts)
 		ON CONFLICT (account_id, jid) DO UPDATE SET
@@ -502,6 +503,10 @@ export class SessionManager extends EventEmitter {
 	async startAll() {
 		for (const { id } of db.prepare('SELECT id FROM accounts').all()) {
 			// Solo se reconectan automáticamente las cuentas ya vinculadas
+			if (stmt.getAccount.get(id)?.kind === 'cloud') {
+				await this.start(id).catch(e => note(id, 'start-error', e.message))
+				continue
+			}
 			const linked = fs.existsSync(path.join(AUTH_DIR, String(id), 'creds.json'))
 			note(id, 'boot', linked ? 'linked' : 'not-linked')
 			if (linked) {
@@ -514,11 +519,13 @@ export class SessionManager extends EventEmitter {
 
 	async start(accountId) {
 		let s = this.sessions.get(accountId)
+		const isCloud = stmt.getAccount.get(accountId)?.kind === 'cloud'
 		if (!s) {
-			s = new Session(this, accountId)
+			s = isCloud ? new CloudSession(this, accountId) : new Session(this, accountId)
 			this.sessions.set(accountId, s)
 		}
-		if (!s.sock) await s.start()
+		if (isCloud) await s.start()
+		else if (!s.sock) await s.start()
 		return s
 	}
 
@@ -539,7 +546,22 @@ export class SessionManager extends EventEmitter {
 		const a = stmt.getAccount.get(id)
 		if (!a) return null
 		const s = this.sessions.get(id)
-		return { id: a.id, name: a.name, color: a.color, phone: a.phone, status: s?.status || a.status, qr: s?.qr || null }
+		const info = { id: a.id, name: a.name, color: a.color, phone: a.phone, status: s?.status || a.status, qr: s?.qr || null, kind: a.kind || 'baileys' }
+		if (a.kind === 'cloud') {
+			const cfg = JSON.parse(a.cloud || '{}')
+			info.error = s?.error || null
+			info.cloud = {
+				phoneNumberId: cfg.phoneNumberId,
+				wabaId: cfg.wabaId,
+				hasSecret: Boolean(cfg.appSecret),
+				dailyLimit: cfg.dailyLimit || 250,
+				displayName: s?.info?.verified_name || null,
+				nameStatus: s?.info?.name_status || null,
+				quality: s?.info?.quality_rating || null,
+				tier: s?.info?.messaging_limit_tier || null
+			}
+		}
+		return info
 	}
 
 	accounts() {
@@ -560,6 +582,7 @@ export class SessionManager extends EventEmitter {
 			mime: r.media_mime,
 			fileName: r.file_name,
 			hasMedia: Boolean(r.raw || r.media_path),
+			error: r.error || null,
 			status: r.status
 		}
 	}
@@ -631,9 +654,11 @@ export class SessionManager extends EventEmitter {
 
 	/** Resuelve un número de teléfono a JID verificando que tenga WhatsApp */
 	async resolvePhone(accountId, phone) {
+		const session = this.get(accountId)
+		if (session instanceof CloudSession) return `${normalizePhone(phone)}@s.whatsapp.net`
 		const digits = String(phone).replace(/\D/g, '')
 		if (!digits) throw new Error('Número inválido')
-		const sock = this.get(accountId).requireSocket()
+		const sock = session.requireSocket()
 		const [res] = (await sock.onWhatsApp(digits)) || []
 		if (!res?.exists) throw new Error('Ese número no tiene WhatsApp')
 		return canonicalJid(res.jid)
