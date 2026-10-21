@@ -1,0 +1,23 @@
+{
+  "name": "multiwa-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Servidor local que mantiene varias sesiones de WhatsApp y expone una bandeja unificada",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "baileys": "7.0.0-rc14",
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "pino": "^9.7.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.3"
+  }
+}
