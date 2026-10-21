@@ -1,60 +1,40 @@
-import http2 from 'node:http2'
-import crypto from 'node:crypto'
 import fs from 'node:fs'
-import { APNS } from './config.js'
+import path from 'node:path'
+import webpush from 'web-push'
+import { DATA_DIR } from './config.js'
 import { db } from './db.js'
 
-const enabled = Boolean(APNS.keyFile && APNS.keyId && APNS.teamId && APNS.bundleId)
-let key
-let jwt
-let jwtAt = 0
+db.exec(`
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+`)
 
-const b64url = buf => Buffer.from(buf).toString('base64url')
+// Las claves VAPID se generan una sola vez y se guardan junto a los datos
+const vapidFile = path.join(DATA_DIR, 'vapid.json')
+if (!fs.existsSync(vapidFile)) fs.writeFileSync(vapidFile, JSON.stringify(webpush.generateVAPIDKeys()))
+const vapid = JSON.parse(fs.readFileSync(vapidFile, 'utf8'))
+webpush.setVapidDetails('mailto:multiwa@example.com', vapid.publicKey, vapid.privateKey)
 
-function getJwt() {
-	// Apple pide renovar el token entre 20 y 60 minutos
-	if (jwt && Date.now() - jwtAt < 40 * 60 * 1000) return jwt
-	key ??= fs.readFileSync(APNS.keyFile, 'utf8')
-	const header = b64url(JSON.stringify({ alg: 'ES256', kid: APNS.keyId }))
-	const payload = b64url(JSON.stringify({ iss: APNS.teamId, iat: Math.floor(Date.now() / 1000) }))
-	const sig = crypto.sign('sha256', Buffer.from(`${header}.${payload}`), { key, dsaEncoding: 'ieee-p1363' })
-	jwt = `${header}.${payload}.${b64url(sig)}`
-	jwtAt = Date.now()
-	return jwt
-}
+export const VAPID_PUBLIC_KEY = vapid.publicKey
 
-export function pushEnabled() {
-	return enabled
+export function saveSubscription(sub) {
+	if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) throw new Error('Suscripción inválida')
+	db.prepare('INSERT OR REPLACE INTO push_subscriptions (endpoint, data, created_at) VALUES (?, ?, ?)')
+		.run(sub.endpoint, JSON.stringify(sub), Date.now())
 }
 
 export function sendPush({ title, body, jid, badge }) {
-	if (!enabled) return
-	const tokens = db.prepare('SELECT token FROM devices').all().map(r => r.token)
-	if (!tokens.length) return
-	const host = APNS.production ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com'
-	const client = http2.connect(host)
-	client.on('error', err => console.error('APNs:', err.message))
-	const payload = JSON.stringify({
-		aps: { alert: { title, body }, sound: 'default', badge, 'thread-id': jid },
-		jid
-	})
-	let pending = tokens.length
-	for (const token of tokens) {
-		const req = client.request({
-			':method': 'POST',
-			':path': `/3/device/${token}`,
-			authorization: `bearer ${getJwt()}`,
-			'apns-topic': APNS.bundleId,
-			'apns-push-type': 'alert'
+	const subs = db.prepare('SELECT endpoint, data FROM push_subscriptions').all()
+	const payload = JSON.stringify({ title, body, jid, badge })
+	for (const s of subs) {
+		webpush.sendNotification(JSON.parse(s.data), payload, { TTL: 3600, urgency: 'high' }).catch(err => {
+			// 404/410 = la suscripción ya no existe
+			if (err.statusCode === 404 || err.statusCode === 410) {
+				db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(s.endpoint)
+			}
 		})
-		let status
-		req.on('response', h => { status = h[':status'] })
-		req.on('data', () => {})
-		req.on('end', () => {
-			// 410 = token ya no válido
-			if (status === 410 || status === 400) db.prepare('DELETE FROM devices WHERE token = ?').run(token)
-			if (--pending === 0) client.close()
-		})
-		req.end(payload)
 	}
 }

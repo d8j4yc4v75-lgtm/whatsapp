@@ -30,11 +30,3 @@ if (!token) {
 	token = fs.readFileSync(tokenFile, 'utf8').trim()
 }
 export const API_TOKEN = token
-
-export const APNS = {
-	keyFile: process.env.APNS_KEY_FILE,
-	keyId: process.env.APNS_KEY_ID,
-	teamId: process.env.APNS_TEAM_ID,
-	bundleId: process.env.APNS_BUNDLE_ID,
-	production: process.env.APNS_PRODUCTION === 'true'
-}

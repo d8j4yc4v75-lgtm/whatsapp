@@ -1,112 +1,67 @@
 # MultiWA
 
-App para iPhone con una **bandeja unificada** para 5–8 cuentas de WhatsApp: todos los chats en una sola lista y, dentro de cada conversación, eliges desde qué WhatsApp enviar (puedes responder desde el 1 y luego desde el 2 en el mismo hilo).
+Tus 5–8 WhatsApp en una sola app de iPhone. Todos los chats aparecen en una sola bandeja, y en cada conversación eliges desde qué número responder.
 
-```
-iPhone (app MultiWA)  ⇄  servidor en tu computadora (Node.js)  ⇄  WhatsApp (dispositivos vinculados)
-```
+No necesitas Xcode ni saber programar. La app vive en internet (Railway) y la instalas desde Safari.
 
-Cada cuenta se conecta como un **dispositivo vinculado** (igual que WhatsApp Web), con QR o con código de 8 caracteres. El servidor mantiene las sesiones abiertas y guarda los mensajes; la app se conecta a él.
+> ⚠️ Usa una conexión no oficial a WhatsApp (como WhatsApp Web). Va contra sus términos y existe riesgo de que bloqueen los números. No la uses para enviar mensajes masivos.
 
-> ⚠️ Usa la biblioteca no oficial [Baileys](https://github.com/WhiskeySockets/Baileys). Va contra los términos de WhatsApp y existe riesgo de que bloqueen los números. Evita mensajes masivos o spam.
+---
 
-## Funciones
+## Paso 1 · Publicar la app en Railway (una sola vez, unos 10 minutos)
 
-- Bandeja unificada de todas las cuentas, con buscador.
-- Una conversación por contacto que junta los mensajes de todas tus cuentas; cada mensaje muestra la etiqueta de color de la cuenta que lo envió o recibió.
-- Selector **«Enviar desde»** en cada chat.
-- Texto, fotos, videos, documentos y notas de voz (enviar y recibir).
-- Filtros por cuenta, por no leídos y por etiquetas propias.
-- Iniciar chats nuevos con cualquier número, desde la cuenta que elijas.
-- Notificaciones locales y, opcionalmente, push (APNs).
-- Confirmaciones de entrega y lectura.
+Costo: plan Hobby de Railway, unos 5 USD al mes.
 
-## 1. Servidor (en tu computadora)
+1. Entra en **https://railway.com** y toca **Login** › **Continue with GitHub** (usa la misma cuenta de GitHub donde está este proyecto).
+2. Toca **New Project** › **Deploy from GitHub repo** › elige **whatsapp**.
+   - Si no aparece, toca **Configure GitHub App** y dale acceso al repositorio `whatsapp`.
+   - Si te pide plan, elige **Hobby**.
+3. Cuando aparezca el cuadro del servicio en pantalla, **agrega el disco** donde se guardan tus sesiones (sin esto, cada actualización te obliga a vincular de nuevo):
+   - Haz clic derecho sobre el cuadro (en el teléfono, toca el botón **+** o **Create**) › **Volume**.
+   - En *Mount path* escribe: `/data` › **Create**.
+4. Toca el cuadro del servicio › pestaña **Settings**:
+   - En **Source › Branch** elige `claude/focused-hypatia-thy9kr` (ahí está la app). No hace falta si ya está en `main`.
+   - En **Networking** toca **Generate Domain**. Si te pide el puerto, escribe `3000`.
+5. Espera a que diga **Active** (2–4 minutos). Copia la dirección que aparece, por ejemplo `https://whatsapp-production-1234.up.railway.app`.
 
-Requisitos: Node.js 20 o más reciente y, recomendado, `ffmpeg` (sirve para enviar notas de voz y para reproducir en el iPhone los audios recibidos).
+## Paso 2 · Instalar en el iPhone
 
-```bash
-# macOS
-brew install node ffmpeg
+1. Abre esa dirección en **Safari**.
+2. **Crea tu contraseña** (hazlo de inmediato: la primera persona que entre es la que la crea).
+3. Toca el botón **Compartir** (cuadro con flecha ⬆︎) › **Añadir a pantalla de inicio** › **Añadir**.
+4. Abre **MultiWA** desde el ícono nuevo › **Ajustes** › **Activar notificaciones** › **Permitir**.
 
-cd server
-npm install
-npm start
-```
+## Paso 3 · Vincular tus WhatsApp
 
-La terminal mostrará algo así:
+En la pestaña **Cuentas** toca **＋**, ponle un nombre (Ventas, Personal…) y un color. Después vincúlala de una de estas dos formas:
 
-```
-MultiWA servidor activo
-  URL:   http://192.168.1.10:3000
-  Token: 3f9c...e1
-  QR en el navegador: http://localhost:3000/?token=3f9c...e1
-```
+- **Con código** (lo más fácil si ese WhatsApp está en el mismo iPhone): escribe el número de esa cuenta con código de país, toca **Obtener código** y en WhatsApp ve a **Ajustes › Dispositivos vinculados › Vincular un dispositivo › Vincular con número de teléfono** y escribe el código.
+- **Con QR**: escanéalo desde el teléfono de esa cuenta en *Dispositivos vinculados*.
 
-- La computadora tiene que estar encendida y sin suspenderse (en macOS: `caffeinate -i npm start`).
-- Los datos (sesiones, mensajes y archivos) se guardan en `server/data/`. **No compartas esa carpeta**: contiene tus sesiones de WhatsApp.
-- Opcional: crea `server/.env` con `PORT=3000` o `API_TOKEN=tu_token`.
+Repite el proceso con cada número.
 
-## 2. App de iPhone
+## Uso diario
 
-Requisitos: Mac con Xcode 16 o más reciente; iPhone con iOS 17 o más reciente.
+- **Bandeja**: todos los chats juntos. Filtra por cuenta, por no leídos o por etiqueta.
+- **Dentro de un chat**: cada mensaje lleva el color y el nombre de la cuenta. Abajo, en **«Enviar desde»**, eliges con qué número responder.
+- **＋** adjunta fotos, videos o documentos; **🎤** graba una nota de voz.
+- **✏️** abre un chat nuevo con cualquier número.
+- **🏷️** etiqueta un chat; las etiquetas se crean en Ajustes.
 
-1. Abre `ios/MultiWA.xcodeproj` en Xcode.
-2. Elige el target **MultiWA** › *Signing & Capabilities* › en **Team** selecciona tu Apple ID y cambia el *Bundle Identifier* por uno único (ej. `com.tunombre.multiwa`).
-3. Conecta el iPhone, selecciónalo arriba y pulsa ▶︎. La primera vez, en el iPhone ve a *Ajustes › General › VPN y gestión de dispositivos* y confía en tu certificado.
-4. En la app, escribe la **URL** y el **Token** que mostró el servidor y pulsa *Guardar*.
+## Si algo falla
 
-Con un Apple ID gratuito la app caduca cada 7 días y hay que volver a instalarla desde Xcode. Con la cuenta de desarrollador (99 USD/año) dura un año y se pueden activar las notificaciones push.
+- **La app no carga**: en Railway revisa que el servicio diga *Active*. Si dice *Crashed*, toca **Redeploy**.
+- **Una cuenta dice «Sin vincular»**: entra en ella y toca **Vincular este WhatsApp**. WhatsApp cierra un dispositivo vinculado si el teléfono principal pasa unos 14 días sin conectarse.
+- **No llegan notificaciones**: la app tiene que estar instalada desde «Añadir a pantalla de inicio» (iOS 16.4 o más reciente) y con permiso en Ajustes del iPhone › Notificaciones › MultiWA.
 
-## 3. Vincular las cuentas
+---
 
-En la pestaña **Cuentas** › **+** pon un nombre y un color, y luego:
+<details>
+<summary>Detalles técnicos</summary>
 
-- **QR:** desde el teléfono de esa cuenta, en WhatsApp › Ajustes › Dispositivos vinculados › Vincular un dispositivo, escanea el código. Puedes verlo en la app o en el navegador de la computadora (`http://localhost:3000/?token=...`).
-- **Código (sin escanear):** útil si ese WhatsApp está en el mismo iPhone. Escribe el número de la cuenta, pulsa *Obtener código* y en WhatsApp elige *Vincular con número de teléfono*.
+- `server/`: Node.js + [Baileys](https://github.com/WhiskeySockets/Baileys) (sesiones multi-dispositivo), SQLite, Express y WebSocket. Las notificaciones usan Web Push con claves VAPID que se generan solas.
+- `server/public/`: la web app (PWA) sin paso de compilación.
+- `Dockerfile` + `railway.json`: despliegue. Los datos se guardan en `DATA_DIR` (`/data` en Docker).
+- Para correrlo en local: `cd server && npm install && npm start` (requiere Node 20+ y ffmpeg).
 
-Repite el proceso con cada número. Los teléfonos no necesitan quedarse encendidos, pero WhatsApp cierra un dispositivo vinculado si el teléfono principal pasa unos 14 días sin conectarse.
-
-## Acceso fuera de casa
-
-En la misma red Wi‑Fi basta con la URL local. Para usarla desde cualquier lugar, instala [Tailscale](https://tailscale.com) en la computadora y en el iPhone (es gratis) y usa la IP de Tailscale de la computadora: `http://100.x.y.z:3000`.
-
-## Notificaciones push (opcional)
-
-Sin push, solo recibes avisos mientras la app está abierta. Para recibirlos con la app cerrada necesitas la cuenta de desarrollador:
-
-1. En Xcode › *Signing & Capabilities* › **+ Capability** › *Push Notifications*.
-2. En [developer.apple.com](https://developer.apple.com/account/resources/authkeys/list) crea una **Key** con APNs y descarga el `.p8`.
-3. Crea `server/.env`:
-
-```
-APNS_KEY_FILE=/ruta/AuthKey_XXXXXXXXXX.p8
-APNS_KEY_ID=XXXXXXXXXX
-APNS_TEAM_ID=YYYYYYYYYY
-APNS_BUNDLE_ID=com.tunombre.multiwa
-# false si instalas desde Xcode; true para TestFlight o App Store
-APNS_PRODUCTION=false
-```
-
-4. Reinicia el servidor y abre la app (ella registra el dispositivo sola).
-
-## API del servidor
-
-Todas las rutas usan el encabezado `Authorization: Bearer <token>`.
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET | `/api/accounts` | Cuentas y su estado |
-| POST | `/api/accounts` | `{name, color}` crea una cuenta y genera su QR |
-| POST | `/api/accounts/:id/pairing-code` | `{phone}` código de vinculación |
-| POST | `/api/accounts/:id/connect` · `/logout` | Volver a vincular / cerrar sesión |
-| DELETE | `/api/accounts/:id` | Eliminar la cuenta |
-| GET | `/api/conversations` | Bandeja unificada (`?accountId=&labelId=&unread=1&q=`) |
-| GET | `/api/conversations/:jid/messages` | Mensajes de todas las cuentas (`?before=&limit=`) |
-| POST | `/api/conversations/:jid/read` | Marcar como leído |
-| PUT | `/api/conversations/:jid/labels` | `{labelIds}` |
-| POST | `/api/send` | `{accountId, jid \| phone, text}` |
-| POST | `/api/send-media` | multipart: `accountId, jid, file, kind, caption, ptt` |
-| GET | `/api/media/:accountId/:msgId` | Descargar un archivo |
-| GET/POST/DELETE | `/api/labels` | Etiquetas |
-| WS | `/ws?token=` | Eventos en tiempo real |
+</details>

@@ -6,7 +6,10 @@ import { WebSocketServer } from 'ws'
 import { db } from './db.js'
 import { API_TOKEN, PORT } from './config.js'
 import { SessionManager } from './sessions.js'
-import { pushEnabled } from './push.js'
+import { VAPID_PUBLIC_KEY, saveSubscription } from './push.js'
+import { changePassword, hasPassword, login, setupPassword } from './auth.js'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { hasFfmpeg, toM4a, toMp4, toOpus } from './ffmpeg.js'
 
 const manager = new SessionManager()
@@ -15,7 +18,21 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 64 
 
 app.use(express.json({ limit: '1mb' }))
 
+const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public')
+app.use(express.static(PUBLIC_DIR, { maxAge: 0, etag: true }))
+
+app.get('/health', (req, res) => res.json({ ok: true }))
+
 const tokenOf = req => req.get('authorization')?.replace(/^Bearer\s+/i, '') || req.query.token
+
+// ---- Acceso con contraseña ----
+app.get('/auth/status', (req, res) => res.json({ hasPassword: hasPassword() }))
+app.post('/auth/setup', express.json(), async (req, res) => {
+	try { res.json({ token: setupPassword(req.body.password) }) } catch (e) { res.status(400).json({ error: e.message }) }
+})
+app.post('/auth/login', async (req, res) => {
+	try { res.json({ token: await login(req.body.password) }) } catch (e) { res.status(e.status || 400).json({ error: e.message }) }
+})
 
 app.use('/api', (req, res, next) => {
 	if (tokenOf(req) !== API_TOKEN) return res.status(401).json({ error: 'Token inválido' })
@@ -40,7 +57,12 @@ const accountParam = req => {
 	return id
 }
 
-app.get('/api/info', route(() => ({ push: pushEnabled(), unread: manager.totalUnread() })))
+app.get('/api/info', route(() => ({ unread: manager.totalUnread() })))
+
+app.post('/api/password', route(req => {
+	changePassword(req.body.password)
+	return { ok: true }
+}))
 
 // ---- Cuentas ----
 app.get('/api/accounts', route(() => manager.accounts()))
@@ -204,35 +226,13 @@ app.delete('/api/labels/:id', route(req => {
 	return { ok: true }
 }))
 
-// ---- Notificaciones push (APNs) ----
-app.post('/api/devices', route(req => {
-	const token = String(req.body.token || '')
-	if (!/^[0-9a-f]{32,}$/i.test(token)) throw new Error('Token de dispositivo inválido')
-	db.prepare('INSERT OR REPLACE INTO devices (token, created_at) VALUES (?, ?)').run(token, Date.now())
+// ---- Notificaciones push (Web Push) ----
+app.get('/api/push/key', route(() => ({ key: VAPID_PUBLIC_KEY })))
+
+app.post('/api/push/subscribe', route(req => {
+	saveSubscription(req.body)
 	return { ok: true }
 }))
-
-// ---- Página para escanear los QR desde la computadora ----
-app.get('/', (req, res) => {
-	if (req.query.token !== API_TOKEN) {
-		return res.type('html').send('<meta name=viewport content="width=device-width"><p style="font-family:sans-serif">Abre esta página como <code>/?token=TU_TOKEN</code></p>')
-	}
-	const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
-	const cards = manager.accounts().map(a => `
-		<div class="card" style="border-color:${esc(a.color)}">
-			<h2>${esc(a.name)}</h2>
-			<p>${esc(a.phone ? '+' + a.phone : '')} · ${esc(a.status)}</p>
-			${a.qr ? `<img src="${a.qr}" alt="QR">` : ''}
-		</div>`).join('')
-	res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-		<meta http-equiv="refresh" content="4"><title>MultiWA</title>
-		<style>body{font-family:-apple-system,sans-serif;background:#f2f2f7;margin:0;padding:16px}
-		.grid{display:flex;flex-wrap:wrap;gap:16px}.card{background:#fff;border-radius:14px;padding:16px;border-left:6px solid;min-width:260px}
-		h2{margin:0}p{color:#666}img{width:280px;height:280px}</style>
-		<h1>MultiWA · Cuentas</h1>
-		<p>Escanea con WhatsApp › Ajustes › Dispositivos vinculados › Vincular un dispositivo. Crea cuentas desde la app.</p>
-		<div class="grid">${cards || '<p>No hay cuentas todavía.</p>'}</div>`)
-})
 
 // ---- WebSocket de eventos en tiempo real ----
 const server = http.createServer(app)
@@ -271,9 +271,8 @@ server.listen(PORT, '0.0.0.0', async () => {
 	const ips = Object.values(os.networkInterfaces()).flat()
 		.filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address)
 	console.log('\nMultiWA servidor activo')
-	for (const ip of ips) console.log(`  URL:   http://${ip}:${PORT}`)
-	console.log(`  Token: ${API_TOKEN}`)
-	console.log(`  QR en el navegador: http://localhost:${PORT}/?token=${API_TOKEN}\n`)
+	for (const ip of ips) console.log(`  URL: http://${ip}:${PORT}`)
+	console.log(`  Abre esa dirección en Safari y crea tu contraseña.\n`)
 	await manager.startAll()
 })
 
