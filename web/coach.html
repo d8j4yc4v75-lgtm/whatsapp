@@ -142,8 +142,27 @@ details ol { padding-left: 20px; margin: 8px 0 0; display: flex; flex-direction:
       <p class="small muted" id="workoutsLine"></p>
 
       <div class="card">
-        <h3>Importar datos de Salud</h3>
-        <p class="small muted">Sube capturas de pantalla de Salud o Fitness (sueño, actividad, entrenamientos) o pega el texto de tu atajo. El coach lee los números.</p>
+        <div class="row" style="align-items:center"><h3>Apple Salud automático</h3><button class="secondary" id="syncNow" style="flex:0 0 auto">Sincronizar</button></div>
+        <p class="small" id="syncStatus">Tu iPhone manda tus datos de Salud a tu Gmail cada noche y esta app los lee sola.</p>
+        <details id="setupBox">
+          <summary>Configurar (una sola vez, 10 minutos)</summary>
+          <ol class="small">
+            <li>Abre <b>Atajos</b> → <b>+</b> → nombre <i>Coach Salud</i>.</li>
+            <li><b>Buscar muestras de salud</b>: tipo <i>Pasos</i>, filtro <i>Fecha de inicio · es hoy</i>. Después <b>Calcular estadísticas</b> → <i>Suma</i>.</li>
+            <li>Repite el paso 2 con <i>Energía activa</i> y <i>Energía en reposo</i>.</li>
+            <li>Sueño: <b>Buscar muestras de salud</b> con <i>Análisis del sueño</i>, filtro <i>Fecha de inicio · en los últimos 1 días</i> (si usas Apple Watch, agrega <i>Fuente · es · tu Apple Watch</i>). Después <b>Obtener detalles de muestras de salud</b> → <i>Duración</i> y <b>Calcular estadísticas</b> → <i>Suma</i>.</li>
+            <li>Agrega <b>Texto</b> y escribe una línea por dato, insertando cada resultado con <i>Variables</i>:<br><code>Pasos: [Suma]<br>Energía activa: [Suma]<br>Energía en reposo: [Suma]<br>Sueño: [Suma]</code></li>
+            <li>Agrega <b>Enviar correo</b>: Para = <b>tu Gmail conectado a Claude</b>, Asunto = <code>Coach Salud</code>, Mensaje = la variable <i>Texto</i>. Toca la flecha y apaga <i>Mostrar hoja de redacción</i>.</li>
+            <li>Pruébalo con ▶︎ y toca <b>Sincronizar</b> aquí arriba.</li>
+            <li>Pestaña <b>Automatización</b> → <b>+</b> → <i>Hora del día</i> → <b>21:30</b>, <i>Diariamente</i>, <b>Ejecutar inmediatamente</b> → <i>Coach Salud</i>.</li>
+          </ol>
+          <p class="small muted">Necesitas una cuenta de correo configurada en la app Mail del iPhone (iCloud sirve). No importa si el texto no sale perfecto: el coach entiende cualquier formato.</p>
+        </details>
+      </div>
+
+      <details class="card">
+        <summary>Otras formas de cargar datos (capturas o a mano)</summary>
+        <p class="small muted">Sube capturas de pantalla de Salud o Fitness o pega texto. El coach lee los números.</p>
         <div class="row">
           <label class="secondary" for="shotInput">📷 Subir capturas
             <input id="shotInput" class="visually-hidden" type="file" accept="image/*" multiple>
@@ -170,17 +189,7 @@ details ol { padding-left: 20px; margin: 8px 0 0; display: flex; flex-direction:
           <button class="secondary" id="saveManual">Guardar</button>
         </div>
         <p class="status" id="healthStatus"></p>
-        <details>
-          <summary>Crear el atajo «Coach Salud» (opcional)</summary>
-          <ol class="small">
-            <li>Abre la app <b>Atajos</b> → <b>+</b> → nombre: <i>Coach Salud</i>.</li>
-            <li>Añade <b>Buscar muestras de salud</b>: tipo <i>Pasos</i>, fecha de inicio <i>hoy</i>. Luego <b>Calcular estadísticas</b> → <i>Suma</i>.</li>
-            <li>Repite para <i>Energía activa</i>, <i>Energía en reposo</i>, <i>Minutos de ejercicio</i> y <i>Análisis del sueño</i> (fecha de inicio: <i>ayer</i>).</li>
-            <li>Añade <b>Texto</b> y escribe «Pasos: », «Kcal activas: »… insertando cada resultado.</li>
-            <li>Termina con <b>Copiar al portapapeles</b>. Ejecútalo, vuelve aquí y pega el texto en el cuadro.</li>
-          </ol>
-        </details>
-      </div>
+      </details>
 
       <div class="card">
         <h2>Evaluación del coach</h2>
@@ -372,6 +381,79 @@ details ol { padding-left: 20px; margin: 8px 0 0; display: flex; flex-direction:
     if (h.kcal_totales == null && h.kcal_activas != null && h.kcal_reposo != null) h.kcal_totales = Number(h.kcal_activas) + Number(h.kcal_reposo);
   }
 
+  // ---------- Apple Salud vía Gmail ----------
+  // El atajo de iPhone manda un correo «Coach Salud» cada noche; aquí se lee y se convierte en métricas.
+  const dayOfMail = (iso) => keyOf(new Date(iso));
+  let syncing = false;
+  async function syncFromGmail(manual) {
+    if (syncing) return;
+    syncing = true;
+    $("syncNow").disabled = true;
+    try {
+      const mcp = await claude.use("mcp");
+      if (!mcp) { status("syncStatus", "Esta vista no puede leer tu Gmail. Ábrela desde la app de Claude con tu cuenta.", true); return; }
+      if (manual) status("syncStatus", "Buscando tus datos de Salud en Gmail…");
+      const found = await mcp.callTool("Gmail", "search_threads", { query: 'subject:"Coach Salud" newer_than:7d', pageSize: 10 });
+      const threads = found.payload?.threads || [];
+      const seen = new Set(profile.mailIds || []);
+      const pending = [];
+      for (const t of threads) {
+        const full = await mcp.callTool("Gmail", "get_thread", { threadId: t.id, messageFormat: "PLAIN_TEXT" });
+        for (const m of full.payload?.messages || []) {
+          if (seen.has(m.id)) continue;
+          const body = m.plaintextBody || m.plaintext_body || m.snippet || "";
+          if (body.trim()) pending.push({ id: m.id, date: m.date || new Date(Number(m.internalDate)).toISOString(), body });
+        }
+      }
+      if (!pending.length) {
+        const last = profile.lastSync ? `Último correo leído: ${new Date(profile.lastSync).toLocaleString("es", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.` : "Todavía no llega ningún correo «Coach Salud». Configura el atajo abajo.";
+        status("syncStatus", last);
+        $("setupBox").open = !profile.lastSync;
+        return;
+      }
+      const sample = await getSample();
+      if (!sample) { status("syncStatus", "Claude no está disponible en esta vista.", true); return; }
+      status("syncStatus", `Leyendo ${pending.length} envío(s) de Salud…`);
+      pending.sort((a, b) => (a.date < b.date ? -1 : 1));
+      for (const p of pending) {
+        const k = dayOfMail(p.date);
+        const data = await sample.json(`Estos datos de Apple Salud los envió un atajo de iPhone el ${p.date} (día ${k}). Las etiquetas pueden estar en español o inglés; las duraciones pueden venir en segundos, minutos u horas (deduce la unidad por el rango razonable). Si hay listas de valores de una métrica acumulable, súmalas.\n\n${p.body.slice(0, 20000)}\n\nResponde SOLO con un objeto JSON con esta forma (null si un dato no aparece; no inventes):\n${HEALTH_SHAPE}`, { cache: false });
+        const target = k === day.date ? day : await loadDay(k);
+        target.health = {};
+        const prev = day; day = target; mergeHealth(data || {}); day = prev;
+        target.healthAt = p.date;
+        await save("d-" + k, target);
+        seen.add(p.id);
+        profile.lastSync = p.date;
+      }
+      profile.mailIds = [...seen].slice(-60);
+      await save("profile", profile);
+      renderHealth();
+      status("syncStatus", `Salud actualizada desde tu correo (${pending.length} envío(s)).`);
+      await autoAnalyze();
+    } catch (e) {
+      const code = e?.code;
+      status("syncStatus", code === "server_not_connected" || code === "needs_reauth" ? "Conecta Gmail en claude.ai › Ajustes › Conectores." : code === "not_granted" || code === "denied" ? "Diste «no» al permiso de Gmail. Recarga la página para volver a pedirlo." : explain(e), true);
+    } finally {
+      syncing = false;
+      $("syncNow").disabled = false;
+    }
+  }
+
+  // Evalúa sola el día de ayer (o el de hoy después de las 21:00) cuando ya hay datos y no tiene evaluación.
+  async function autoAnalyze() {
+    const yKey = addDays(todayKey(), -1);
+    const candidates = new Date().getHours() >= 21 ? [todayKey(), yKey] : [yKey];
+    for (const k of candidates) {
+      const d = k === day.date ? day : await loadDay(k);
+      if (d.review || !(d.healthAt || d.foods.length)) continue;
+      if (k !== day.date) await goTo(k);
+      showView("hoy");
+      await analyze();
+      return;
+    }
+  }
+
   async function history(n) {
     const all = await store.list();
     return all.filter((d) => d.date && d.date < day.date).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, n);
@@ -499,7 +581,7 @@ Responde SOLO con JSON:
   }
 
   async function savePlan() {
-    profile = { plan: $("planText").value.trim(), about: $("aboutText").value.trim() };
+    profile = { ...profile, plan: $("planText").value.trim(), about: $("aboutText").value.trim() };
     await save("profile", profile);
     status("planStatus", "Plan guardado.");
     $("planBanner").hidden = !!profile.plan;
@@ -664,6 +746,7 @@ Responde SOLO con JSON:
   $("planFile").onchange = onPlanFile;
   $("planPhotos").onchange = onPlanPhotos;
   $("savePlan").onclick = savePlan;
+  $("syncNow").onclick = () => syncFromGmail(true);
 
   // Hora por defecto y comida según la hora
   const now = new Date();
@@ -680,12 +763,9 @@ Responde SOLO con JSON:
     $("aboutText").value = profile.about || "";
     $("planBanner").hidden = !!profile.plan;
     await goTo(current);
-    // Si ayer quedó sin evaluar y tiene datos, abre en ayer para revisarlo.
-    const y = await loadDay(addDays(todayKey(), -1));
-    if (!y.review && (y.foods.length || Object.keys(y.health).length) && !day.foods.length) {
-      await goTo(y.date);
-      status("analyzeStatus", "Ayer quedó sin evaluar. Toca «Analizar mi día».");
-    }
+    // Lee los envíos del atajo y evalúa solo lo que falte
+    await syncFromGmail(false);
+    await autoAnalyze();
   })();
 })();
 </script>
