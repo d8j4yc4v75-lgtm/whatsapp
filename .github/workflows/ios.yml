@@ -1,0 +1,64 @@
+name: iOS
+
+on:
+  push:
+    paths: ["Coach/**", "project.yml", "ci/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+    inputs:
+      testflight:
+        description: "Subir a TestFlight"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generar proyecto
+        run: brew install xcodegen && xcodegen generate
+      - name: Compilar (sin firmar)
+        run: |
+          xcodebuild build -project Coach.xcodeproj -scheme Coach \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO | xcpretty || exit ${PIPESTATUS[0]}
+
+  testflight:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.testflight
+    runs-on: macos-15
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar secretos
+        run: |
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 TEAM_ID BUNDLE_ID; do
+            [ -n "${!v}" ] || { echo "::error::Falta el secreto $v en Settings > Secrets and variables > Actions"; exit 1; }
+          done
+      - name: Generar proyecto
+        run: brew install xcodegen && xcodegen generate
+      - name: Clave de App Store Connect
+        run: |
+          mkdir -p ~/private_keys
+          printf '%s' "$ASC_KEY_P8" > ~/private_keys/AuthKey_$ASC_KEY_ID.p8
+      - name: Archivar y firmar
+        run: |
+          xcodebuild archive -project Coach.xcodeproj -scheme Coach \
+            -destination 'generic/platform=iOS' -archivePath build/Coach.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_$ASC_KEY_ID.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} | xcpretty || exit ${PIPESTATUS[0]}
+      - name: Subir a TestFlight
+        run: |
+          xcodebuild -exportArchive -archivePath build/Coach.xcarchive \
+            -exportOptionsPlist ci/ExportOptions.plist -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_$ASC_KEY_ID.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
