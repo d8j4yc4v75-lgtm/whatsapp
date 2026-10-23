@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Coach">
+<meta name="theme-color" content="#0d7356">
+<title>Coach</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="login" class="screen" hidden>
+	<div class="login-box">
+		<h1>Coach</h1>
+		<p class="muted" id="loginHint">Escribe tu contraseña.</p>
+		<input id="password" type="password" autocomplete="current-password" placeholder="Contraseña">
+		<button class="primary" id="loginBtn">Entrar</button>
+		<p class="status err" id="loginStatus"></p>
+	</div>
+</div>
+
+<div id="app" hidden>
+	<header class="top">
+		<div class="daybar" id="daybar">
+			<button class="iconbtn" id="prevDay" aria-label="Día anterior">‹</button>
+			<div class="label" id="dayLabel">Hoy</div>
+			<button class="iconbtn" id="nextDay" aria-label="Día siguiente">›</button>
+		</div>
+	</header>
+
+	<main class="view" id="view-hoy">
+		<p class="banner" id="setupBanner" hidden>Falta conectar Apple Salud: ve a <b>Ajustes</b> y crea el atajo (una sola vez).</p>
+		<section>
+			<div class="sec-head"><h2>Apple Salud</h2><span class="small muted" id="healthAt"></span></div>
+			<div class="metrics" id="metrics"></div>
+			<p class="small muted" id="workouts"></p>
+		</section>
+		<section class="card">
+			<h2>Evaluación del coach</h2>
+			<div id="review"></div>
+			<button class="secondary" id="analyze">Analizar ahora</button>
+			<p class="status" id="analyzeStatus"></p>
+		</section>
+	</main>
+
+	<main class="view" id="view-comidas" hidden>
+		<section class="card">
+			<h2>Añadir comida</h2>
+			<div class="row">
+				<label class="field">Comida
+					<select id="meal">
+						<option>Desayuno</option><option>Media mañana</option><option>Almuerzo</option><option>Comida</option>
+						<option>Merienda</option><option>Cena</option><option>Pre-entreno</option><option>Post-entreno</option><option>Snack</option>
+					</select>
+				</label>
+				<label class="field">Hora<input id="time" type="time"></label>
+			</div>
+			<label class="photo" for="photo">
+				<input id="photo" type="file" accept="image/*" capture="environment" hidden>
+				<img id="photoPreview" alt="" hidden>
+				<span id="photoLabel">📷 Tomar foto del plato</span>
+			</label>
+			<textarea id="foodText" rows="2" placeholder="Opcional: describe la comida o corrige la foto (ej. 2 tacos de bistec)"></textarea>
+			<button class="primary" id="addFood">Guardar comida</button>
+			<p class="status" id="foodStatus"></p>
+		</section>
+		<section>
+			<div class="sec-head"><h2>Comidas del día</h2><span class="small muted" id="foodTotals"></span></div>
+			<ul class="foods" id="foods"></ul>
+		</section>
+	</main>
+
+	<main class="view" id="view-plan" hidden>
+		<section class="card">
+			<h2>Tu plan de entrenamiento</h2>
+			<p class="small muted">Sube tu plan en PDF o foto, o pégalo aquí. El coach lo usa cada día.</p>
+			<label class="secondary" for="planFile">📄 Subir PDF o foto del plan
+				<input id="planFile" type="file" accept="application/pdf,image/*" hidden>
+			</label>
+			<textarea id="plan" rows="14" placeholder="Objetivo, rutina por día, calorías y proteína meta, horas de sueño…"></textarea>
+			<label class="field">Sobre ti (edad, estatura, objetivo, lesiones, horario)
+				<textarea id="about" rows="3"></textarea>
+			</label>
+			<button class="primary" id="savePlan">Guardar plan</button>
+			<p class="status" id="planStatus"></p>
+		</section>
+	</main>
+
+	<main class="view" id="view-historial" hidden>
+		<section>
+			<h2>Historial</h2>
+			<ul class="history" id="history"></ul>
+		</section>
+	</main>
+
+	<main class="view" id="view-ajustes" hidden>
+		<section class="card">
+			<h2>Conectar Apple Salud</h2>
+			<p class="small">Un atajo de la app <b>Atajos</b> lee Salud y lo manda aquí solo, todos los días. Se configura una vez.</p>
+			<label class="field">Dirección del atajo (secreta)
+				<div class="copyrow"><input id="ingestUrl" readonly><button class="secondary" id="copyUrl">Copiar</button></div>
+			</label>
+			<p class="small muted" id="lastHealth"></p>
+			<ol class="steps small">
+				<li>Abre <b>Atajos</b> → pestaña <b>Atajos</b> → <b>+</b>. Ponle de nombre <i>Coach Salud</i>.</li>
+				<li>Agrega <b>Buscar muestras de salud</b>. Toca el tipo y elige <i>Pasos</i>; agrega el filtro <i>Fecha de inicio · es hoy</i>.</li>
+				<li>Agrega <b>Calcular estadísticas</b> → <i>Suma</i>.</li>
+				<li>Repite los pasos 2 y 3 con <i>Energía activa</i>, <i>Energía en reposo</i> y <i>Minutos de ejercicio</i>.</li>
+				<li>Sueño: <b>Buscar muestras de salud</b> con <i>Análisis del sueño</i>, filtro <i>Fecha de inicio · en los últimos 1 días</i>. Agrega <b>Obtener detalles de muestras de salud</b> → <i>Duración</i>, y <b>Calcular estadísticas</b> → <i>Suma</i>.</li>
+				<li>Opcional: <b>Buscar muestras de salud</b> con <i>Frecuencia cardiaca en reposo</i> y con <i>Peso</i> (orden: más reciente, límite 1).</li>
+				<li>Agrega <b>Texto</b> y escribe una línea por dato, tocando <i>Variables</i> para insertar cada resultado:<br><code>Pasos: [Suma]<br>Energía activa: [Suma]<br>Energía en reposo: [Suma]<br>Ejercicio: [Suma]<br>Sueño: [Suma]</code></li>
+				<li>Agrega <b>Obtener contenido de URL</b>. URL: pega la dirección de arriba. Toca la flecha → Método <i>POST</i> → Cuerpo de la solicitud <i>Archivo</i> → elige la variable <i>Texto</i>.</li>
+				<li>Prueba el atajo con ▶︎. Aquí debe aparecer «Último envío: hace un momento».</li>
+				<li>Automatizar: pestaña <b>Automatización</b> → <b>+</b> → <i>Hora del día</i> → <b>21:30</b>, <i>Diariamente</i>, <b>Ejecutar inmediatamente</b> → elige <i>Coach Salud</i>.</li>
+			</ol>
+			<p class="small muted">No te preocupes si el texto no sale perfecto: el coach entiende cualquier formato.</p>
+		</section>
+		<section class="card">
+			<h2>Notificaciones</h2>
+			<p class="small muted" id="pushHint">Recibe la evaluación de tu día como notificación.</p>
+			<button class="secondary" id="enablePush">Activar notificaciones</button>
+			<p class="status" id="pushStatus"></p>
+		</section>
+		<section class="card">
+			<button class="secondary" id="logout">Cerrar sesión</button>
+		</section>
+	</main>
+
+	<nav class="tabs">
+		<button data-view="hoy" aria-current="page"><span>❤︎</span>Hoy</button>
+		<button data-view="comidas"><span>🍽</span>Comidas</button>
+		<button data-view="plan"><span>📋</span>Plan</button>
+		<button data-view="historial"><span>📅</span>Historial</button>
+		<button data-view="ajustes"><span>⚙︎</span>Ajustes</button>
+	</nav>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

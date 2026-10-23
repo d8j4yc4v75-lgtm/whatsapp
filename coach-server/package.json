@@ -1,0 +1,14 @@
+{
+  "name": "coach-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Entrenador personal: recibe datos de Apple Salud desde un atajo, registra comidas y evalúa cada día con Claude",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": { "start": "node src/index.js" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.1.0",
+    "express": "^5.1.0",
+    "web-push": "^3.6.7"
+  }
+}
