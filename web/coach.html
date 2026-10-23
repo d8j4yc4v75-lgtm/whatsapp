@@ -1,0 +1,691 @@
+<title>Coach Diario</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: una columna tipo app móvil, barra de pestañas fija arriba, tarjetas solo para bloques que se editan */
+:root {
+  --bg: #f3f5f1;
+  --surface: #ffffff;
+  --ink: #17201b;
+  --muted: #5f6b64;
+  --line: #dde3dc;
+  --accent: #0d7356;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcefe6;
+  --good: #1d8a4c;
+  --warn: #b86a0b;
+  --bad: #c0392b;
+  --next: #2d5fa8;
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101512; --surface: #18201b; --ink: #e8eee9; --muted: #95a39a; --line: #2a352e;
+    --accent: #3cc193; --accent-ink: #08130e; --accent-soft: #1b3a2e;
+    --good: #4fcf86; --warn: #e9a23b; --bad: #ef6b5d; --next: #7fa8ea;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101512; --surface: #18201b; --ink: #e8eee9; --muted: #95a39a; --line: #2a352e;
+  --accent: #3cc193; --accent-ink: #08130e; --accent-soft: #1b3a2e;
+  --good: #4fcf86; --warn: #e9a23b; --bad: #ef6b5d; --next: #7fa8ea;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+header.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
+  padding-block: 12px 8px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.brand h1 { font-family: var(--font-display); font-weight: 700; font-size: 30px; letter-spacing: .01em; margin: 0; text-transform: uppercase; }
+.brand small { color: var(--muted); font-size: 13px; }
+nav.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+nav.tabs button { font: 600 14px var(--font-body); border: 0; background: transparent; color: var(--muted); padding: 8px 4px; border-radius: 9px; cursor: pointer; }
+nav.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 22px; text-transform: uppercase; letter-spacing: .03em; margin: 0; text-wrap: balance; }
+h3 { font-family: var(--font-display); font-weight: 600; font-size: 17px; text-transform: uppercase; letter-spacing: .06em; margin: 0; color: var(--muted); }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+section { display: flex; flex-direction: column; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.daybar { display: flex; align-items: center; gap: 8px; }
+.daybar .label { flex: 1; text-align: center; font-family: var(--font-display); font-size: 22px; font-weight: 600; text-transform: capitalize; }
+.iconbtn { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 20px; cursor: pointer; }
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.metric { background: var(--surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.metric .k { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.metric .v { font-family: var(--font-display); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.metric .v.empty { color: var(--line); }
+.metric .u { font-size: 14px; color: var(--muted); font-family: var(--font-body); font-weight: 500; }
+button.primary, button.secondary, label.secondary {
+  font: 600 16px var(--font-body); border-radius: 12px; padding: 12px 14px; cursor: pointer; text-align: center; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+button.primary { background: var(--accent); color: var(--accent-ink); border: 0; }
+button.secondary, label.secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+button:disabled { opacity: .55; cursor: default; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, label.secondary:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row > * { flex: 1 1 140px; }
+input, textarea, select {
+  font: 16px var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%; min-width: 0;
+}
+textarea { resize: vertical; }
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.score { display: flex; align-items: baseline; gap: 6px; }
+.score b { font-family: var(--font-display); font-size: 64px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; }
+.score span { font-family: var(--font-display); font-size: 24px; color: var(--muted); }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+ul.points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+ul.points li { padding-left: 14px; border-left: 3px solid var(--c, var(--accent)); }
+.good { --c: var(--good); } .bad { --c: var(--bad); } .next { --c: var(--next); }
+.foods { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.foods li { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); }
+.foods li:first-child { border-top: 0; }
+.foods .t { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; padding-top: 1px; }
+.foods .meal { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 600; }
+.foods .x { border: 0; background: none; color: var(--muted); font-size: 18px; cursor: pointer; padding: 0 4px; }
+.status { font-size: 14px; color: var(--muted); min-height: 1.2em; }
+.status.err { color: var(--bad); }
+.history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.history button { width: 100%; text-align: left; display: grid; grid-template-columns: 48px minmax(0,1fr); gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; color: var(--ink); font: inherit; }
+.history .n { font-family: var(--font-display); font-size: 30px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.history .s { font-size: 14px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chat { display: flex; flex-direction: column; gap: 10px; }
+.bubble { padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.me { background: var(--accent-soft); align-self: flex-end; max-width: 85%; }
+.bubble.coach { background: var(--bg); border: 1px solid var(--line); }
+details { border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; font-weight: 600; }
+details ol { padding-left: 20px; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+.thumbs img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.banner { background: var(--accent-soft); border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+@media (prefers-reduced-motion: no-preference) { nav.tabs button { transition: background .15s, color .15s; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><h1>Coach Diario</h1><small id="syncState">Cargando…</small></div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" id="tab-hoy" aria-selected="true" data-view="hoy">Hoy</button>
+      <button role="tab" id="tab-comidas" aria-selected="false" data-view="comidas">Comidas</button>
+      <button role="tab" id="tab-plan" aria-selected="false" data-view="plan">Plan</button>
+      <button role="tab" id="tab-historial" aria-selected="false" data-view="historial">Historial</button>
+    </nav>
+  </header>
+
+  <div class="daybar" id="daybar">
+    <button class="iconbtn" id="prevDay" aria-label="Día anterior">‹</button>
+    <div class="label" id="dayLabel">Hoy</div>
+    <button class="iconbtn" id="nextDay" aria-label="Día siguiente">›</button>
+  </div>
+
+  <!-- HOY -->
+  <main id="view-hoy" class="view">
+    <section>
+      <div id="planBanner" class="banner" hidden>Carga tu plan de entrenamiento en la pestaña <b>Plan</b> para que el coach te evalúe contra él.</div>
+
+      <h2>Apple Salud</h2>
+      <div class="metrics" id="metrics"></div>
+      <p class="small muted" id="workoutsLine"></p>
+
+      <div class="card">
+        <h3>Importar datos de Salud</h3>
+        <p class="small muted">Sube capturas de pantalla de Salud o Fitness (sueño, actividad, entrenamientos) o pega el texto de tu atajo. El coach lee los números.</p>
+        <div class="row">
+          <label class="secondary" for="shotInput">📷 Subir capturas
+            <input id="shotInput" class="visually-hidden" type="file" accept="image/*" multiple>
+          </label>
+          <button class="secondary" id="toggleManual">Escribir a mano</button>
+        </div>
+        <div class="thumbs" id="thumbs"></div>
+        <textarea id="healthPaste" rows="3" placeholder="O pega aquí el texto del atajo «Coach Salud»"></textarea>
+        <button class="secondary" id="readHealth">Leer datos</button>
+        <div id="manualBox" hidden>
+          <div class="row">
+            <label class="field">Sueño (h)<input id="m_sleep" inputmode="decimal" placeholder="7.5"></label>
+            <label class="field">Pasos<input id="m_steps" inputmode="numeric" placeholder="9000"></label>
+          </div>
+          <div class="row">
+            <label class="field">Kcal activas<input id="m_active" inputmode="numeric" placeholder="550"></label>
+            <label class="field">Kcal totales<input id="m_total" inputmode="numeric" placeholder="2400"></label>
+          </div>
+          <div class="row">
+            <label class="field">Min. ejercicio<input id="m_ex" inputmode="numeric" placeholder="45"></label>
+            <label class="field">Peso (kg)<input id="m_weight" inputmode="decimal" placeholder="78.2"></label>
+          </div>
+          <label class="field">Entrenamiento<input id="m_workout" placeholder="Pierna 60 min, 380 kcal"></label>
+          <button class="secondary" id="saveManual">Guardar</button>
+        </div>
+        <p class="status" id="healthStatus"></p>
+        <details>
+          <summary>Crear el atajo «Coach Salud» (opcional)</summary>
+          <ol class="small">
+            <li>Abre la app <b>Atajos</b> → <b>+</b> → nombre: <i>Coach Salud</i>.</li>
+            <li>Añade <b>Buscar muestras de salud</b>: tipo <i>Pasos</i>, fecha de inicio <i>hoy</i>. Luego <b>Calcular estadísticas</b> → <i>Suma</i>.</li>
+            <li>Repite para <i>Energía activa</i>, <i>Energía en reposo</i>, <i>Minutos de ejercicio</i> y <i>Análisis del sueño</i> (fecha de inicio: <i>ayer</i>).</li>
+            <li>Añade <b>Texto</b> y escribe «Pasos: », «Kcal activas: »… insertando cada resultado.</li>
+            <li>Termina con <b>Copiar al portapapeles</b>. Ejecútalo, vuelve aquí y pega el texto en el cuadro.</li>
+          </ol>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>Evaluación del coach</h2>
+        <div id="review"></div>
+        <button class="primary" id="analyze">Analizar mi día</button>
+        <p class="status" id="analyzeStatus"></p>
+      </div>
+
+      <div class="card">
+        <h3>Pregúntale a tu coach</h3>
+        <div class="chat" id="chat"></div>
+        <textarea id="chatInput" rows="2" placeholder="¿Qué ceno hoy para llegar a mi proteína?"></textarea>
+        <div class="row"><button class="secondary" id="chatSend">Enviar</button></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- COMIDAS -->
+  <main id="view-comidas" class="view" hidden>
+    <section>
+      <div class="card">
+        <h2>Añadir comida</h2>
+        <div class="row">
+          <label class="field">Comida
+            <select id="f_meal">
+              <option>Desayuno</option><option>Media mañana</option><option>Almuerzo</option><option>Merienda</option>
+              <option>Cena</option><option>Pre-entreno</option><option>Post-entreno</option><option>Snack</option>
+            </select>
+          </label>
+          <label class="field">Hora<input id="f_time" type="time"></label>
+        </div>
+        <label class="field">¿Qué comiste?
+          <textarea id="f_text" rows="3" placeholder="3 huevos revueltos, 2 tostadas integrales, café con leche"></textarea>
+        </label>
+        <div class="row">
+          <label class="field">Kcal (opcional)<input id="f_kcal" inputmode="numeric"></label>
+          <label class="field">Proteína g (opcional)<input id="f_prot" inputmode="numeric"></label>
+        </div>
+        <button class="primary" id="addFood">Guardar comida</button>
+      </div>
+      <div class="card">
+        <div class="row" style="align-items:baseline"><h2>Hoy comiste</h2><p class="small muted" id="foodTotals" style="text-align:right"></p></div>
+        <ul class="foods" id="foodList"></ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- PLAN -->
+  <main id="view-plan" class="view" hidden>
+    <section>
+      <div class="card">
+        <h2>Tu plan de entrenamiento</h2>
+        <p class="small muted">Pega tu plan (rutina por día, objetivos, calorías y macros meta, horas de sueño) o súbelo como PDF, texto o fotos. El coach lo usa en cada evaluación.</p>
+        <div class="row">
+          <label class="secondary" for="planFile">📄 Subir PDF o texto
+            <input id="planFile" class="visually-hidden" type="file" accept=".pdf,.txt,.md,text/plain,application/pdf">
+          </label>
+          <label class="secondary" for="planPhotos">📷 Subir fotos
+            <input id="planPhotos" class="visually-hidden" type="file" accept="image/*" multiple>
+          </label>
+        </div>
+        <textarea id="planText" rows="14" placeholder="Ej: Objetivo: perder 5 kg manteniendo músculo. 2.200 kcal, 160 g proteína. Lunes: pecho y tríceps…"></textarea>
+        <label class="field">Sobre ti (edad, altura, lesiones, horario)
+          <textarea id="aboutText" rows="3"></textarea>
+        </label>
+        <button class="primary" id="savePlan">Guardar plan</button>
+        <p class="status" id="planStatus"></p>
+      </div>
+    </section>
+  </main>
+
+  <!-- HISTORIAL -->
+  <main id="view-historial" class="view" hidden>
+    <section>
+      <h2>Tus días</h2>
+      <ul class="history" id="historyList"></ul>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esDate = new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long" });
+
+  // ---------- Fechas ----------
+  const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const parseKey = (k) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
+  const addDays = (k, n) => { const d = parseKey(k); d.setDate(d.getDate() + n); return keyOf(d); };
+  const todayKey = () => keyOf(new Date());
+  function labelFor(k) {
+    if (k === todayKey()) return "Hoy";
+    if (k === addDays(todayKey(), -1)) return "Ayer";
+    return esDate.format(parseKey(k));
+  }
+
+  // ---------- Almacenamiento ----------
+  // db privado por persona (data/users/<id>/...), o el navegador si no hay sesión.
+  const local = {
+    async get(k) { try { return JSON.parse(localStorage.getItem("coach:" + k) || "null"); } catch { return null; } },
+    async set(k, v) { try { localStorage.setItem("coach:" + k, JSON.stringify(v)); } catch {} },
+    async list() {
+      const out = [];
+      try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("coach:d-")) out.push({ id: k.slice(6), ...JSON.parse(localStorage.getItem(k)) }); } } catch {}
+      return out;
+    },
+  };
+  let store = local;
+  let writeChain = Promise.resolve();
+  const save = (k, v) => (writeChain = writeChain.then(() => store.set(k, v)).catch((e) => console.warn(e)));
+
+  async function connectDb() {
+    try {
+      const [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
+      const uid = user ? await user.id() : null;
+      if (!db || !uid) { $("syncState").textContent = "Guardado en este dispositivo"; return; }
+      const col = db.collection("data/users/" + uid);
+      store = {
+        async get(k) { const s = await col.doc(k).get(); return s.exists ? s.data() : null; },
+        async set(k, v) { await col.doc(k).set(JSON.parse(JSON.stringify(v))); },
+        async list() { const s = await col.get(); return s.docs.filter((d) => d.id.startsWith("d-")).map((d) => ({ id: d.id, ...d.data() })); },
+      };
+      $("syncState").textContent = "Sincronizado";
+    } catch (e) {
+      $("syncState").textContent = "Guardado en este dispositivo";
+    }
+  }
+
+  // ---------- Estado ----------
+  let current = todayKey();
+  let day = emptyDay(current);
+  let profile = { plan: "", about: "" };
+  let pendingShots = [];
+  let chatTurns = [];
+
+  function emptyDay(k) { return { date: k, health: {}, foods: [], review: null }; }
+  async function loadDay(k) {
+    const d = await store.get("d-" + k);
+    return d ? { ...emptyDay(k), ...d } : emptyDay(k);
+  }
+  const saveDay = () => save("d-" + day.date, day);
+
+  // ---------- Claude ----------
+  let samplePromise = null;
+  const getSample = () => (samplePromise ??= claude.use("sample"));
+  const errCopy = {
+    not_granted: "No diste permiso para usar Claude en esta página.",
+    sampling_disabled: "Claude no está disponible en esta cuenta.",
+    rate_limited: "Demasiadas peticiones o llegaste a tu límite de uso. Prueba en un rato.",
+    session_expired: "Vuelve a iniciar sesión en Claude.",
+    image_rejected: "Alguna imagen no se pudo leer. Prueba con otra captura.",
+    images_unavailable: "Esta vista no puede enviar imágenes. Escribe los datos a mano.",
+    refused: "Claude no pudo responder a esto. Cambia el texto e inténtalo de nuevo.",
+    invalid_json: "La respuesta llegó incompleta. Toca de nuevo para reintentar.",
+    prompt_too_large: "Hay demasiado texto. Acorta el plan o las notas.",
+  };
+  const explain = (e) => errCopy[e?.code] || "No se pudo conectar con Claude. Inténtalo de nuevo.";
+
+  const HEALTH_SHAPE = `{"sueno_min": number|null, "profundo_min": number|null, "rem_min": number|null, "hora_dormir": "HH:MM"|null, "hora_despertar": "HH:MM"|null, "pasos": number|null, "kcal_activas": number|null, "kcal_reposo": number|null, "kcal_totales": number|null, "ejercicio_min": number|null, "fc_reposo": number|null, "vfc_ms": number|null, "peso_kg": number|null, "entrenamientos": [{"tipo": string, "min": number|null, "kcal": number|null}]}`;
+
+  async function readHealth() {
+    const text = $("healthPaste").value.trim();
+    if (!pendingShots.length && !text) { status("healthStatus", "Sube una captura o pega texto primero."); return; }
+    const sample = await getSample();
+    if (!sample) { status("healthStatus", "Claude no está disponible aquí. Usa «Escribir a mano».", true); return; }
+    $("readHealth").disabled = true;
+    status("healthStatus", "Leyendo tus datos…");
+    try {
+      const prompt = `Extrae los datos de salud del día ${day.date} de ${pendingShots.length ? "estas capturas de Apple Salud/Fitness" : ""}${pendingShots.length && text ? " y " : ""}${text ? "este texto:\n\n" + text : ""}\n\nResponde SOLO con un objeto JSON con esta forma (null si un dato no aparece; convierte horas a minutos; no inventes):\n${HEALTH_SHAPE}`;
+      const lim = pendingShots.length ? await sample.limits().catch(() => null) : null;
+      const opts = pendingShots.length ? { images: pendingShots.slice(0, lim?.images?.maxCount || 5) } : {};
+      const data = await sample.json(prompt, opts);
+      mergeHealth(data || {});
+      pendingShots = []; renderThumbs(); $("healthPaste").value = ""; $("shotInput").value = "";
+      saveDay(); renderHealth();
+      status("healthStatus", "Datos guardados.");
+    } catch (e) {
+      status("healthStatus", explain(e), true);
+    } finally { $("readHealth").disabled = false; }
+  }
+
+  function mergeHealth(src) {
+    const h = day.health;
+    for (const [k, v] of Object.entries(src)) {
+      if (k === "entrenamientos") {
+        if (Array.isArray(v) && v.length) h.entrenamientos = [...(h.entrenamientos || []), ...v.filter((w) => w && w.tipo)];
+      } else if (v !== null && v !== undefined && v !== "") h[k] = v;
+    }
+    if (h.kcal_totales == null && h.kcal_activas != null && h.kcal_reposo != null) h.kcal_totales = Number(h.kcal_activas) + Number(h.kcal_reposo);
+  }
+
+  async function history(n) {
+    const all = await store.list();
+    return all.filter((d) => d.date && d.date < day.date).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, n);
+  }
+
+  function dayReport(d) {
+    const h = d.health || {};
+    const lines = [`Fecha: ${d.date} (${esDate.format(parseKey(d.date))})`, "Apple Salud: " + JSON.stringify(h)];
+    lines.push("Comidas:");
+    if (!d.foods?.length) lines.push("- no registré comidas");
+    for (const f of d.foods || []) lines.push(`- ${f.time || "--:--"} [${f.meal}] ${f.text}${f.kcal ? ` (${f.kcal} kcal)` : ""}${f.prot ? ` (${f.prot} g proteína)` : ""}`);
+    return lines.join("\n");
+  }
+
+  async function analyze() {
+    const sample = await getSample();
+    if (!sample) { status("analyzeStatus", "Claude no está disponible aquí.", true); return; }
+    $("analyze").disabled = true;
+    status("analyzeStatus", "Tu coach está revisando el día… (puede tardar un minuto)");
+    try {
+      const past = await history(6);
+      const trend = past.map((p) => `${p.date}: nota ${p.review?.puntuacion ?? "—"}, sueño ${p.health?.sueno_min ?? "?"} min, pasos ${p.health?.pasos ?? "?"}, kcal comidas ${p.review?.kcal_ingeridas ?? "?"}`).join("\n") || "(sin días anteriores)";
+      const prompt = `Eres mi entrenador personal y nutricionista. Compara mi día con MI PLAN DE ENTRENAMIENTO y dime con franqueza qué hice bien y qué hice mal. Usa números concretos (horas de sueño, proteína, calorías, pasos). Si faltan datos, dilo; no inventes. Si estimas calorías o proteína de comidas sin cantidades, trátalo como estimación. Español.
+
+MI PLAN DE ENTRENAMIENTO:
+${profile.plan || "(todavía no lo he cargado: evalúa con buenas prácticas generales y dime que lo cargue)"}
+
+SOBRE MÍ:
+${profile.about || "(sin datos)"}
+
+ÚLTIMOS DÍAS (tendencia):
+${trend}
+
+DÍA A EVALUAR:
+${dayReport(day)}
+
+Responde SOLO con JSON:
+{"puntuacion": entero 1-10, "resumen": "2-3 frases", "bien": ["..."], "mal": ["..."], "manana": ["acciones concretas para mañana"], "kcal_ingeridas": número estimado o null, "proteina_g": número estimado o null}`;
+      const r = await sample.json(prompt, { cache: false });
+      if (!r || typeof r.puntuacion !== "number") throw { code: "invalid_json" };
+      day.review = { ...r, at: new Date().toISOString() };
+      saveDay(); renderReview();
+      status("analyzeStatus", "");
+    } catch (e) {
+      status("analyzeStatus", explain(e), true);
+    } finally { $("analyze").disabled = false; }
+  }
+
+  async function sendChat() {
+    const msg = $("chatInput").value.trim();
+    if (!msg) return;
+    const sample = await getSample();
+    if (!sample) { addBubble("coach", "Claude no está disponible aquí."); return; }
+    $("chatInput").value = "";
+    $("chatSend").disabled = true;
+    addBubble("me", msg);
+    const bubble = addBubble("coach", "Pensando…");
+    chatTurns.push({ role: "user", content: msg });
+    const rules = `Eres mi entrenador personal y nutricionista. Responde breve, concreto y en español, basándote en mi plan y mis datos.\n\nMI PLAN:\n${profile.plan || "(no cargado)"}\n\nSOBRE MÍ:\n${profile.about || "(sin datos)"}\n\nMI DÍA ACTUAL:\n${dayReport(day)}${day.review ? "\n\nTu evaluación de hoy: " + JSON.stringify(day.review) : ""}`;
+    try {
+      const { text } = await sample([{ role: "user", content: rules }, ...chatTurns.slice(-10)], { cache: false, onText: ({ text }) => { bubble.textContent = text; } });
+      chatTurns.push({ role: "assistant", content: text });
+    } catch (e) {
+      bubble.textContent = e.text || explain(e);
+      chatTurns.pop();
+    } finally { $("chatSend").disabled = false; }
+  }
+
+  function addBubble(who, text) {
+    const b = document.createElement("div");
+    b.className = "bubble " + who; b.textContent = text;
+    $("chat").append(b);
+    return b;
+  }
+
+  // ---------- Plan ----------
+  async function loadScript(src) {
+    return new Promise((ok, fail) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  }
+  async function pdfText(file) {
+    if (!window.pdfjsLib) {
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js");
+    }
+    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const pages = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const c = await (await doc.getPage(i)).getTextContent();
+      pages.push(c.items.map((it) => it.str + (it.hasEOL ? "\n" : " ")).join(""));
+    }
+    return pages.join("\n\n").trim();
+  }
+
+  async function onPlanFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    status("planStatus", "Leyendo archivo…");
+    try {
+      const text = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name) ? await pdfText(file) : await file.text();
+      if (!text) throw new Error("vacío");
+      $("planText").value = text;
+      status("planStatus", "Archivo leído. Revisa el texto y toca «Guardar plan».");
+    } catch {
+      status("planStatus", "No pude leer el texto de ese archivo. Si es un PDF escaneado, súbelo como fotos.", true);
+    }
+    e.target.value = "";
+  }
+
+  async function onPlanPhotos(e) {
+    const files = [...e.target.files];
+    if (!files.length) return;
+    const sample = await getSample();
+    if (!sample) { status("planStatus", "Claude no está disponible aquí. Pega el texto.", true); return; }
+    status("planStatus", "Transcribiendo tus fotos…");
+    try {
+      const lim = await sample.limits().catch(() => null);
+      const max = lim?.images?.maxCount || 5;
+      const { text } = await sample("Transcribe fielmente el plan de entrenamiento y nutrición que aparece en estas imágenes, en texto plano ordenado (días, ejercicios, series, repeticiones, calorías, macros, notas). Solo la transcripción.", { images: files.slice(0, max) });
+      $("planText").value = ($("planText").value ? $("planText").value + "\n\n" : "") + text.trim();
+      status("planStatus", files.length > max ? `Leí ${max} fotos (máximo por vez). Sube el resto después.` : "Fotos transcritas. Revisa y toca «Guardar plan».");
+    } catch (err) {
+      status("planStatus", explain(err), true);
+    }
+    e.target.value = "";
+  }
+
+  async function savePlan() {
+    profile = { plan: $("planText").value.trim(), about: $("aboutText").value.trim() };
+    await save("profile", profile);
+    status("planStatus", "Plan guardado.");
+    $("planBanner").hidden = !!profile.plan;
+  }
+
+  // ---------- Render ----------
+  function status(id, text, err = false) { const el = $(id); el.textContent = text; el.classList.toggle("err", err); }
+
+  function fmtHM(min) { if (min == null) return null; const m = Math.round(min); return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`; }
+  function num(v) { return v == null || v === "" ? null : Math.round(Number(v)).toLocaleString("es"); }
+
+  function renderHealth() {
+    const h = day.health || {};
+    const items = [
+      ["Sueño", fmtHM(h.sueno_min), ""],
+      ["Profundo / REM", h.profundo_min != null || h.rem_min != null ? `${num(h.profundo_min) ?? "—"} / ${num(h.rem_min) ?? "—"}` : null, "min"],
+      ["Pasos", num(h.pasos), ""],
+      ["Kcal activas", num(h.kcal_activas), "kcal"],
+      ["Gasto total", num(h.kcal_totales), "kcal"],
+      ["Ejercicio", num(h.ejercicio_min), "min"],
+      ["FC reposo", num(h.fc_reposo), "lpm"],
+      ["Peso", h.peso_kg != null ? Number(h.peso_kg).toLocaleString("es", { maximumFractionDigits: 1 }) : null, "kg"],
+    ];
+    $("metrics").replaceChildren(...items.map(([k, v, u]) => {
+      const el = document.createElement("div"); el.className = "metric";
+      el.innerHTML = `<span class="k"></span><span class="v${v == null ? " empty" : ""}"></span>`;
+      el.querySelector(".k").textContent = k;
+      const val = el.querySelector(".v"); val.textContent = v ?? "—";
+      if (v != null && u) { const s = document.createElement("span"); s.className = "u"; s.textContent = " " + u; val.append(s); }
+      return el;
+    }));
+    const w = h.entrenamientos || [];
+    const sleepTimes = h.hora_dormir && h.hora_despertar ? `Dormiste ${h.hora_dormir} → ${h.hora_despertar}. ` : "";
+    $("workoutsLine").textContent = sleepTimes + (w.length ? "Entrenamientos: " + w.map((x) => `${x.tipo}${x.min ? ` ${Math.round(x.min)} min` : ""}${x.kcal ? `, ${Math.round(x.kcal)} kcal` : ""}`).join(" · ") : "Sin entrenamientos registrados.");
+  }
+
+  function renderReview() {
+    const r = day.review, box = $("review");
+    box.replaceChildren();
+    $("analyze").textContent = r ? "Volver a analizar" : "Analizar mi día";
+    if (!r) {
+      const p = document.createElement("p"); p.className = "muted";
+      p.textContent = "Cuando tengas tus datos y comidas del día, toca «Analizar mi día». El coach te dirá qué hiciste bien, qué hiciste mal y qué hacer mañana.";
+      box.append(p); return;
+    }
+    const color = r.puntuacion >= 7 ? "var(--good)" : r.puntuacion >= 5 ? "var(--warn)" : "var(--bad)";
+    const head = document.createElement("div"); head.className = "score";
+    head.innerHTML = `<b style="color:${color}"></b><span>/ 10</span>`;
+    head.querySelector("b").textContent = r.puntuacion;
+    const sum = document.createElement("p"); sum.textContent = r.resumen || "";
+    box.append(head, sum);
+    if (r.kcal_ingeridas || r.proteina_g) {
+      const pill = document.createElement("span"); pill.className = "pill";
+      pill.textContent = [r.kcal_ingeridas && `≈ ${num(r.kcal_ingeridas)} kcal ingeridas`, r.proteina_g && `≈ ${num(r.proteina_g)} g proteína`].filter(Boolean).join(" · ");
+      box.append(pill);
+    }
+    for (const [title, list, cls] of [["Lo que hiciste bien", r.bien, "good"], ["Lo que debes mejorar", r.mal, "bad"], ["Para mañana", r.manana, "next"]]) {
+      if (!Array.isArray(list) || !list.length) continue;
+      const h = document.createElement("h3"); h.textContent = title;
+      const ul = document.createElement("ul"); ul.className = "points " + cls;
+      for (const t of list) { const li = document.createElement("li"); li.textContent = t; ul.append(li); }
+      box.append(h, ul);
+    }
+  }
+
+  function renderFoods() {
+    const list = $("foodList");
+    const foods = [...(day.foods || [])].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+    list.replaceChildren();
+    if (!foods.length) {
+      const li = document.createElement("li"); li.style.display = "block";
+      li.innerHTML = `<p class="muted">Sin comidas este día. Añade lo que comiste arriba.</p>`;
+      list.append(li);
+    }
+    for (const f of foods) {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="t"></span><div><div class="meal"></div><div class="d"></div><div class="small muted e"></div></div><button class="x" aria-label="Borrar">×</button>`;
+      li.querySelector(".t").textContent = f.time || "";
+      li.querySelector(".meal").textContent = f.meal;
+      li.querySelector(".d").textContent = f.text;
+      li.querySelector(".e").textContent = [f.kcal && `${f.kcal} kcal`, f.prot && `${f.prot} g proteína`].filter(Boolean).join(" · ");
+      li.querySelector(".x").onclick = () => { day.foods = day.foods.filter((x) => x.id !== f.id); saveDay(); renderFoods(); };
+      list.append(li);
+    }
+    const kcal = foods.reduce((s, f) => s + (Number(f.kcal) || 0), 0);
+    const prot = foods.reduce((s, f) => s + (Number(f.prot) || 0), 0);
+    $("foodTotals").textContent = kcal || prot ? `Anotado: ${kcal.toLocaleString("es")} kcal · ${prot} g proteína` : "";
+  }
+
+  async function renderHistory() {
+    const all = (await store.list()).filter((d) => d.date).sort((a, b) => (a.date < b.date ? 1 : -1));
+    const ul = $("historyList");
+    ul.replaceChildren();
+    if (!all.length) { const li = document.createElement("li"); li.innerHTML = `<p class="muted">Aún no hay días guardados. Empieza en la pestaña Hoy.</p>`; ul.append(li); return; }
+    for (const d of all) {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      const s = d.review?.puntuacion;
+      b.innerHTML = `<span class="n"></span><span><b></b><span class="s"></span></span>`;
+      b.querySelector(".n").textContent = s ?? "—";
+      b.querySelector(".n").style.color = s == null ? "var(--muted)" : s >= 7 ? "var(--good)" : s >= 5 ? "var(--warn)" : "var(--bad)";
+      b.querySelector("b").textContent = labelFor(d.date);
+      b.querySelector(".s").textContent = d.review?.resumen || `${d.foods?.length || 0} comidas registradas · sin evaluar`;
+      b.onclick = () => { goTo(d.date); showView("hoy"); };
+      li.append(b); ul.append(li);
+    }
+  }
+
+  function renderThumbs() {
+    $("thumbs").replaceChildren(...pendingShots.map((f) => { const i = document.createElement("img"); i.src = URL.createObjectURL(f); i.alt = "Captura"; return i; }));
+  }
+
+  function renderAll() {
+    $("dayLabel").textContent = labelFor(current);
+    $("nextDay").disabled = current >= todayKey();
+    renderHealth(); renderReview(); renderFoods();
+  }
+
+  async function goTo(k) {
+    current = k;
+    day = await loadDay(k);
+    chatTurns = []; $("chat").replaceChildren();
+    renderAll();
+  }
+
+  function showView(v) {
+    for (const b of document.querySelectorAll("nav.tabs button")) b.setAttribute("aria-selected", String(b.dataset.view === v));
+    for (const m of document.querySelectorAll(".view")) m.hidden = m.id !== "view-" + v;
+    $("daybar").hidden = v === "plan" || v === "historial";
+    if (v === "historial") renderHistory();
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- Eventos ----------
+  for (const b of document.querySelectorAll("nav.tabs button")) b.onclick = () => showView(b.dataset.view);
+  $("prevDay").onclick = () => goTo(addDays(current, -1));
+  $("nextDay").onclick = () => { if (current < todayKey()) goTo(addDays(current, 1)); };
+  $("shotInput").onchange = (e) => { pendingShots = [...pendingShots, ...e.target.files]; renderThumbs(); status("healthStatus", `${pendingShots.length} captura(s) lista(s). Toca «Leer datos».`); };
+  $("readHealth").onclick = readHealth;
+  $("toggleManual").onclick = () => { $("manualBox").hidden = !$("manualBox").hidden; };
+  $("saveManual").onclick = () => {
+    const n = (id) => { const v = $(id).value.replace(",", ".").trim(); return v === "" ? null : Number(v); };
+    const w = $("m_workout").value.trim();
+    mergeHealth({
+      sueno_min: n("m_sleep") != null ? n("m_sleep") * 60 : null, pasos: n("m_steps"), kcal_activas: n("m_active"),
+      kcal_totales: n("m_total"), ejercicio_min: n("m_ex"), peso_kg: n("m_weight"),
+      entrenamientos: w ? [{ tipo: w, min: null, kcal: null }] : [],
+    });
+    for (const id of ["m_sleep", "m_steps", "m_active", "m_total", "m_ex", "m_weight", "m_workout"]) $(id).value = "";
+    saveDay(); renderHealth(); status("healthStatus", "Datos guardados.");
+  };
+  $("analyze").onclick = analyze;
+  $("chatSend").onclick = sendChat;
+  $("addFood").onclick = () => {
+    const text = $("f_text").value.trim();
+    if (!text) { $("f_text").focus(); return; }
+    const toNum = (v) => (v.trim() === "" ? null : Math.round(Number(v.replace(",", ".")) || 0));
+    day.foods = [...(day.foods || []), { id: Date.now().toString(36), meal: $("f_meal").value, time: $("f_time").value, text, kcal: toNum($("f_kcal").value), prot: toNum($("f_prot").value) }];
+    $("f_text").value = $("f_kcal").value = $("f_prot").value = "";
+    saveDay(); renderFoods();
+  };
+  $("planFile").onchange = onPlanFile;
+  $("planPhotos").onchange = onPlanPhotos;
+  $("savePlan").onclick = savePlan;
+
+  // Hora por defecto y comida según la hora
+  const now = new Date();
+  $("f_time").value = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const hr = now.getHours();
+  $("f_meal").value = hr < 11 ? "Desayuno" : hr < 16 ? "Almuerzo" : hr < 19 ? "Merienda" : "Cena";
+
+  // ---------- Inicio ----------
+  renderAll();
+  (async () => {
+    await connectDb();
+    profile = { plan: "", about: "", ...(await store.get("profile")) };
+    $("planText").value = profile.plan || "";
+    $("aboutText").value = profile.about || "";
+    $("planBanner").hidden = !!profile.plan;
+    await goTo(current);
+    // Si ayer quedó sin evaluar y tiene datos, abre en ayer para revisarlo.
+    const y = await loadDay(addDays(todayKey(), -1));
+    if (!y.review && (y.foods.length || Object.keys(y.health).length) && !day.foods.length) {
+      await goTo(y.date);
+      status("analyzeStatus", "Ayer quedó sin evaluar. Toca «Analizar mi día».");
+    }
+  })();
+})();
+</script>
