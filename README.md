@@ -10,20 +10,26 @@ App de iPhone (SwiftUI, iOS 17+) que lee tus datos de Apple Health, te deja anot
 - **Historial**: todas las evaluaciones diarias.
 - **Automático**: al abrir la app, si el día anterior no tiene evaluación, la genera sola. Recordatorio diario a las 21:00 para anotar comidas.
 
-## Instalación
+## Instalación sin Mac (desde el iPhone)
 
-Necesitas un Mac con Xcode 15+ y tu iPhone (HealthKit no tiene datos en el simulador).
+La app se compila en un Mac en la nube (GitHub Actions) y llega a tu iPhone por **TestFlight**.
+
+1. **Apple Developer Program** (99 USD/año): inscríbete en https://developer.apple.com/programs/enroll desde el iPhone.
+2. **Bundle ID**: en https://developer.apple.com/account/resources/identifiers crea un App ID, por ejemplo `com.tunombre.coach`, y marca **HealthKit**.
+3. **App en App Store Connect**: en https://appstoreconnect.apple.com → Apps → **+** → Nueva app, con ese Bundle ID.
+4. **Clave de API**: App Store Connect → Usuarios y acceso → Integraciones → **Claves de API del App Store Connect** → genera una con rol **Administrador**. Anota el *Issuer ID* y el *Key ID* y descarga el archivo `.p8`.
+5. **Team ID**: en https://developer.apple.com/account → Membresía.
+6. **Secretos en GitHub**: en este repositorio → Settings → Secrets and variables → Actions → *New repository secret*:
+   - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` (el contenido completo del `.p8`), `APPLE_TEAM_ID`, `BUNDLE_ID`.
+7. **Compilar y subir**: pestaña **Actions** → **iOS** → *Run workflow*. Unos 15 minutos después la build aparece en TestFlight.
+8. Instala **TestFlight** desde el App Store, entra con tu Apple ID y instala **Coach**.
+9. En la app: acepta los permisos de Salud, pega tu API key de Anthropic en **Ajustes** (créala en https://platform.claude.com) y carga tu plan en **Plan**.
+
+### Con Mac (opcional)
 
 ```bash
-brew install xcodegen
-xcodegen generate
-open Coach.xcodeproj
+brew install xcodegen && xcodegen generate && open Coach.xcodeproj
 ```
-
-1. En Xcode → target **Coach** → *Signing & Capabilities*: elige tu equipo (sirve el Apple ID gratuito) y cambia el Bundle ID si hace falta.
-2. Conecta el iPhone y pulsa ▶︎.
-3. En la app: acepta los permisos de Salud, ve a **Ajustes** y pega tu API key de Anthropic (créala en https://platform.claude.com).
-4. Ve a **Plan** y carga tu plan de entrenamiento.
 
 ## Detalles técnicos
 
