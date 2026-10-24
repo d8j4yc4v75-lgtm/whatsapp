@@ -229,6 +229,11 @@ export class Session {
 		})
 		sock.ev.on('messages.update', updates => {
 			for (const { key, update } of updates) {
+				// Leído desde el teléfono: WhatsApp avisa con el estado «leído» de un mensaje recibido
+				if (!key.fromMe && typeof update.status === 'number' && update.status >= 4 && key.remoteJid) {
+					this.clearUnread(canonicalJid(key.remoteJid, key.remoteJidAlt))
+					continue
+				}
 				if (typeof update.status === 'number') {
 					note(this.accountId, 'status', `${update.status} ${JSON.stringify(update.messageStubParameters || '')}`)
 					if (update.status === 0) stmt.forceStatus.run(0, this.accountId, key.id)
@@ -303,6 +308,14 @@ export class Session {
 			last_ts: c.conversationTimestamp ? toMs(c.conversationTimestamp) : 0
 		})
 		if (fromHistory && c.unreadCount > 0) stmt.setChatUnread.run(c.unreadCount, this.accountId, jid)
+	}
+
+	clearUnread(jid) {
+		if (!jid) return
+		const row = db.prepare('SELECT unread FROM chats WHERE account_id = ? AND jid = ?').get(this.accountId, jid)
+		if (!row?.unread) return
+		stmt.setChatUnread.run(0, this.accountId, jid)
+		this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
 	}
 
 	async groupName(jid) {
@@ -386,6 +399,8 @@ export class Session {
 			last_ts: ts
 		})
 		if (!inserted) return
+		// Si contestaste (desde la app o el teléfono), el chat ya está leído
+		if (fromMe) stmt.setChatUnread.run(0, this.accountId, jid)
 
 		const formatted = this.manager.formatMessage(stmt.getMessage.get(this.accountId, key.id))
 		this.manager.emit('event', { type: 'message', data: formatted })
