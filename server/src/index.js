@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { hasFfmpeg, toM4a, toMp4, toOpus } from './ffmpeg.js'
 import { CloudSession, validSignature, webhookVerifyToken } from './cloud.js'
 import { CampaignRunner } from './campaigns.js'
+import { diskInfo, startMaintenance } from './maintenance.js'
 
 const STARTED_AT = new Date().toISOString()
 const manager = new SessionManager()
@@ -36,6 +37,7 @@ app.get('/health', (req, res) => res.json({ ok: true, volume: process.env.RAILWA
 app.get('/diag', (req, res) => res.json({
 	startedAt: STARTED_AT,
 	accounts: manager.accounts().map(a => ({ id: a.id, status: a.status })),
+	disk: diskInfo(),
 	events: diag
 }))
 
@@ -413,6 +415,7 @@ server.listen(PORT, '0.0.0.0', async () => {
 	console.log('\nMultiWA servidor activo')
 	for (const ip of ips) console.log(`  URL: http://${ip}:${PORT}`)
 	console.log(`  Abre esa dirección en Safari y crea tu contraseña.\n`)
+	startMaintenance()
 	await manager.startAll()
 })
 

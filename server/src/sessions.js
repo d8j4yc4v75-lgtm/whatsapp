@@ -17,13 +17,13 @@ import makeWASocket, {
 	isPnUser,
 	jidNormalizedUser,
 	makeCacheableSignalKeyStore,
-	normalizeMessageContent,
-	useMultiFileAuthState
+	normalizeMessageContent
 } from 'baileys'
 import { db } from './db.js'
 import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 import { CloudSession, normalizePhone } from './cloud.js'
+import { clearAuth, hasAuth, useSqliteAuthState } from './auth-store.js'
 
 // Los avisos de Baileys también se guardan en el diagnóstico
 const logger = pino({ level: process.env.LOG_LEVEL || 'warn' }, {
@@ -182,7 +182,7 @@ export class Session {
 
 	async start() {
 		this.stopped = false
-		const { state, saveCreds } = await useMultiFileAuthState(this.authDir)
+		const { state, saveCreds } = useSqliteAuthState(this.accountId, this.authDir)
 		const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }))
 		const sock = makeWASocket({
 			version,
@@ -265,17 +265,14 @@ export class Session {
 			if (this.stopped) return
 			if (code === DisconnectReason.loggedOut) {
 				// A veces WhatsApp responde 401 de forma pasajera: se reintenta una vez antes de dar la sesión por cerrada
-				const registered = fs.existsSync(path.join(this.authDir, 'creds.json'))
+				const registered = hasAuth(this.accountId, this.authDir)
 				if (registered && (this.loggedOutRetries || 0) < 1) {
 					this.loggedOutRetries = (this.loggedOutRetries || 0) + 1
 					this.setStatus('reconnecting')
 					setTimeout(() => !this.stopped && this.start().catch(e => note(this.accountId, 'start-error', e.message)), 5000)
 					return
 				}
-				// Se guarda una copia por si hace falta revisarla, en lugar de borrarla
-				if (fs.existsSync(this.authDir)) {
-					fs.renameSync(this.authDir, `${this.authDir}-logout-${Date.now()}`)
-				}
+				clearAuth(this.accountId, this.authDir)
 				this.setStatus('logged_out')
 				return
 			}
@@ -367,7 +364,7 @@ export class Session {
 			media_mime: d.media_mime ?? null,
 			file_name: d.file_name ?? null,
 			status: fromMe ? Number(m.status ?? 1) : 0,
-			raw: MEDIA_TYPES[getContentType(content)] ? JSON.stringify(m, BufferJSON.replacer) : null
+			raw: MEDIA_TYPES[getContentType(content)] ? JSON.stringify(m, (k, v) => (k === 'jpegThumbnail' || k === 'thumbnailDirectPath' ? undefined : BufferJSON.replacer(k, v))) : null
 		}
 		const inserted = stmt.insertMessage.run(row).changes > 0
 		// El estado de error puede llegar fusionado en el mismo evento del mensaje ya guardado
@@ -488,7 +485,7 @@ export class Session {
 		this.stopped = true
 		try { await this.sock?.logout() } catch {}
 		this.sock = null
-		fs.rmSync(this.authDir, { recursive: true, force: true })
+		clearAuth(this.accountId, this.authDir)
 		this.qr = null
 		this.setStatus('logged_out')
 	}
@@ -507,7 +504,7 @@ export class SessionManager extends EventEmitter {
 				await this.start(id).catch(e => note(id, 'start-error', e.message))
 				continue
 			}
-			const linked = fs.existsSync(path.join(AUTH_DIR, String(id), 'creds.json'))
+			const linked = hasAuth(id, path.join(AUTH_DIR, String(id)))
 			note(id, 'boot', linked ? 'linked' : 'not-linked')
 			if (linked) {
 				await this.start(id).catch(e => logger.error(e))
