@@ -1,3 +1,4 @@
+import './preboot.js'
 import http from 'node:http'
 import os from 'node:os'
 import express from 'express'
