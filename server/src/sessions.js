@@ -393,6 +393,12 @@ export class Session {
 
 		if (live && !fromMe) {
 			if (row.raw) this.downloadMedia(key.id).catch(() => {})
+			// Baja: el contacto pide no recibir más mensajes de los envíos masivos
+			if (!isGroup && row.type === 'text' && /^\s*(baja|stop|alto|no molestar)\s*[.!]*\s*$/i.test(row.text || '')) {
+				db.prepare('INSERT OR REPLACE INTO optouts (phone, at) VALUES (?, ?)').run(jid.split('@')[0], Date.now())
+				note(this.accountId, 'optout')
+				this.send(jid, { text: 'Listo, ya no te enviaremos más mensajes. Gracias.' }).catch(() => {})
+			}
 			const conv = this.manager.conversation(this.accountId, jid)
 			const account = stmt.getAccount.get(this.accountId)
 			sendPush({

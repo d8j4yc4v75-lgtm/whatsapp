@@ -295,7 +295,7 @@ function render() {
 function tabs(active) {
 	const t = (name, icon, text, href) =>
 		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') ? 'active' : ''}"><span>${icon}</span>${text}${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
-	const sends = S.accounts.some(a => a.kind === 'cloud') ? t('campaigns', '📤', 'Envíos', '#/campaigns') : ''
+	const sends = S.accounts.length ? t('campaigns', '📤', 'Envíos', '#/campaigns') : ''
 	return `<nav class="tabs">${t('inbox', '💬', 'Bandeja', '#/')}${sends}${t('accounts', '📱', 'Cuentas', '#/accounts')}${t('settings', '⚙️', 'Ajustes', '#/settings')}</nav>`
 }
 
@@ -802,7 +802,7 @@ async function renderCampaigns(full) {
 		$('#view').innerHTML = `
 			<header class="bar"><h1>Envíos</h1><button class="icon-btn" data-act="new-campaign" aria-label="Nuevo envío">＋</button></header>
 			<div class="settings" style="min-height:100%"><div id="camp-list"></div>
-			<p class="hint">Los envíos salen poco a poco, solo en el horario que elijas y sin pasar el límite diario de Meta (250 personas nuevas al día si tu negocio no está verificado). Quien responda «BAJA» no vuelve a recibir mensajes.</p></div>`
+			<p class="hint">Los envíos salen poco a poco y solo en el horario que elijas. En <b>modo seguro</b> cada número manda como máximo su límite diario, con pausas al azar entre mensajes, y deja de usarse si WhatsApp le rechaza mensajes. Quien responda «BAJA» no vuelve a recibir mensajes.</p></div>`
 		try { S.campaigns = await api('GET', '/campaigns') } catch (e) { toast(e.message) }
 	}
 	renderCampaignList()
@@ -821,13 +821,23 @@ function renderCampaignList() {
 		const done = n.sent + n.failed + n.skipped
 		const [st, color] = CAMPAIGN_STATUS[c.status] || [c.status, 'var(--muted)']
 		const pct = total ? Math.round(done / total * 100) : 0
-		const why = c.note === 'limit' ? 'Esperando: se alcanzó el límite diario de Meta' : c.note || ''
+		const safe = c.kind === 'safe'
+		const waiting = c.note === 'limit' || c.note === 'limit-safe' || /^Esperando/.test(c.note || '')
+		const why = c.note === 'limit' ? 'Esperando: se alcanzó el límite diario de Meta'
+			: c.note === 'limit-safe' ? 'Esperando: los números ya enviaron su máximo de hoy. Sigue mañana sola.'
+			: c.note || ''
+		const tags = safe
+			? c.accountIds.map(id => c.disabledIds.includes(id) ? `<span style="opacity:.4;text-decoration:line-through">${accountTag(id)}</span>` : accountTag(id)).join('')
+			: accountTag(c.accountId)
+		const info = safe
+			? `Modo seguro · ${c.dailyPerNumber} por número al día · pausas de ${Math.round(c.minDelay / 60)}–${Math.round(c.maxDelay / 60)} min · ${c.startHour}:00–${c.endHour}:00`
+			: `Plantilla ${esc(c.template)} · ${c.perHour}/hora · ${c.startHour}:00–${c.endHour}:00`
 		return `<div class="item" style="display:block">
-			<div style="display:flex;gap:8px;align-items:center"><b class="grow">${esc(c.name)}</b>${accountTag(c.accountId)}<span class="status" style="color:${color}">${st}</span></div>
-			<small>Plantilla ${esc(c.template)} · ${c.perHour}/hora · ${c.startHour}:00–${c.endHour}:00</small>
+			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${tags}<span class="status" style="color:${color}">${st}</span></div>
+			<small>${info}</small>
 			<div class="bar-progress"><i style="width:${pct}%"></i></div>
-			<small>✅ ${n.sent} enviados · 👀 ${n.read} leídos · ⚠︎ ${n.failed} fallidos · ⏳ ${n.pending} pendientes${n.skipped ? ` · 🚫 ${n.skipped} con BAJA` : ''}</small>
-			${why ? `<small style="color:${c.note === 'limit' ? 'var(--muted)' : 'var(--danger)'}">${esc(why)}</small>` : ''}
+			<small>✅ ${n.sent} enviados · 👀 ${n.read} leídos · 💬 ${n.replied} respondieron · ⚠︎ ${n.failed} fallidos · ⏳ ${n.pending} pendientes${n.skipped ? ` · 🚫 ${n.skipped} con BAJA` : ''}</small>
+			${why ? `<small style="color:${waiting ? 'var(--muted)' : 'var(--danger)'}">${esc(why)}</small>` : ''}
 			<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
 				${c.status === 'running' ? `<button class="chip" data-act="camp" data-val="${c.id}:pause">Pausar</button>` : ''}
 				${c.status === 'paused' ? `<button class="chip" data-act="camp" data-val="${c.id}:resume">Reanudar</button>` : ''}
@@ -846,6 +856,94 @@ function parseList(text) {
 }
 
 function openNewCampaign() {
+	const normal = S.accounts.filter(a => a.kind !== 'cloud')
+	const cloud = S.accounts.filter(a => a.kind === 'cloud')
+	if (!cloud.length) return openNewSafeCampaign()
+	if (!normal.length) return openNewCloudCampaign()
+	sheet('Nuevo envío', `
+		<div class="group">
+			<button class="btn" data-act="new-safe"><b>🛡️ Modo seguro</b><small style="display:block;color:var(--muted)">Con tus números de WhatsApp normal, gratis, poco a poco.</small></button>
+			<button class="btn" data-act="new-cloud"><b>✅ API oficial</b><small style="display:block;color:var(--muted)">Con plantillas aprobadas por Meta.</small></button>
+		</div>`)
+}
+
+function openNewSafeCampaign() {
+	const normal = S.accounts.filter(a => a.kind !== 'cloud')
+	if (!normal.length) return toast('Primero vincula un número de WhatsApp en Cuentas')
+	sheet('Envío en modo seguro', `
+		<div class="section">Nombre del envío</div>
+		<div class="group"><div class="item"><input type="text" id="sf-name" placeholder="Ej. Recordatorios lunes"></div></div>
+		<div class="section">Números que van a enviar</div>
+		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status === 'connected' ? 'checked' : 'disabled'}><span class="grow">${accountTag(a.id)} ${a.phone ? '+' + esc(a.phone) : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
+		<p class="hint">La lista se reparte entre los números marcados.</p>
+		<div class="section">Mensaje</div>
+		<div class="group"><div class="item"><textarea id="sf-msg" rows="5" placeholder="Hola {{1}}, te escribo por tu saldo pendiente de \${{2}}. ¿Te puedo compartir opciones para ponerte al corriente? Si no deseas recibir mensajes, responde BAJA."></textarea></div></div>
+		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Mensajes cortos, amables y con el nombre de la persona se bloquean menos.</p>
+		<div class="section">Lista de contactos</div>
+		<div class="group">
+			<div class="item"><textarea id="sf-list" rows="6" placeholder="Un contacto por línea:\nteléfono, nombre, monto\n8112345678, Juan, 1500"></textarea></div>
+			<label class="btn">📄 Cargar archivo CSV<input type="file" id="sf-file" accept=".csv,.txt,text/csv" hidden></label>
+		</div>
+		<p class="hint" id="sf-count"></p>
+		<div class="section">Cuidado de los números</div>
+		<div class="group">
+			<div class="item"><span class="grow">Máximo por número al día</span><input type="number" id="sf-daily" value="30" min="1" max="200" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Pausa mínima (minutos)</span><input type="number" id="sf-min" value="2" min="1" max="60" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Pausa máxima (minutos)</span><input type="number" id="sf-max" value="5" min="1" max="120" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Desde (hora)</span><input type="number" id="sf-start" value="9" min="0" max="23" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="sf-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
+		</div>
+		<p class="hint">Recomendado: 20–30 por número al día y pausas de 2 a 5 minutos. Más rápido aumenta el riesgo de que WhatsApp restrinja el número.</p>
+		<div class="pad"><button class="btn primary" id="sf-go">Iniciar envío</button></div>`, el => {
+		const count = () => {
+			const rows = parseList($('#sf-list', el).value)
+			const accs = el.querySelectorAll('.sf-acc:checked').length
+			const daily = Number($('#sf-daily', el).value) || 30
+			const msg = $('#sf-msg', el).value
+			const days = accs ? Math.ceil(rows.length / (accs * daily)) : 0
+			$('#sf-count', el).innerHTML = rows.length
+				? `<b>${rows.length}</b> contactos · ${accs} número(s) × ${daily} al día = <b>${accs * daily} al día</b> · terminaría en unos <b>${days} día(s)</b>.${msg && rows[0] ? `<br>Ejemplo del primero: <i>${esc(msg.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || ''))}</i>` : ''}`
+				: 'Pega la lista o carga un archivo. La primera columna es el teléfono (10 dígitos).'
+		}
+		el.querySelectorAll('input, textarea').forEach(i => { i.addEventListener('input', count); i.addEventListener('change', count) })
+		$('#sf-file', el).onchange = async e => {
+			const f = e.target.files[0]
+			if (f) { $('#sf-list', el).value = await f.text(); count() }
+		}
+		count()
+		$('#sf-go', el).onclick = async () => {
+			const rows = parseList($('#sf-list', el).value)
+			const accountIds = [...el.querySelectorAll('.sf-acc:checked')].map(i => Number(i.value))
+			const message = $('#sf-msg', el).value.trim()
+			if (!accountIds.length) return toast('Marca al menos un número conectado')
+			if (!message) return toast('Escribe el mensaje')
+			if (!rows.length) return toast('La lista está vacía')
+			const daily = Number($('#sf-daily', el).value) || 30
+			if (daily > 50 && !confirm(`${daily} mensajes por número al día es mucho y aumenta el riesgo de restricción. ¿Continuar?`)) return
+			if (!confirm(`Se enviará a ${rows.length} contactos desde ${accountIds.length} número(s). ¿Iniciar?`)) return
+			try {
+				const res = await api('POST', '/campaigns', {
+					kind: 'safe',
+					accountIds,
+					name: $('#sf-name', el).value.trim() || 'Envío seguro',
+					message,
+					dailyPerNumber: daily,
+					minDelay: Number($('#sf-min', el).value) * 60,
+					maxDelay: Number($('#sf-max', el).value) * 60,
+					startHour: Number($('#sf-start', el).value),
+					endHour: Number($('#sf-end', el).value),
+					rows
+				})
+				closeSheet()
+				if (res.invalid?.length) toast(`${res.invalid.length} números no válidos se omitieron`, 5000)
+				S.campaigns = [res.campaign, ...S.campaigns.filter(c => c.id !== res.campaign.id)]
+				renderCampaignList()
+			} catch (e) { toast(e.message) }
+		}
+	})
+}
+
+function openNewCloudCampaign() {
 	const cloud = S.accounts.filter(a => a.kind === 'cloud' && a.status === 'connected')
 	if (!cloud.length) return toast('Primero conecta una cuenta con la API oficial')
 	sheet('Nuevo envío', `
@@ -1315,6 +1413,8 @@ document.addEventListener('click', async e => {
 		case 'add-account': return openAddAccount()
 		case 'tpl-chat': e.preventDefault(); return openTemplateChat()
 		case 'new-campaign': return openNewCampaign()
+		case 'new-safe': return openNewSafeCampaign()
+		case 'new-cloud': return openNewCloudCampaign()
 		case 'camp': {
 			const [id, action] = val.split(':')
 			if (action === 'cancel' && !confirm('¿Cancelar este envío? Los pendientes ya no se mandarán.')) return

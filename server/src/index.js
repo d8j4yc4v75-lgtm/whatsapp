@@ -266,9 +266,18 @@ app.post('/api/send-template', route(async req => {
 app.get('/api/campaigns', route(() => campaigns.list()))
 
 app.post('/api/campaigns', route(req => {
+	if (req.body.kind === 'safe') {
+		const ids = [...new Set((req.body.accountIds || []).map(Number))]
+		for (const id of ids) {
+			const a = db.prepare('SELECT kind FROM accounts WHERE id = ?').get(id)
+			if (!a) throw new Error('Cuenta no encontrada')
+			if (a.kind === 'cloud') throw new Error('El modo seguro es para números de WhatsApp normal; para la API usa plantillas')
+		}
+		return campaigns.create({ ...req.body, kind: 'safe', accountIds: ids })
+	}
 	const accountId = accountParam(req)
 	cloudSession(accountId)
-	return campaigns.create({ ...req.body, accountId })
+	return campaigns.create({ ...req.body, kind: 'cloud', accountId })
 }))
 
 app.get('/api/campaigns/:cid/items', route(req => campaigns.items(Number(req.params.cid), req.query.status || null)))
@@ -280,6 +289,8 @@ app.post('/api/campaigns/:cid/:action', route(req => {
 	const next = { pause: 'paused', resume: 'running', cancel: 'cancelled' }[req.params.action]
 	if (!next) throw new Error('Acción inválida')
 	if (c.status === 'done' || c.status === 'cancelled') throw new Error('Este envío ya terminó')
+	// Al reanudar se vuelven a usar los números que se habían apartado por rechazos
+	if (next === 'running') db.prepare('UPDATE campaigns SET disabled = NULL WHERE id = ?').run(id)
 	campaigns.setStatus(id, next)
 	return campaigns.get(id)
 }))
