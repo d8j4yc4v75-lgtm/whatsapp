@@ -26,9 +26,9 @@ export function saveSubscription(sub) {
 		.run(sub.endpoint, JSON.stringify(sub), Date.now())
 }
 
-export function sendPush({ title, body, jid, badge }) {
+export function sendPush({ title, body, jid, url, badge }) {
 	const subs = db.prepare('SELECT endpoint, data FROM push_subscriptions').all()
-	const payload = JSON.stringify({ title, body, jid, badge })
+	const payload = JSON.stringify({ title, body, jid, url, badge })
 	for (const s of subs) {
 		webpush.sendNotification(JSON.parse(s.data), payload, { TTL: 3600, urgency: 'high' }).catch(err => {
 			// 404/410 = la suscripción ya no existe

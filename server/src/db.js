@@ -121,3 +121,34 @@ CREATE TABLE IF NOT EXISTS optouts (
   at INTEGER NOT NULL
 );
 `)
+
+// Herramientas de cobranza: notas, recordatorios y respuestas rápidas
+db.exec(`
+CREATE TABLE IF NOT EXISTS conversation_notes (
+  conv_key TEXT PRIMARY KEY,
+  text TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reminders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conv_key TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  text TEXT NOT NULL DEFAULT '',
+  done INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (done, at);
+
+CREATE TABLE IF NOT EXISTS quick_replies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  text TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+`)
+try { db.exec('ALTER TABLE conversation_labels ADD COLUMN at INTEGER') } catch {}

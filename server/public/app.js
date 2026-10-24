@@ -21,7 +21,9 @@ const S = {
 	more: {},
 	campaigns: [],
 	templates: {},
-	filter: { account: null, label: null, unread: false, q: '' },
+	filter: { account: null, label: null, unread: false, waiting: false, reminders: false, q: '' },
+	replies: [],
+	statsDays: 7,
 	wsOk: false,
 	ws: null,
 	active: null,
@@ -94,6 +96,9 @@ function linkify(text) {
 	return esc(text).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
 }
 
+const HEALTH = { green: ['🟢', 'Sano'], yellow: ['🟡', 'Con cuidado'], red: ['🔴', 'Descansar'] }
+const healthDot = a => a?.health ? HEALTH[a.health.level][0] : ''
+
 function accountTag(id) {
 	const a = account(id)
 	return `<span class="tag" style="--c:${esc(a?.color || '#8E8E93')}">${esc(a?.name || '?')}</span>`
@@ -142,10 +147,11 @@ function logout() {
 
 // ---------- Datos y tiempo real ----------
 async function loadAll() {
-	const [accounts, convs, labels] = await Promise.all([api('GET', '/accounts'), api('GET', '/conversations'), api('GET', '/labels')])
+	const [accounts, convs, labels, replies] = await Promise.all([api('GET', '/accounts'), api('GET', '/conversations'), api('GET', '/labels'), api('GET', '/quick-replies')])
 	S.accounts = accounts
 	S.convs = convs
 	S.labels = labels
+	S.replies = replies
 	updateBadge()
 }
 
@@ -239,6 +245,9 @@ function handleEvent({ type, data }) {
 			if (route().name === 'campaigns') renderCampaignList()
 			return
 		}
+		case 'reminder':
+			toast(`⏰ ${data.name}: ${data.text || 'Recordatorio'}`, 8000)
+			return
 		case 'conversations.changed':
 			api('GET', '/conversations').then(c => { S.convs = c; updateBadge(); render() }).catch(() => {})
 			return
@@ -304,15 +313,38 @@ function filteredConvs() {
 	const f = S.filter
 	const q = f.q.trim().toLowerCase()
 	const digits = q.replace(/\D/g, '')
-	return S.convs.filter(c => {
+	const list = S.convs.filter(c => {
 		if (f.account && c.accountId !== f.account) return false
 		if (f.label && !c.labelIds.includes(f.label)) return false
 		if (f.unread && !c.unread) return false
+		if (f.waiting && (c.lastFromMe || c.isGroup || !c.lastTs)) return false
+		if (f.reminders && !c.reminder) return false
 		if (q) {
-			return convName(c).toLowerCase().includes(q) || (digits && (c.phone || '').includes(digits)) || (c.lastText || '').toLowerCase().includes(q)
+			return convName(c).toLowerCase().includes(q) || (digits && (c.phone || '').includes(digits)) || (c.lastText || '').toLowerCase().includes(q) || (c.note || '').toLowerCase().includes(q)
 		}
 		return true
 	})
+	// «Sin responder»: primero quien lleva más tiempo esperando; «Recordatorios»: el más próximo primero
+	if (f.waiting) list.sort((a, b) => a.lastTs - b.lastTs)
+	if (f.reminders) list.sort((a, b) => a.reminder.at - b.reminder.at)
+	return list
+}
+
+function waitingLabel(ts) {
+	const min = Math.round((Date.now() - ts) / 60000)
+	if (min < 60) return `espera hace ${min} min`
+	const h = Math.round(min / 60)
+	if (h < 24) return `espera hace ${h} h`
+	return `espera hace ${Math.round(h / 24)} día(s)`
+}
+
+function reminderLabel(at) {
+	const d = new Date(at)
+	const today = new Date()
+	const sameDay = d.toDateString() === today.toDateString()
+	const time = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+	if (sameDay) return `hoy ${time}`
+	return `${d.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })} ${time}`
 }
 
 function renderInbox(full) {
@@ -336,8 +368,10 @@ function renderChips() {
 	const chip = (act, val, text, on, color) =>
 		`<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-val="${esc(val)}" ${color ? `style="--c:${esc(color)}"` : ''}>${esc(text)}</button>`
 	$('#chips').innerHTML = [
-		chip('f-all', '', 'Todos', !f.account && !f.label && !f.unread),
+		chip('f-all', '', 'Todos', !f.account && !f.label && !f.unread && !f.waiting && !f.reminders),
 		chip('f-unread', '', 'No leídos', f.unread),
+		chip('f-waiting', '', `Sin responder${S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length ? ' (' + S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length + ')' : ''}`, f.waiting, '#E5484D'),
+		chip('f-reminders', '', `⏰ Recordatorios${S.convs.filter(c => c.reminder).length ? ' (' + S.convs.filter(c => c.reminder).length + ')' : ''}`, f.reminders, '#7C5CFF'),
 		...S.accounts.map(a => chip('f-account', a.id, a.name, f.account === a.id, a.color)),
 		...S.labels.map(l => chip('f-label', l.id, '# ' + l.name, f.label === l.id, l.color))
 	].join('')
@@ -357,7 +391,7 @@ function renderInboxList() {
 			<div class="body">
 				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
 				<div class="bottom"><span class="preview">${c.lastFromMe ? 'Tú: ' : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
-				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}</div>
+				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}${c.reminder ? `<span class="tag" style="--c:#7C5CFF">⏰ ${esc(reminderLabel(c.reminder.at))}</span>` : ''}${c.note ? '<span class="tag" style="--c:#B7791F">📝 Nota</span>' : ''}${S.filter.waiting ? `<span class="tag" style="--c:#E5484D">${waitingLabel(c.lastTs)}</span>` : ''}</div>
 			</div>
 		</a></li>`).join('')
 }
@@ -370,10 +404,14 @@ async function renderChat(jid, full) {
 			<header class="bar">
 				<button class="icon-btn" data-act="back" aria-label="Atrás">‹</button>
 				<div class="title"><b id="c-title"></b><small id="c-sub"></small></div>
+				<button class="icon-btn" data-act="note" aria-label="Nota">📝</button>
+				<button class="icon-btn" data-act="reminder" aria-label="Recordatorio">⏰</button>
 				<button class="icon-btn" data-act="labels" aria-label="Etiquetas">🏷️</button>
 			</header>
+			<div id="c-banners"></div>
 			<div class="msgs" id="msgs"><div class="empty">Cargando…</div></div>
 			<footer class="composer">
+				<div class="qr-pop" id="qr-pop" hidden></div>
 				<div class="from">Enviando desde <span id="from"></span></div>
 				<div class="hint24" id="hint24" hidden>Pasaron más de 24 h desde el último mensaje del cliente: solo puedes enviar una <a href="#" data-act="tpl-chat">plantilla 📋</a>.</div>
 				<div class="compose-row" id="compose-row"></div>
@@ -407,6 +445,100 @@ function renderChatHeader() {
 	if (c?.phone && c.name) parts.push('+' + c.phone)
 	if (c?.labelIds.length) parts.push(c.labelIds.map(label).filter(Boolean).map(l => l.name).join(', '))
 	$('#c-sub').textContent = parts.join(' · ')
+	const banners = $('#c-banners')
+	if (banners) {
+		const html = (c?.note ? `<div class="banner note" data-act="note">📝 ${esc(c.note)}</div>` : '')
+			+ (c?.reminder ? `<div class="banner reminder" data-act="reminder">⏰ ${esc(reminderLabel(c.reminder.at))}${c.reminder.text ? ' · ' + esc(c.reminder.text) : ''}</div>` : '')
+		if (banners.innerHTML !== html) banners.innerHTML = html
+	}
+}
+
+// ---------- Notas y recordatorios ----------
+function openNote() {
+	const key = S.active
+	const c = conv(key)
+	sheet('Nota del cliente', `
+		<div class="group"><div class="item"><textarea id="nt-text" rows="6" placeholder="Ej. Prometió pagar $500 el viernes. Prefiere que le escriban por la tarde."></textarea></div></div>
+		<p class="hint">Solo tú la ves. Aparece arriba del chat y puedes buscarla desde la bandeja.</p>
+		<div class="pad"><button class="btn primary" id="nt-save">Guardar nota</button></div>`, el => {
+		$('#nt-text', el).value = c?.note || ''
+		$('#nt-save', el).onclick = async () => {
+			try {
+				const updated = await api('PUT', `/conversations/${enc(key)}/note`, { text: $('#nt-text', el).value })
+				if (updated) upsertConv(updated)
+				closeSheet()
+				renderChatHeader()
+			} catch (e) { toast(e.message) }
+		}
+	})
+}
+
+function localInputValue(d) {
+	const p = n => String(n).padStart(2, '0')
+	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+async function openReminder() {
+	const key = S.active
+	let list = []
+	try { list = await api('GET', `/conversations/${enc(key)}/reminders`) } catch {}
+	const tomorrow = new Date(Date.now() + 864e5)
+	tomorrow.setHours(10, 0, 0, 0)
+	const quick = [
+		['En 1 hora', Date.now() + 3600000],
+		['Mañana 10:00', tomorrow.getTime()],
+		['En 3 días', (() => { const d = new Date(tomorrow); d.setDate(d.getDate() + 2); return d.getTime() })()],
+		['En 1 semana', (() => { const d = new Date(tomorrow); d.setDate(d.getDate() + 6); return d.getTime() })()]
+	]
+	sheet('Recordatorio', `
+		${list.length ? `<div class="section">Pendientes</div><div class="group">${list.map(r => `<div class="item"><span class="grow">⏰ ${esc(reminderLabel(r.at))}<small>${esc(r.text || '')}</small></span><button class="icon-btn" data-act="rem-del" data-val="${r.id}" aria-label="Borrar">🗑️</button></div>`).join('')}</div>` : ''}
+		<div class="section">Nuevo recordatorio</div>
+		<div class="chips" style="padding:8px 16px">${quick.map(([t, at]) => `<button class="chip" data-rem-at="${at}">${t}</button>`).join('')}</div>
+		<div class="group">
+			<div class="item"><span class="grow">Fecha y hora</span><input type="datetime-local" id="rm-at" value="${localInputValue(tomorrow)}"></div>
+			<div class="item"><input type="text" id="rm-text" placeholder="Qué hacer (ej. Confirmar pago de $500)"></div>
+		</div>
+		<p class="hint">Te llega una notificación a la hora elegida, aunque la app esté cerrada.</p>
+		<div class="pad"><button class="btn primary" id="rm-save">Guardar recordatorio</button></div>`, el => {
+		el.querySelectorAll('[data-rem-at]').forEach(b => {
+			b.onclick = () => {
+				$('#rm-at', el).value = localInputValue(new Date(Number(b.dataset.remAt)))
+				el.querySelectorAll('[data-rem-at]').forEach(x => x.classList.toggle('on', x === b))
+			}
+		})
+		$('#rm-save', el).onclick = async () => {
+			const at = new Date($('#rm-at', el).value).getTime()
+			if (!at) return toast('Elige la fecha y hora')
+			try {
+				const updated = await api('POST', `/conversations/${enc(key)}/reminders`, { at, text: $('#rm-text', el).value })
+				if (updated) upsertConv(updated)
+				closeSheet()
+				renderChatHeader()
+				toast('Recordatorio guardado ⏰')
+			} catch (e) { toast(e.message) }
+		}
+	})
+}
+
+// ---------- Respuestas rápidas ----------
+function fillReply(text) {
+	const c = conv(S.active)
+	const first = (c?.name || '').trim().split(/\s+/)[0] || ''
+	return text.replace(/\{nombre\}/gi, first).replace(/\s+([,.!?])/g, '$1').replace(/Hola\s*,/i, 'Hola,')
+}
+
+function renderQuickReplies() {
+	const pop = $('#qr-pop')
+	const ta = $('#text')
+	if (!pop || !ta) return
+	const v = ta.value
+	if (!v.startsWith('/')) { pop.hidden = true; return }
+	const q = v.slice(1).toLowerCase()
+	const list = S.replies.filter(r => r.title.toLowerCase().includes(q) || r.text.toLowerCase().includes(q)).slice(0, 8)
+	pop.innerHTML = list.length
+		? list.map(r => `<button class="qr-item" data-act="qr-pick" data-val="${r.id}"><b>${esc(r.title)}</b><small>${esc(fillReply(r.text))}</small></button>`).join('')
+		: '<div class="hint">No hay respuestas con ese nombre. Créalas en Ajustes › Respuestas rápidas.</div>'
+	pop.hidden = false
 }
 
 function renderFrom() {
@@ -435,7 +567,7 @@ function renderComposer() {
 	row.innerHTML = `
 		<button class="round ghost" data-act="attach" aria-label="Adjuntar">＋</button>
 		${isCloud ? '<button class="round ghost" data-act="tpl-chat" aria-label="Plantilla" style="font-size:22px">📋</button>' : ''}
-		<textarea id="text" rows="1" placeholder="Mensaje"></textarea>
+		<textarea id="text" rows="1" placeholder="Mensaje (escribe / para respuestas rápidas)"></textarea>
 		<button class="round" id="send-btn" data-act="send" aria-label="Enviar">🎤</button>`
 	const ta = $('#text')
 	ta.value = prev
@@ -444,7 +576,7 @@ function renderComposer() {
 		ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'
 		$('#send-btn').textContent = ta.value.trim() ? '➤' : '🎤'
 	}
-	ta.oninput = sync
+	ta.oninput = () => { sync(); renderQuickReplies() }
 	sync()
 }
 
@@ -801,11 +933,47 @@ async function renderCampaigns(full) {
 	if (full) {
 		$('#view').innerHTML = `
 			<header class="bar"><h1>Envíos</h1><button class="icon-btn" data-act="new-campaign" aria-label="Nuevo envío">＋</button></header>
-			<div class="settings" style="min-height:100%"><div id="camp-list"></div>
+			<div class="settings" style="min-height:100%">
+			<div class="section">Resultados</div>
+			<div class="chips" style="padding:4px 16px 8px">${[[1, 'Hoy'], [7, '7 días'], [30, '30 días']].map(([d, t]) => `<button class="chip ${S.statsDays === d ? 'on' : ''}" data-act="stats-days" data-val="${d}">${t}</button>`).join('')}</div>
+			<div id="stats"><p class="hint">Cargando…</p></div>
+			<div id="camp-list"></div>
 			<p class="hint">Los envíos salen poco a poco y solo en el horario que elijas. En <b>modo seguro</b> cada número manda como máximo su límite diario, con pausas al azar entre mensajes, y deja de usarse si WhatsApp le rechaza mensajes. Quien responda «BAJA» no vuelve a recibir mensajes.</p></div>`
 		try { S.campaigns = await api('GET', '/campaigns') } catch (e) { toast(e.message) }
+		loadStats()
 	}
 	renderCampaignList()
+}
+
+async function loadStats() {
+	const el = $('#stats')
+	if (!el) return
+	let st
+	try { st = await api('GET', `/stats?days=${S.statsDays}`) } catch (e) { el.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
+	const t = st.total
+	const rate = t.campaignSent ? Math.round(t.campaignReplied / t.campaignSent * 100) : 0
+	const lbl = name => st.labels.find(l => l.name.toLowerCase() === name.toLowerCase())
+	const promise = lbl('Promesa de pago')
+	const paid = lbl('Pagó')
+	const card = (n, text, color) => `<div class="stat"><b style="color:${color || 'var(--text)'}">${n}</b><small>${text}</small></div>`
+	const max = Math.max(1, ...st.series.map(d => Math.max(d.sent, d.received)))
+	el.innerHTML = `
+		<div class="stats-grid">
+			${card(t.sent || 0, 'mensajes enviados')}
+			${card(t.people || 0, 'personas escribieron', 'var(--accent)')}
+			${card(`${t.campaignReplied || 0} <span style="font-size:13px;color:var(--muted)">(${rate}%)</span>`, 'respondieron a envíos', 'var(--accent)')}
+			${card(promise ? promise.recent : 0, 'promesas de pago', '#FF9500')}
+			${card(paid ? paid.recent : 0, 'pagaron', '#25D366')}
+			${card(t.rejected || 0, 'rechazados por WhatsApp', t.rejected ? 'var(--danger)' : 'var(--muted)')}
+		</div>
+		${st.series.length > 1 ? `<div class="chart">${st.series.map(d => `
+			<div class="col" title="${d.day}: ${d.sent} enviados, ${d.received} recibidos">
+				<i class="b sent" style="height:${Math.round(d.sent / max * 100)}%"></i><i class="b recv" style="height:${Math.round(d.received / max * 100)}%"></i>
+				<small>${d.day.slice(8)}</small>
+			</div>`).join('')}</div>
+			<p class="hint" style="padding-top:0"><span style="color:var(--accent)">■</span> enviados &nbsp; <span style="color:#7C5CFF">■</span> recibidos</p>` : ''}
+		<div class="group">${st.perAccount.filter(a => a.sent || a.received).map(a => `
+			<div class="item" style="display:block"><div style="display:flex;gap:8px;align-items:center">${accountTag(a.accountId)}<span class="grow"></span><small style="display:inline">${a.sent} enviados · ${a.people} escribieron${a.campaignSent ? ` · ${a.campaignReplied}/${a.campaignSent} respondieron` : ''}${a.rejected ? ` · <span style="color:var(--danger)">${a.rejected} rechazados</span>` : ''}</small></div></div>`).join('') || '<p class="hint">Sin actividad en este periodo.</p>'}</div>`
 }
 
 function renderCampaignList() {
@@ -830,7 +998,7 @@ function renderCampaignList() {
 			? c.accountIds.map(id => c.disabledIds.includes(id) ? `<span style="opacity:.4;text-decoration:line-through">${accountTag(id)}</span>` : accountTag(id)).join('')
 			: accountTag(c.accountId)
 		const info = safe
-			? `Modo seguro · ${c.dailyPerNumber} por número al día · pausas de ${Math.round(c.minDelay / 60)}–${Math.round(c.maxDelay / 60)} min · ${c.startHour}:00–${c.endHour}:00`
+			? `Modo seguro · ${c.autoRamp ? 'sube poco a poco hasta ' : ''}${c.dailyPerNumber} por número al día · pausas de ${Math.round(c.minDelay / 60)}–${Math.round(c.maxDelay / 60)} min · ${c.startHour}:00–${c.endHour}:00`
 			: `Plantilla ${esc(c.template)} · ${c.perHour}/hora · ${c.startHour}:00–${c.endHour}:00`
 		return `<div class="item" style="display:block">
 			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${tags}<span class="status" style="color:${color}">${st}</span></div>
@@ -843,6 +1011,7 @@ function renderCampaignList() {
 				${c.status === 'paused' ? `<button class="chip" data-act="camp" data-val="${c.id}:resume">Reanudar</button>` : ''}
 				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
 				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
+				<a class="chip" style="--c:#1D6F42;text-decoration:none" href="/api/campaigns/${c.id}/export?token=${enc(S.token)}" download>📊 Excel</a>
 			</div>
 		</div>`
 	}).join('') + '</div>'
@@ -874,7 +1043,7 @@ function openNewSafeCampaign() {
 		<div class="section">Nombre del envío</div>
 		<div class="group"><div class="item"><input type="text" id="sf-name" placeholder="Ej. Recordatorios lunes"></div></div>
 		<div class="section">Números que van a enviar</div>
-		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status === 'connected' ? 'checked' : 'disabled'}><span class="grow">${accountTag(a.id)} ${a.phone ? '+' + esc(a.phone) : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
+		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status === 'connected' ? 'checked' : 'disabled'}><span class="grow">${accountTag(a.id)} ${a.phone ? '+' + esc(a.phone) : ''}${a.health && a.status === 'connected' ? `<small>${healthDot(a)} ${esc(a.health.reason)} · hoy hasta ${a.health.suggestedDaily}</small>` : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
 		<p class="hint">La lista se reparte entre los números marcados.</p>
 		<div class="section">Mensaje</div>
 		<div class="group"><div class="item"><textarea id="sf-msg" rows="5" placeholder="Hola {{1}}, te escribo por tu saldo pendiente de \${{2}}. ¿Te puedo compartir opciones para ponerte al corriente? Si no deseas recibir mensajes, responde BAJA."></textarea></div></div>
@@ -887,6 +1056,7 @@ function openNewSafeCampaign() {
 		<p class="hint" id="sf-count"></p>
 		<div class="section">Cuidado de los números</div>
 		<div class="group">
+			<label class="item"><input type="checkbox" id="sf-ramp" checked><span class="grow"><b>Subir el límite poco a poco</b><small>Recomendado. Cada número manda según su salud: 10 al día los primeros días y hasta el máximo cuando ya está sano. Si WhatsApp le rechaza mensajes, baja o se detiene.</small></span></label>
 			<div class="item"><span class="grow">Máximo por número al día</span><input type="number" id="sf-daily" value="30" min="1" max="200" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Pausa mínima (minutos)</span><input type="number" id="sf-min" value="2" min="1" max="60" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Pausa máxima (minutos)</span><input type="number" id="sf-max" value="5" min="1" max="120" style="text-align:right;max-width:80px"></div>
@@ -928,6 +1098,7 @@ function openNewSafeCampaign() {
 					name: $('#sf-name', el).value.trim() || 'Envío seguro',
 					message,
 					dailyPerNumber: daily,
+					autoRamp: $('#sf-ramp', el).checked,
 					minDelay: Number($('#sf-min', el).value) * 60,
 					maxDelay: Number($('#sf-max', el).value) * 60,
 					startHour: Number($('#sf-start', el).value),
@@ -1037,7 +1208,7 @@ function renderAccounts() {
 		${S.accounts.length ? `<div class="section">Tus WhatsApp (${S.accounts.length})</div><div class="group">${S.accounts.map(a => `
 			<a class="item" href="#/account/${a.id}">
 				<span class="swatch" style="--c:${esc(a.color)};width:16px;height:16px;border:0"></span>
-				<span class="grow"><b>${esc(a.name)}</b><small>${a.phone ? '+' + esc(a.phone) : 'Sin vincular'}</small></span>
+				<span class="grow"><b>${esc(a.name)} ${a.status === 'connected' ? healthDot(a) : ''}</b><small>${a.phone ? '+' + esc(a.phone) : 'Sin vincular'}${a.health && a.status === 'connected' ? ' · ' + esc(a.health.reason) : ''}</small></span>
 				<span class="status" style="color:${statusColor(a)}">${statusText(a)}</span> ›
 			</a>`).join('')}</div>` : `<div class="empty"><div class="big">📱</div>Toca <b>＋</b> para agregar tu primer WhatsApp.</div>`}
 		<p class="hint">Cada cuenta se vincula como «dispositivo vinculado», igual que WhatsApp Web. El teléfono de cada cuenta no necesita estar encendido, pero debe abrir WhatsApp al menos una vez cada 14 días.</p>
@@ -1181,6 +1352,7 @@ function renderAccount(id, full) {
 					<div class="item" id="ac-phone-row"><span class="grow">Número</span><span id="ac-phone"></span></div>
 				</div>
 				<div id="ac-link"></div>
+				<div id="ac-health"></div>
 				<div class="section">Personalizar</div>
 				<div class="group">
 					<div class="item"><span>Nombre</span><input type="text" id="ac-name" style="text-align:right"></div>
@@ -1233,6 +1405,21 @@ function renderAccount(id, full) {
 	}
 	const qr = $('#ac-qr')
 	if (qr && a.qr && qr.getAttribute('src') !== a.qr) qr.src = a.qr
+
+	const hEl = $('#ac-health')
+	if (hEl) {
+		const h = a.health
+		const html = h && a.status === 'connected' ? `
+			<div class="section">Salud del número</div>
+			<div class="group">
+				<div class="item"><span class="grow">Semáforo</span><span>${HEALTH[h.level][0]} ${HEALTH[h.level][1]}</span></div>
+				<div class="item"><span class="grow">Rechazos de WhatsApp</span><span>${h.rejections24h} en 24 h · ${h.rejections72h} en 3 días</span></div>
+				<div class="item"><span class="grow">Días vinculado</span><span>${h.ageDays}</span></div>
+				<div class="item"><span class="grow">Envíos sugeridos hoy</span><span><b>${h.suggestedDaily}</b></span></div>
+			</div>
+			<p class="hint">${esc(h.reason)} En modo seguro, el límite diario sube solo conforme el número lleva más días sin rechazos (10 → 15 → 20 → 30).</p>` : ''
+		if (hEl.innerHTML.trim() !== html.trim()) hEl.innerHTML = html
+	}
 
 	const actions = []
 	const actionsEl = $('#ac-actions')
@@ -1321,6 +1508,15 @@ function renderSettings() {
 			</div>
 			<p class="hint">Asigna etiquetas con el botón 🏷️ dentro de cada chat y filtra por ellas en la bandeja.</p>
 
+			<div class="section">Respuestas rápidas</div>
+			<div class="group">
+				${S.replies.map(r => `<div class="item"><span class="grow"><b>${esc(r.title)}</b><small style="white-space:pre-wrap">${esc(r.text)}</small></span><button class="icon-btn" data-act="del-reply" data-val="${r.id}" aria-label="Borrar">🗑️</button></div>`).join('')}
+				<div class="item"><input type="text" id="qr-title" placeholder="Nombre (ej. Datos de pago)"></div>
+				<div class="item"><textarea id="qr-text" rows="3" placeholder="Texto. Usa {nombre} para poner el nombre del cliente."></textarea></div>
+				<button class="btn" data-act="add-reply">Agregar respuesta rápida</button>
+			</div>
+			<p class="hint">En cualquier chat escribe <b>/</b> y elige una respuesta. {nombre} se cambia por el nombre del cliente.</p>
+
 			<div class="section">Almacenamiento</div>
 			<div class="group"><div class="item"><span class="grow">Datos guardados</span><span id="storage">…</span></div></div>
 
@@ -1387,13 +1583,53 @@ document.addEventListener('click', async e => {
 	switch (act) {
 		case 'go': return go(val)
 		case 'back': return history.length > 1 ? history.back() : go('#/')
-		case 'f-all': S.filter.account = null; S.filter.label = null; S.filter.unread = false; return renderInbox(false)
+		case 'f-all': S.filter.account = null; S.filter.label = null; S.filter.unread = false; S.filter.waiting = false; S.filter.reminders = false; return renderInbox(false)
+		case 'f-waiting': S.filter.waiting = !S.filter.waiting; if (S.filter.waiting) S.filter.reminders = false; return renderInbox(false)
+		case 'f-reminders': S.filter.reminders = !S.filter.reminders; if (S.filter.reminders) S.filter.waiting = false; return renderInbox(false)
 		case 'f-unread': S.filter.unread = !S.filter.unread; return renderInbox(false)
 		case 'f-account': S.filter.account = S.filter.account === Number(val) ? null : Number(val); return renderInbox(false)
 		case 'f-label': S.filter.label = S.filter.label === Number(val) ? null : Number(val); return renderInbox(false)
 		case 'new-chat': return openNewChat()
 		case 'close-sheet': return closeSheet()
 		case 'labels': return openLabelsSheet()
+		case 'note': return openNote()
+		case 'reminder': return openReminder()
+		case 'rem-del': {
+			try {
+				const updated = await api('DELETE', `/reminders/${val}`)
+				if (updated?.key) upsertConv(updated)
+				closeSheet()
+				renderChatHeader()
+			} catch (err) { toast(err.message) }
+			return
+		}
+		case 'qr-pick': {
+			const r = S.replies.find(x => x.id === Number(val))
+			const ta = $('#text')
+			if (r && ta) {
+				ta.value = fillReply(r.text)
+				ta.dispatchEvent(new Event('input'))
+				ta.focus()
+			}
+			return
+		}
+		case 'add-reply': {
+			const title = $('#qr-title').value.trim()
+			const text = $('#qr-text').value.trim()
+			if (!title || !text) return toast('Escribe el nombre y el texto')
+			try {
+				S.replies.push(await api('POST', '/quick-replies', { title, text }))
+				S.replies.sort((a, b) => a.title.localeCompare(b.title))
+				renderSettings()
+			} catch (err) { toast(err.message) }
+			return
+		}
+		case 'del-reply': {
+			if (!confirm('¿Borrar esta respuesta rápida?')) return
+			await api('DELETE', `/quick-replies/${val}`).catch(err => toast(err.message))
+			S.replies = S.replies.filter(r => r.id !== Number(val))
+			return renderSettings()
+		}
 		case 'attach': return $('#file').click()
 		case 'send': return $('#text').value.trim() ? sendText() : startRecording()
 		case 'rec-send': return stopRecording(true)
@@ -1426,6 +1662,11 @@ document.addEventListener('click', async e => {
 			return
 		}
 		case 'camp-failed': return showFailed(Number(val))
+		case 'stats-days': {
+			S.statsDays = Number(val)
+			document.querySelectorAll('[data-act=stats-days]').forEach(b => b.classList.toggle('on', Number(b.dataset.val) === S.statsDays))
+			return loadStats()
+		}
 		case 'cl-save': case 'tpl-refresh': case 'tpl-create':
 			e.preventDefault()
 			return accountAction(act)
@@ -1481,7 +1722,8 @@ document.addEventListener('visibilitychange', () => {
 })
 
 navigator.serviceWorker?.addEventListener('message', e => {
-	if (e.data?.type === 'open' && e.data.jid) go('#/chat/' + enc(e.data.jid))
+	if (e.data?.type === 'open' && e.data.url) location.href = e.data.url
+	else if (e.data?.type === 'open' && e.data.jid) go('#/chat/' + enc(e.data.jid))
 })
 
 async function boot() {

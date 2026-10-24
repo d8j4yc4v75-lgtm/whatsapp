@@ -1,6 +1,7 @@
 import { db } from './db.js'
 import { note } from './sessions.js'
 import { CloudSession, normalizePhone } from './cloud.js'
+import { accountHealth } from './health.js'
 
 // Envíos masivos: con plantillas de la API oficial, o en «modo seguro» con cuentas de WhatsApp normal.
 // Se mandan escalonados, en horario y respetando límites diarios.
@@ -23,7 +24,8 @@ for (const sql of [
 	'ALTER TABLE campaigns ADD COLUMN max_delay INTEGER NOT NULL DEFAULT 300',
 	'ALTER TABLE campaigns ADD COLUMN disabled TEXT',
 	'ALTER TABLE campaign_items ADD COLUMN sent_by INTEGER',
-	'ALTER TABLE campaign_items ADD COLUMN jid TEXT'
+	'ALTER TABLE campaign_items ADD COLUMN jid TEXT',
+	'ALTER TABLE campaigns ADD COLUMN auto_ramp INTEGER NOT NULL DEFAULT 1'
 ]) {
 	try { db.exec(sql) } catch {}
 }
@@ -41,7 +43,7 @@ export class CampaignRunner {
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
 	}
 
-	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, minDelay, maxDelay, rows }) {
+	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, minDelay, maxDelay, autoRamp, rows }) {
 		const safe = kind === 'safe'
 		if (!Array.isArray(rows) || !rows.length) throw new Error('La lista está vacía')
 		if (rows.length > 20000) throw new Error('Máximo 20,000 contactos por envío')
@@ -67,8 +69,8 @@ export class CampaignRunner {
 		const id = db.transaction(() => {
 			const { lastInsertRowid } = db.prepare(`
 				INSERT INTO campaigns (account_id, name, template, language, per_hour, start_hour, end_hour, status, created_at,
-					kind, message, accounts, daily_per_number, min_delay, max_delay)
-				VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)`).run(
+					kind, message, accounts, daily_per_number, min_delay, max_delay, auto_ramp)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)`).run(
 				safe ? accountIds[0] : accountId,
 				String(name || template || 'Envío').slice(0, 80),
 				safe ? '' : template,
@@ -82,7 +84,8 @@ export class CampaignRunner {
 				safe ? JSON.stringify(accountIds.map(Number)) : null,
 				clamp(dailyPerNumber, 1, 200, 30),
 				minD,
-				maxD
+				maxD,
+				autoRamp === false ? 0 : 1
 			)
 			const ins = db.prepare('INSERT INTO campaign_items (campaign_id, phone, params, status, error) VALUES (?, ?, ?, ?, ?)')
 			for (const it of items) {
@@ -117,6 +120,7 @@ export class CampaignRunner {
 			message: c.message,
 			perHour: c.per_hour,
 			dailyPerNumber: c.daily_per_number,
+			autoRamp: c.auto_ramp !== 0,
 			minDelay: c.min_delay,
 			maxDelay: c.max_delay,
 			startHour: c.start_hour,
@@ -234,7 +238,10 @@ export class CampaignRunner {
 		for (const acc of active) {
 			const session = this.manager.sessions.get(acc)
 			if (!session || session instanceof CloudSession || session.status !== 'connected') continue
-			if (this.safeSentLast24h(acc) >= c.daily_per_number) continue
+			// Con «subir poco a poco», el límite depende de la salud del número
+			const health = c.auto_ramp !== 0 ? accountHealth(acc, session.status) : null
+			const limit = health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
+			if (this.safeSentLast24h(acc) >= limit) continue
 			anyAvailable = true
 			const now = Date.now()
 			if (!this.nextAt.has(acc)) this.nextAt.set(acc, now + Math.random() * 30000)

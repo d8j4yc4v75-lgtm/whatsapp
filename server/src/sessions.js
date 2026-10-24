@@ -24,6 +24,7 @@ import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 import { CloudSession, normalizePhone } from './cloud.js'
 import { clearAuth, hasAuth, useSqliteAuthState } from './auth-store.js'
+import { accountHealth, markLinked, markUnlinked } from './health.js'
 
 // Los avisos de Baileys también se guardan en el diagnóstico
 const logger = pino({ level: process.env.LOG_LEVEL || 'warn' }, {
@@ -175,13 +176,41 @@ export class Session {
 	}
 
 	setStatus(status, phone = null) {
+		const prev = this.status
 		this.status = status
 		stmt.setAccount.run(status, phone, this.accountId)
 		this.manager.emit('event', { type: 'account.update', data: this.manager.accountInfo(this.accountId) })
+		// Avisos al teléfono cuando un número deja de funcionar
+		const name = stmt.getAccount.get(this.accountId)?.name || 'Un número'
+		if (status === 'connected') {
+			clearTimeout(this.alertTimer)
+		} else if (status === 'logged_out' && prev !== 'logged_out' && !this.userLogout) {
+			clearTimeout(this.alertTimer)
+			this.alert(`⚠️ ${name} se desvinculó`, 'WhatsApp cerró la sesión. Vuelve a vincularlo en Cuentas.')
+		} else if (status === 'reconnecting' && prev === 'connected') {
+			clearTimeout(this.alertTimer)
+			this.alertTimer = setTimeout(() => {
+				if (this.status !== 'connected' && !this.stopped) this.alert(`⚠️ ${name} está desconectado`, 'Lleva más de 10 minutos sin poder conectarse a WhatsApp.')
+			}, 10 * 60000)
+		}
+	}
+
+	alert(title, body) {
+		note(this.accountId, 'alert', title)
+		sendPush({ title, body, url: '/#/accounts', badge: this.manager.totalUnread() })
+	}
+
+	/** Aviso (como máximo cada 6 h) cuando WhatsApp rechaza mensajes de este número */
+	rejectionAlert() {
+		if (this.lastRejectionAlert && Date.now() - this.lastRejectionAlert < 6 * 3600000) return
+		this.lastRejectionAlert = Date.now()
+		const name = stmt.getAccount.get(this.accountId)?.name || 'Un número'
+		this.alert(`⚠️ WhatsApp rechazó mensajes de ${name}`, 'Puede estar restringido. Deja de enviar desde ese número unos días.')
 	}
 
 	async start() {
 		this.stopped = false
+		this.userLogout = false
 		const { state, saveCreds } = useSqliteAuthState(this.accountId, this.authDir)
 		const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }))
 		const sock = makeWASocket({
@@ -236,7 +265,7 @@ export class Session {
 				}
 				if (typeof update.status === 'number') {
 					note(this.accountId, 'status', `${update.status} ${JSON.stringify(update.messageStubParameters || '')}`)
-					if (update.status === 0) stmt.forceStatus.run(0, this.accountId, key.id)
+					if (update.status === 0) { stmt.forceStatus.run(0, this.accountId, key.id); this.rejectionAlert() }
 					else stmt.setStatus.run(update.status, this.accountId, key.id)
 					this.manager.emit('event', {
 						type: 'message.status',
@@ -261,6 +290,7 @@ export class Session {
 			this.loggedOutRetries = 0
 			const phone = this.sock.user?.id ? jidNormalizedUser(this.sock.user.id).split('@')[0] : null
 			note(this.accountId, 'open')
+			markLinked(this.accountId)
 			this.setStatus('connected', phone)
 		}
 		if (connection === 'close') {
@@ -278,6 +308,7 @@ export class Session {
 					return
 				}
 				clearAuth(this.accountId, this.authDir)
+				markUnlinked(this.accountId)
 				this.setStatus('logged_out')
 				return
 			}
@@ -385,6 +416,7 @@ export class Session {
 			if (m.status === 0) {
 				note(this.accountId, 'status', `0 ${JSON.stringify(m.messageStubParameters || '')}`)
 				stmt.forceStatus.run(0, this.accountId, key.id)
+				this.rejectionAlert()
 			} else {
 				stmt.setStatus.run(m.status, this.accountId, key.id)
 			}
@@ -509,6 +541,8 @@ export class Session {
 		this.sock = null
 		clearAuth(this.accountId, this.authDir)
 		this.qr = null
+		this.userLogout = true
+		markUnlinked(this.accountId)
 		this.setStatus('logged_out')
 	}
 }
@@ -566,6 +600,7 @@ export class SessionManager extends EventEmitter {
 		if (!a) return null
 		const s = this.sessions.get(id)
 		const info = { id: a.id, name: a.name, color: a.color, phone: a.phone, status: s?.status || a.status, qr: s?.qr || null, kind: a.kind || 'baileys' }
+		if (a.kind !== 'cloud') info.health = accountHealth(id, info.status)
 		if (a.kind === 'cloud') {
 			const cfg = JSON.parse(a.cloud || '{}')
 			info.error = s?.error || null
@@ -638,6 +673,8 @@ export class SessionManager extends EventEmitter {
 		const key = `${r.account_id}:${r.jid}`
 		const last = db.prepare('SELECT * FROM messages WHERE account_id = ? AND jid = ? ORDER BY ts DESC LIMIT 1').get(r.account_id, r.jid)
 		const labels = db.prepare('SELECT label_id FROM conversation_labels WHERE jid = ?').all(key).map(l => l.label_id)
+		const note = db.prepare('SELECT text FROM conversation_notes WHERE conv_key = ?').get(key)
+		const reminder = db.prepare('SELECT at, text FROM reminders WHERE conv_key = ? AND done = 0 ORDER BY at LIMIT 1').get(key)
 		return {
 			key,
 			accountId: r.account_id,
@@ -649,7 +686,9 @@ export class SessionManager extends EventEmitter {
 			lastText: preview(last),
 			lastFromMe: Boolean(last?.from_me),
 			unread: r.unread || 0,
-			labelIds: labels
+			labelIds: labels,
+			note: note?.text || null,
+			reminder: reminder ? { at: reminder.at, text: reminder.text } : null
 		}
 	}
 

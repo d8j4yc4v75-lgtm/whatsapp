@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { hasFfmpeg, toM4a, toMp4, toOpus } from './ffmpeg.js'
 import { CloudSession, validSignature, webhookVerifyToken } from './cloud.js'
 import { CampaignRunner } from './campaigns.js'
+import { setupExtras } from './extras.js'
 import { diskInfo, startMaintenance } from './maintenance.js'
 
 const STARTED_AT = new Date().toISOString()
@@ -243,10 +244,12 @@ app.post('/api/conversations/:key/read', route(async req => {
 app.put('/api/conversations/:key/labels', route(req => {
 	const { accountId, jid, key } = convKey(req.params.key)
 	const ids = (req.body.labelIds || []).map(Number).filter(Boolean)
+	// Se conserva la fecha de las etiquetas que ya tenía, para los resultados
 	db.transaction(() => {
-		db.prepare('DELETE FROM conversation_labels WHERE jid = ?').run(key)
-		const ins = db.prepare('INSERT OR IGNORE INTO conversation_labels (jid, label_id) SELECT ?, id FROM labels WHERE id = ?')
-		for (const id of ids) ins.run(key, id)
+		const keep = ids.length ? ids.map(() => '?').join(',') : 'NULL'
+		db.prepare(`DELETE FROM conversation_labels WHERE jid = ? AND label_id NOT IN (${keep})`).run(key, ...ids)
+		const ins = db.prepare('INSERT OR IGNORE INTO conversation_labels (jid, label_id, at) SELECT ?, id, ? FROM labels WHERE id = ?')
+		for (const id of ids) ins.run(key, Date.now(), id)
 	})()
 	const conv = manager.conversation(accountId, jid)
 	manager.emit('event', { type: 'conversation.update', data: conv })
@@ -354,6 +357,8 @@ app.get('/api/media/:id/:msgId', route(async (req, res) => {
 	res.type(mime)
 	res.sendFile(row.media_path)
 }))
+
+setupExtras({ app, route, manager })
 
 // ---- Etiquetas ----
 app.get('/api/labels', route(() => db.prepare('SELECT * FROM labels ORDER BY name').all()))

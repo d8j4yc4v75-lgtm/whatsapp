@@ -13,23 +13,24 @@ self.addEventListener('push', event => {
 		if (viewing) return
 		await self.registration.showNotification(data.title || 'MultiWA', {
 			body: data.body || '',
-			tag: data.jid,
+			tag: data.jid || data.url || 'multiwa',
 			renotify: true,
 			icon: '/icons/icon-192.png',
 			badge: '/icons/icon-192.png',
-			data: { jid: data.jid }
+			data: { jid: data.jid, url: data.url }
 		})
 	})())
 })
 
 self.addEventListener('notificationclick', event => {
 	event.notification.close()
-	const url = '/#/chat/' + encodeURIComponent(event.notification.data?.jid || '')
+	const data = event.notification.data || {}
+	const url = data.url || '/#/chat/' + encodeURIComponent(data.jid || '')
 	event.waitUntil((async () => {
 		const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
 		for (const w of windows) {
 			await w.focus()
-			w.postMessage({ type: 'open', jid: event.notification.data?.jid })
+			w.postMessage({ type: 'open', jid: data.jid, url: data.url })
 			return
 		}
 		await self.clients.openWindow(url)
