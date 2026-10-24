@@ -392,7 +392,8 @@ export class Session {
 		this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
 
 		if (live && !fromMe) {
-			if (row.raw) this.downloadMedia(key.id).catch(() => {})
+			// Fotos, audios y stickers se descargan al llegar; videos y documentos solo cuando se abren, para no llenar el disco
+			if (row.raw && ['image', 'audio', 'sticker'].includes(row.type)) this.downloadMedia(key.id).catch(() => {})
 			// Baja: el contacto pide no recibir más mensajes de los envíos masivos
 			if (!isGroup && row.type === 'text' && /^\s*(baja|stop|alto|no molestar)\s*[.!]*\s*$/i.test(row.text || '')) {
 				db.prepare('INSERT OR REPLACE INTO optouts (phone, at) VALUES (?, ?)').run(jid.split('@')[0], Date.now())

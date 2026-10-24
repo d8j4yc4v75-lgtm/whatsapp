@@ -296,7 +296,7 @@ export class CloudSession {
 			type, text, media_mime: mime, file_name: fileName, status: 0, raw
 		}
 		if (this.saveRow(row, true)) {
-			if (raw) this.downloadMedia(m.id).catch(() => {})
+			if (raw && ['image', 'audio', 'sticker'].includes(type)) this.downloadMedia(m.id).catch(() => {})
 			// Baja automática: el cliente pide no recibir más mensajes
 			if (type === 'text' && /^\s*(baja|stop|alto|no molestar)\s*[.!]*\s*$/i.test(text || '')) {
 				db.prepare('INSERT OR REPLACE INTO optouts (phone, at) VALUES (?, ?)').run(m.from, Date.now())
