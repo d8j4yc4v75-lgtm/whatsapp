@@ -1,6 +1,7 @@
 import { db } from './db.js'
 import { note } from './sessions.js'
 import { sendPush } from './push.js'
+import { setRest } from './health.js'
 
 // Herramientas de cobranza: respuestas rápidas, notas, recordatorios, resultados y exportación
 const DAY = 864e5
@@ -196,6 +197,23 @@ export function setupExtras({ app, route, manager }) {
 		const r = db.prepare('SELECT conv_key FROM reminders WHERE id = ?').get(Number(req.params.id))
 		db.prepare('DELETE FROM reminders WHERE id = ?').run(Number(req.params.id))
 		return r ? refresh(r.conv_key) : { ok: true }
+	}))
+
+	// ---- Descanso de números ----
+	app.post('/api/accounts/:id/rest', route(req => {
+		const id = Number(req.params.id)
+		if (!db.prepare('SELECT 1 FROM accounts WHERE id = ?').get(id)) throw Object.assign(new Error('Cuenta no encontrada'), { status: 404 })
+		setRest(id, Math.min(30, Math.max(0, Number(req.body.days) || 0)))
+		const info = manager.accountInfo(id)
+		manager.emit('event', { type: 'account.update', data: info })
+		return info
+	}))
+
+	app.get('/api/settings/rest-days', route(() => JSON.parse(setting.get('rest_days') || '[0]')))
+	app.put('/api/settings/rest-days', route(req => {
+		const days = [...new Set((req.body.days || []).map(Number).filter(d => d >= 0 && d <= 6))]
+		setting.set('rest_days', JSON.stringify(days))
+		return days
 	}))
 
 	// ---- Resultados ----

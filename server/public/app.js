@@ -24,6 +24,7 @@ const S = {
 	filter: { account: null, label: null, unread: false, waiting: false, reminders: false, q: '' },
 	replies: [],
 	statsDays: 7,
+	restDays: [0],
 	wsOk: false,
 	ws: null,
 	active: null,
@@ -96,6 +97,38 @@ function linkify(text) {
 	return esc(text).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
 }
 
+// ---------- Revisor de mensaje ----------
+const RISKY_WORDS = ['urgente', 'último aviso', 'ultimo aviso', 'última oportunidad', 'ultima oportunidad', 'demanda', 'embargo', 'buró', 'buro de credito', 'jurídico', 'juridico', 'abogado', 'legal', 'cárcel', 'carcel', 'policía', 'policia', 'penal', 'denuncia', 'inmediato', 'inmediatamente', 'hoy mismo', 'sanción', 'sancion', 'consecuencias', 'visita domiciliaria', 'requerimiento', 'gratis', 'gana', 'promoción', 'oferta']
+
+function reviewMessage(text) {
+	const t = String(text || '')
+	const low = t.toLowerCase()
+	const issues = []
+	if (!t.trim()) return { level: 'none', issues }
+	if (/https?:\/\/|www\.|\.(com|mx|net|link|ly)\b/i.test(t)) issues.push(['alto', 'Tiene un link. En el primer mensaje los links hacen que WhatsApp lo marque como spam; mándalo hasta que te contesten.'])
+	const words = RISKY_WORDS.filter(w => low.includes(w))
+	if (words.length) issues.push(['alto', `Usa palabras que suenan a amenaza o spam: «${words.slice(0, 4).join('», «')}». La gente reporta más y CONDUSEF prohíbe intimidar. Usa un tono amable.`])
+	const letters = t.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '')
+	const caps = t.replace(/[^A-ZÁÉÍÓÚÑ]/g, '').length
+	if (letters.length > 20 && caps / letters.length > 0.3) issues.push(['medio', 'Tiene muchas MAYÚSCULAS; se lee como si gritaras.'])
+	if (/!{2,}|\?{2,}/.test(t)) issues.push(['medio', 'Evita «!!» o «??» seguidos.'])
+	const emojis = (t.match(/\p{Extended_Pictographic}/gu) || []).length
+	if (emojis > 3) issues.push(['medio', 'Tiene muchos emojis; uno o ninguno es mejor.'])
+	if (t.length > 400) issues.push(['medio', `Es largo (${t.length} caracteres). Los mensajes cortos (menos de 300) se responden más y se reportan menos.`])
+	if (!/\{\{1\}\}|\{nombre\}/i.test(t)) issues.push(['medio', 'No lleva el nombre de la persona ({{1}}). Un mensaje personalizado se reporta mucho menos.'])
+	if (!/baja/i.test(t)) issues.push(['bajo', 'Agrega «Si no deseas recibir mensajes, responde BAJA». Mejor que te pidan baja a que te reporten.'])
+	if (!/\?/.test(t)) issues.push(['bajo', 'Termina con una pregunta (por ejemplo «¿Te comparto opciones?») para que contesten; las respuestas cuidan tu número.'])
+	const level = issues.some(i => i[0] === 'alto') ? 'alto' : issues.some(i => i[0] === 'medio') ? 'medio' : 'bajo'
+	return { level, issues }
+}
+
+function reviewHTML(text) {
+	const r = reviewMessage(text)
+	if (r.level === 'none') return ''
+	const head = { alto: ['🔴', 'Riesgo alto'], medio: ['🟡', 'Riesgo medio'], bajo: ['🟢', 'Riesgo bajo'] }[r.level]
+	return `<div class="review ${r.level}"><b>${head[0]} ${head[1]} de reportes o restricción</b>${r.issues.map(([sev, msg]) => `<div>${sev === 'alto' ? '⛔' : sev === 'medio' ? '⚠️' : '💡'} ${esc(msg)}</div>`).join('')}${!r.issues.length ? '<div>✅ El mensaje se ve bien.</div>' : ''}</div>`
+}
+
 const HEALTH = { green: ['🟢', 'Sano'], yellow: ['🟡', 'Con cuidado'], red: ['🔴', 'Descansar'] }
 const healthDot = a => a?.health ? HEALTH[a.health.level][0] : ''
 
@@ -152,6 +185,7 @@ async function loadAll() {
 	S.convs = convs
 	S.labels = labels
 	S.replies = replies
+	api('GET', '/settings/rest-days').then(d => { S.restDays = d }).catch(() => {})
 	updateBadge()
 }
 
@@ -1047,6 +1081,7 @@ function openNewSafeCampaign() {
 		<p class="hint">La lista se reparte entre los números marcados.</p>
 		<div class="section">Mensaje</div>
 		<div class="group"><div class="item"><textarea id="sf-msg" rows="5" placeholder="Hola {{1}}, te escribo por tu saldo pendiente de \${{2}}. ¿Te puedo compartir opciones para ponerte al corriente? Si no deseas recibir mensajes, responde BAJA."></textarea></div></div>
+		<div id="sf-review"></div>
 		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Mensajes cortos, amables y con el nombre de la persona se bloquean menos.</p>
 		<div class="section">Lista de contactos</div>
 		<div class="group">
@@ -1070,6 +1105,7 @@ function openNewSafeCampaign() {
 			const accs = el.querySelectorAll('.sf-acc:checked').length
 			const daily = Number($('#sf-daily', el).value) || 30
 			const msg = $('#sf-msg', el).value
+			$('#sf-review', el).innerHTML = reviewHTML(msg)
 			const days = accs ? Math.ceil(rows.length / (accs * daily)) : 0
 			$('#sf-count', el).innerHTML = rows.length
 				? `<b>${rows.length}</b> contactos · ${accs} número(s) × ${daily} al día = <b>${accs * daily} al día</b> · terminaría en unos <b>${days} día(s)</b>.${msg && rows[0] ? `<br>Ejemplo del primero: <i>${esc(msg.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || ''))}</i>` : ''}`
@@ -1087,6 +1123,7 @@ function openNewSafeCampaign() {
 			const message = $('#sf-msg', el).value.trim()
 			if (!accountIds.length) return toast('Marca al menos un número conectado')
 			if (!message) return toast('Escribe el mensaje')
+			if (reviewMessage(message).level === 'alto' && !confirm('El revisor marcó el mensaje con riesgo ALTO de reportes o restricción. ¿Enviar de todos modos?')) return
 			if (!rows.length) return toast('La lista está vacía')
 			const daily = Number($('#sf-daily', el).value) || 30
 			if (daily > 50 && !confirm(`${daily} mensajes por número al día es mucho y aumenta el riesgo de restricción. ¿Continuar?`)) return
@@ -1313,10 +1350,11 @@ async function renderCloudAccount(a) {
 		<div class="group">
 			<div class="item"><input type="text" id="nt-name" placeholder="Nombre (ej. recordatorio_pago)"></div>
 			<div class="item"><select id="nt-cat"><option value="UTILITY">Utilidad (recordatorios, avisos) · más barata</option><option value="MARKETING">Marketing (promociones, descuentos)</option></select></div>
-			<div class="item"><textarea id="nt-body" rows="5" placeholder="Hola {{1}}, te recordamos que tienes un saldo pendiente de \${{2}}. Responde a este mensaje para revisar opciones de pago. Si no deseas recibir más mensajes, responde BAJA."></textarea></div>
+			<div class="item"><textarea id="nt-body" oninput="document.getElementById('nt-review').innerHTML = reviewHTML(this.value)" rows="5" placeholder="Hola {{1}}, te recordamos que tienes un saldo pendiente de \${{2}}. Responde a este mensaje para revisar opciones de pago. Si no deseas recibir más mensajes, responde BAJA."></textarea></div>
 			<div class="item"><input type="text" id="nt-ex" placeholder="Ejemplos separados por coma: Juan, 1500"></div>
 			<button class="btn" data-act="tpl-create">Enviar a revisión de Meta</button>
 		</div>
+		<div id="nt-review"></div>
 		<p class="hint">Usa {{1}}, {{2}}… donde va el dato de cada persona (nombre, monto, fecha). Meta revisa la plantilla en minutos u horas. Si el texto ofrece descuentos u ofertas, Meta la cobra como marketing.</p>`
 	renderTemplateList(a.id)
 }
@@ -1417,7 +1455,10 @@ function renderAccount(id, full) {
 				<div class="item"><span class="grow">Días vinculado</span><span>${h.ageDays}</span></div>
 				<div class="item"><span class="grow">Envíos sugeridos hoy</span><span><b>${h.suggestedDaily}</b></span></div>
 			</div>
-			<p class="hint">${esc(h.reason)} En modo seguro, el límite diario sube solo conforme el número lleva más días sin rechazos (10 → 15 → 20 → 30).</p>` : ''
+			<div class="group">${h.restUntil
+				? '<button class="btn" data-act="rest" data-val="0">Terminar descanso ahora</button>'
+				: [3, 5, 7].map(d => `<button class="btn" data-act="rest" data-val="${d}">😴 Poner a descansar ${d} días</button>`).join('')}</div>
+			<p class="hint">${esc(h.reason)} Si WhatsApp le rechaza 2 mensajes en un día, el número descansa 5 días solo. Al volver, el límite sube otra vez poco a poco (10 → 15 → 20 → 30).</p>` : ''
 		if (hEl.innerHTML.trim() !== html.trim()) hEl.innerHTML = html
 	}
 
@@ -1507,6 +1548,10 @@ function renderSettings() {
 				<button class="btn" data-act="add-label">Agregar etiqueta</button>
 			</div>
 			<p class="hint">Asigna etiquetas con el botón 🏷️ dentro de cada chat y filtra por ellas en la bandeja.</p>
+
+			<div class="section">Días sin envíos masivos</div>
+			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
+			<p class="hint">Los días marcados no sale ningún envío masivo (los chats normales sí funcionan). Descansar los domingos ayuda a que los números se vean como de una persona real.</p>
 
 			<div class="section">Respuestas rápidas</div>
 			<div class="group">
@@ -1662,6 +1707,23 @@ document.addEventListener('click', async e => {
 			return
 		}
 		case 'camp-failed': return showFailed(Number(val))
+		case 'rest': {
+			const id = Number(route().arg)
+			const days = Number(val)
+			if (days && !confirm(`Este número no se usará en envíos masivos durante ${days} días. ¿Continuar?`)) return
+			try {
+				Object.assign(account(id), await api('POST', `/accounts/${id}/rest`, { days }))
+				render()
+			} catch (err) { toast(err.message) }
+			return
+		}
+		case 'rest-day': {
+			const d = Number(val)
+			S.restDays = S.restDays.includes(d) ? S.restDays.filter(x => x !== d) : [...S.restDays, d]
+			try { S.restDays = await api('PUT', '/settings/rest-days', { days: S.restDays }) } catch (err) { toast(err.message) }
+			document.querySelectorAll('[data-act=rest-day]').forEach(b => b.classList.toggle('on', S.restDays.includes(Number(b.dataset.val))))
+			return
+		}
 		case 'stats-days': {
 			S.statsDays = Number(val)
 			document.querySelectorAll('[data-act=stats-days]').forEach(b => b.classList.toggle('on', Number(b.dataset.val) === S.statsDays))

@@ -7,6 +7,11 @@ import { accountHealth } from './health.js'
 // Se mandan escalonados, en horario y respetando límites diarios.
 const TZ = process.env.TZ_CAMPAIGNS || 'America/Mexico_City'
 
+const weekdayNow = () => ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 })[new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(new Date())]
+const restDays = () => {
+	try { return JSON.parse(db.prepare("SELECT value FROM app_settings WHERE key = 'rest_days'").get()?.value || '[0]') } catch { return [0] }
+}
+
 const hourNow = () => Number(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' }).format(new Date()))
 
 // Errores que significan que hay que detener la campaña completa (no solo ese número)
@@ -175,8 +180,10 @@ export class CampaignRunner {
 		this.busy = true
 		try {
 			const hour = hourNow()
+			// Días de descanso: ese día no sale ningún envío masivo
+			const restToday = restDays().includes(weekdayNow())
 			for (const c of db.prepare("SELECT * FROM campaigns WHERE status = 'running'").all()) {
-				const inWindow = c.start_hour <= c.end_hour ? hour >= c.start_hour && hour < c.end_hour : hour >= c.start_hour || hour < c.end_hour
+				const inWindow = !restToday && (c.start_hour <= c.end_hour ? hour >= c.start_hour && hour < c.end_hour : hour >= c.start_hour || hour < c.end_hour)
 				if (c.kind === 'safe') await this.tickSafe(c, inWindow)
 				else if (inWindow) await this.tickCloud(c)
 			}
@@ -239,8 +246,9 @@ export class CampaignRunner {
 			const session = this.manager.sessions.get(acc)
 			if (!session || session instanceof CloudSession || session.status !== 'connected') continue
 			// Con «subir poco a poco», el límite depende de la salud del número
-			const health = c.auto_ramp !== 0 ? accountHealth(acc, session.status) : null
-			const limit = health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
+			const health = accountHealth(acc, session.status)
+			if (health?.restUntil) continue
+			const limit = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
 			if (this.safeSentLast24h(acc) >= limit) continue
 			anyAvailable = true
 			const now = Date.now()

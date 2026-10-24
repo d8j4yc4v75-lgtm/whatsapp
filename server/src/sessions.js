@@ -24,7 +24,7 @@ import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 import { CloudSession, normalizePhone } from './cloud.js'
 import { clearAuth, hasAuth, useSqliteAuthState } from './auth-store.js'
-import { accountHealth, markLinked, markUnlinked } from './health.js'
+import { accountHealth, markLinked, markUnlinked, maybeRest } from './health.js'
 
 // Los avisos de Baileys también se guardan en el diagnóstico
 const logger = pino({ level: process.env.LOG_LEVEL || 'warn' }, {
@@ -202,6 +202,12 @@ export class Session {
 
 	/** Aviso (como máximo cada 6 h) cuando WhatsApp rechaza mensajes de este número */
 	rejectionAlert() {
+		const name0 = stmt.getAccount.get(this.accountId)?.name || 'Un número'
+		if (maybeRest(this.accountId)) {
+			note(this.accountId, 'rest', 'auto')
+			this.alert(`😴 ${name0} entró en descanso`, 'WhatsApp le rechazó varios mensajes. No se usará en envíos masivos por unos días.')
+			this.manager.emit('event', { type: 'account.update', data: this.manager.accountInfo(this.accountId) })
+		}
 		if (this.lastRejectionAlert && Date.now() - this.lastRejectionAlert < 6 * 3600000) return
 		this.lastRejectionAlert = Date.now()
 		const name = stmt.getAccount.get(this.accountId)?.name || 'Un número'

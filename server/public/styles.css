@@ -266,3 +266,8 @@ a { color: var(--accent); }
 .chart small { font-size: 9px; color: var(--muted); position: absolute; bottom: -15px; }
 .item input[type=datetime-local] { border: 0; background: none; outline: none; text-align: right; }
 .item input[type=checkbox] { margin: 0; flex-shrink: 0; accent-color: var(--accent); width: 20px; height: 20px; }
+
+.review { margin: 8px 16px; padding: 10px 12px; border-radius: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.review.alto { background: color-mix(in srgb, var(--danger) 13%, var(--card)); }
+.review.medio { background: color-mix(in srgb, #E6B800 16%, var(--card)); }
+.review.bajo { background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
