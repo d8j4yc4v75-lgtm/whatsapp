@@ -148,6 +148,7 @@ app.patch('/api/accounts/:id', route(req => {
 	const id = accountParam(req)
 	if (req.body.name) db.prepare('UPDATE accounts SET name = ? WHERE id = ?').run(String(req.body.name), id)
 	if (/^#[0-9a-f]{6}$/i.test(req.body.color)) db.prepare('UPDATE accounts SET color = ? WHERE id = ?').run(req.body.color, id)
+	if (typeof req.body.reserve === 'boolean') db.prepare('UPDATE accounts SET reserve = ? WHERE id = ?').run(req.body.reserve ? 1 : 0, id)
 	const info = manager.accountInfo(id)
 	manager.emit('event', { type: 'account.update', data: info })
 	return info

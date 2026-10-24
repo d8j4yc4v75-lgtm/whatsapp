@@ -30,7 +30,10 @@ for (const sql of [
 	'ALTER TABLE campaigns ADD COLUMN disabled TEXT',
 	'ALTER TABLE campaign_items ADD COLUMN sent_by INTEGER',
 	'ALTER TABLE campaign_items ADD COLUMN jid TEXT',
-	'ALTER TABLE campaigns ADD COLUMN auto_ramp INTEGER NOT NULL DEFAULT 1'
+	'ALTER TABLE campaigns ADD COLUMN auto_ramp INTEGER NOT NULL DEFAULT 1',
+	'ALTER TABLE campaigns ADD COLUMN hourly_per_number INTEGER NOT NULL DEFAULT 8',
+	'ALTER TABLE campaigns ADD COLUMN target_numbers INTEGER',
+	'ALTER TABLE accounts ADD COLUMN reserve INTEGER NOT NULL DEFAULT 0'
 ]) {
 	try { db.exec(sql) } catch {}
 }
@@ -48,7 +51,7 @@ export class CampaignRunner {
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
 	}
 
-	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, minDelay, maxDelay, autoRamp, rows }) {
+	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, rows }) {
 		const safe = kind === 'safe'
 		if (!Array.isArray(rows) || !rows.length) throw new Error('La lista está vacía')
 		if (rows.length > 20000) throw new Error('Máximo 20,000 contactos por envío')
@@ -74,8 +77,8 @@ export class CampaignRunner {
 		const id = db.transaction(() => {
 			const { lastInsertRowid } = db.prepare(`
 				INSERT INTO campaigns (account_id, name, template, language, per_hour, start_hour, end_hour, status, created_at,
-					kind, message, accounts, daily_per_number, min_delay, max_delay, auto_ramp)
-				VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+					kind, message, accounts, daily_per_number, min_delay, max_delay, auto_ramp, hourly_per_number, target_numbers)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
 				safe ? accountIds[0] : accountId,
 				String(name || template || 'Envío').slice(0, 80),
 				safe ? '' : template,
@@ -90,7 +93,9 @@ export class CampaignRunner {
 				clamp(dailyPerNumber, 1, 200, 30),
 				minD,
 				maxD,
-				autoRamp === false ? 0 : 1
+				autoRamp === false ? 0 : 1,
+				clamp(hourlyPerNumber, 1, 60, 8),
+				safe ? accountIds.length : null
 			)
 			const ins = db.prepare('INSERT INTO campaign_items (campaign_id, phone, params, status, error) VALUES (?, ?, ?, ?, ?)')
 			for (const it of items) {
@@ -126,6 +131,7 @@ export class CampaignRunner {
 			perHour: c.per_hour,
 			dailyPerNumber: c.daily_per_number,
 			autoRamp: c.auto_ramp !== 0,
+			hourlyPerNumber: c.hourly_per_number,
 			minDelay: c.min_delay,
 			maxDelay: c.max_delay,
 			startHour: c.start_hour,
@@ -234,6 +240,25 @@ export class CampaignRunner {
 			}
 		}
 		if (rejected.changes) this.emit(c.id)
+		// Números de reserva: si alguno de los elegidos ya no puede enviar, entra uno de reserva en su lugar
+		const usable = acc => {
+			const session = this.manager.sessions.get(acc)
+			return !disabled.has(acc) && session && !(session instanceof CloudSession) && session.status === 'connected' && !accountHealth(acc, session.status)?.restUntil
+		}
+		const target = c.target_numbers || accounts.length
+		if (accounts.filter(usable).length < target) {
+			const reserve = db.prepare("SELECT id, name FROM accounts WHERE reserve = 1 AND kind != 'cloud' ORDER BY id").all()
+				.find(r => !accounts.includes(r.id) && usable(r.id))
+			if (reserve) {
+				accounts.push(reserve.id)
+				db.prepare('UPDATE campaigns SET accounts = ? WHERE id = ?').run(JSON.stringify(accounts), c.id)
+				// Empieza con pocos mensajes, como un número recién activado
+				db.prepare('UPDATE accounts SET rest_ended_at = ? WHERE id = ?').run(Date.now(), reserve.id)
+				note(reserve.id, 'reserve-in', String(c.id))
+				this.setNote(c, `Entró el número de reserva «${reserve.name}» porque otro dejó de estar disponible.`)
+				this.emit(c.id)
+			}
+		}
 		const active = accounts.filter(a => !disabled.has(a))
 		if (!active.length) return this.setStatus(c.id, 'paused', 'Ningún número disponible: WhatsApp rechazó mensajes de todos. Espera unos días antes de reanudar.')
 		if (!inWindow) return
@@ -250,6 +275,9 @@ export class CampaignRunner {
 			if (health?.restUntil) continue
 			const limit = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
 			if (this.safeSentLast24h(acc) >= limit) continue
+			// Límite por hora para que no se junten muchos mensajes seguidos
+			const lastHour = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE sent_by = ? AND status IN ('sent', 'failed', 'sending') AND sent_at > ?").get(acc, Date.now() - 3600000).n
+			if (lastHour >= (c.hourly_per_number || 8)) continue
 			anyAvailable = true
 			const now = Date.now()
 			if (!this.nextAt.has(acc)) this.nextAt.set(acc, now + Math.random() * 30000)

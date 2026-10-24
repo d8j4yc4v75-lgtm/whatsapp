@@ -2,6 +2,7 @@ import { db } from './db.js'
 import { note } from './sessions.js'
 import { sendPush } from './push.js'
 import { setRest } from './health.js'
+import { CloudSession, normalizePhone } from './cloud.js'
 
 // Herramientas de cobranza: respuestas rápidas, notas, recordatorios, resultados y exportación
 const DAY = 864e5
@@ -197,6 +198,38 @@ export function setupExtras({ app, route, manager }) {
 		const r = db.prepare('SELECT conv_key FROM reminders WHERE id = ?').get(Number(req.params.id))
 		db.prepare('DELETE FROM reminders WHERE id = ?').run(Number(req.params.id))
 		return r ? refresh(r.conv_key) : { ok: true }
+	}))
+
+	// ---- Validar lista: qué números sí tienen WhatsApp ----
+	app.post('/api/validate-list', route(async req => {
+		const phones = (req.body.phones || []).slice(0, 3000)
+		const prefer = (req.body.accountIds || []).map(Number)
+		const sessions = [...manager.sessions.entries()]
+			.filter(([, s]) => !(s instanceof CloudSession) && s.status === 'connected' && s.sock)
+			.sort(([a], [b]) => (prefer.includes(b) ? 1 : 0) - (prefer.includes(a) ? 1 : 0))
+		if (!sessions.length) throw new Error('Necesitas al menos un número de WhatsApp normal conectado para validar la lista')
+		const sock = sessions[0][1].sock
+		const valid = []
+		const invalid = []
+		const normalized = []
+		for (const p of phones) {
+			try { normalized.push([p, normalizePhone(p)]) } catch { invalid.push(String(p)) }
+		}
+		// Se consulta en grupos pequeños y con pausa para no saturar a WhatsApp
+		for (let i = 0; i < normalized.length; i += 20) {
+			const chunk = normalized.slice(i, i + 20)
+			let found
+			try {
+				found = await sock.onWhatsApp(...chunk.map(([, n]) => n))
+			} catch (e) {
+				throw new Error(`WhatsApp no respondió la validación (${e.message}). Intenta de nuevo en unos minutos.`)
+			}
+			const exists = new Set((found || []).filter(f => f.exists).map(f => String(f.jid).split('@')[0].slice(-10)))
+			for (const [orig, n] of chunk) (exists.has(n.slice(-10)) ? valid : invalid).push(orig)
+			if (i + 20 < normalized.length) await new Promise(r => setTimeout(r, 1200))
+		}
+		note(sessions[0][0], 'validate', `${valid.length}/${phones.length}`)
+		return { valid, invalid }
 	}))
 
 	// ---- Descanso de números ----

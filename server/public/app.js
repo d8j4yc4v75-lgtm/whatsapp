@@ -1032,7 +1032,7 @@ function renderCampaignList() {
 			? c.accountIds.map(id => c.disabledIds.includes(id) ? `<span style="opacity:.4;text-decoration:line-through">${accountTag(id)}</span>` : accountTag(id)).join('')
 			: accountTag(c.accountId)
 		const info = safe
-			? `Modo seguro · ${c.autoRamp ? 'sube poco a poco hasta ' : ''}${c.dailyPerNumber} por número al día · pausas de ${Math.round(c.minDelay / 60)}–${Math.round(c.maxDelay / 60)} min · ${c.startHour}:00–${c.endHour}:00`
+			? `Modo seguro · ${c.autoRamp ? 'sube poco a poco hasta ' : ''}${c.dailyPerNumber} por número al día · ${c.hourlyPerNumber || 8} por hora · pausas de ${Math.round(c.minDelay / 60)}–${Math.round(c.maxDelay / 60)} min · ${c.startHour}:00–${c.endHour}:00`
 			: `Plantilla ${esc(c.template)} · ${c.perHour}/hora · ${c.startHour}:00–${c.endHour}:00`
 		return `<div class="item" style="display:block">
 			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${tags}<span class="status" style="color:${color}">${st}</span></div>
@@ -1077,8 +1077,8 @@ function openNewSafeCampaign() {
 		<div class="section">Nombre del envío</div>
 		<div class="group"><div class="item"><input type="text" id="sf-name" placeholder="Ej. Recordatorios lunes"></div></div>
 		<div class="section">Números que van a enviar</div>
-		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status === 'connected' ? 'checked' : 'disabled'}><span class="grow">${accountTag(a.id)} ${a.phone ? '+' + esc(a.phone) : ''}${a.health && a.status === 'connected' ? `<small>${healthDot(a)} ${esc(a.health.reason)} · hoy hasta ${a.health.suggestedDaily}</small>` : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
-		<p class="hint">La lista se reparte entre los números marcados.</p>
+		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status !== 'connected' ? 'disabled' : a.reserve ? '' : 'checked'}><span class="grow">${accountTag(a.id)} ${a.phone ? '+' + esc(a.phone) : ''}${a.reserve ? ' <b style="color:#7C5CFF">· reserva</b>' : ''}${a.health && a.status === 'connected' ? `<small>${healthDot(a)} ${esc(a.health.reason)} · hoy hasta ${a.health.suggestedDaily}</small>` : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
+		<p class="hint">La lista se reparte entre los números marcados. Los números de <b>reserva</b> entran solos si uno de los marcados se restringe, descansa o se desconecta.</p>
 		<div class="section">Mensaje</div>
 		<div class="group"><div class="item"><textarea id="sf-msg" rows="5" placeholder="Hola {{1}}, te escribo por tu saldo pendiente de \${{2}}. ¿Te puedo compartir opciones para ponerte al corriente? Si no deseas recibir mensajes, responde BAJA."></textarea></div></div>
 		<div id="sf-review"></div>
@@ -1087,18 +1087,21 @@ function openNewSafeCampaign() {
 		<div class="group">
 			<div class="item"><textarea id="sf-list" rows="6" placeholder="Un contacto por línea:\nteléfono, nombre, monto\n8112345678, Juan, 1500"></textarea></div>
 			<label class="btn">📄 Cargar archivo CSV<input type="file" id="sf-file" accept=".csv,.txt,text/csv" hidden></label>
+			<button class="btn" id="sf-validate">✅ Validar lista (quitar números sin WhatsApp)</button>
 		</div>
 		<p class="hint" id="sf-count"></p>
+		<div class="hint" id="sf-invalid"></div>
 		<div class="section">Cuidado de los números</div>
 		<div class="group">
 			<label class="item"><input type="checkbox" id="sf-ramp" checked><span class="grow"><b>Subir el límite poco a poco</b><small>Recomendado. Cada número manda según su salud: 10 al día los primeros días y hasta el máximo cuando ya está sano. Si WhatsApp le rechaza mensajes, baja o se detiene.</small></span></label>
 			<div class="item"><span class="grow">Máximo por número al día</span><input type="number" id="sf-daily" value="30" min="1" max="200" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Máximo por número por hora</span><input type="number" id="sf-hourly" value="8" min="1" max="60" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Pausa mínima (minutos)</span><input type="number" id="sf-min" value="2" min="1" max="60" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Pausa máxima (minutos)</span><input type="number" id="sf-max" value="5" min="1" max="120" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Desde (hora)</span><input type="number" id="sf-start" value="9" min="0" max="23" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="sf-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
 		</div>
-		<p class="hint">Recomendado: 20–30 por número al día y pausas de 2 a 5 minutos. Más rápido aumenta el riesgo de que WhatsApp restrinja el número.</p>
+		<p class="hint">Recomendado: 20–30 por número al día, máximo 8 por hora y pausas de 2 a 5 minutos. Más rápido aumenta el riesgo de que WhatsApp restrinja el número.</p>
 		<div class="pad"><button class="btn primary" id="sf-go">Iniciar envío</button></div>`, el => {
 		const count = () => {
 			const rows = parseList($('#sf-list', el).value)
@@ -1112,6 +1115,29 @@ function openNewSafeCampaign() {
 				: 'Pega la lista o carga un archivo. La primera columna es el teléfono (10 dígitos).'
 		}
 		el.querySelectorAll('input, textarea').forEach(i => { i.addEventListener('input', count); i.addEventListener('change', count) })
+		$('#sf-validate', el).onclick = async () => {
+			const lines = $('#sf-list', el).value.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+			const rows = parseList($('#sf-list', el).value)
+			if (!rows.length) return toast('Primero pega o carga la lista')
+			const btn = $('#sf-validate', el)
+			btn.disabled = true
+			btn.textContent = `Validando ${rows.length} números… (unos ${Math.max(1, Math.ceil(rows.length / 20 * 1.3 / 60))} min)`
+			try {
+				const accountIds = [...el.querySelectorAll('.sf-acc:checked')].map(i => Number(i.value))
+				const { valid, invalid } = await api('POST', '/validate-list', { phones: rows.map(r => r.phone), accountIds })
+				const ok = new Set(valid)
+				// Se conservan solo las filas con WhatsApp (y las que no parecen teléfono, como encabezados, se quitan)
+				$('#sf-list', el).value = lines.filter(l => ok.has(parseList(l)[0]?.phone)).join('\n')
+				count()
+				$('#sf-invalid', el).innerHTML = invalid.length
+					? `<details><summary>Se quitaron ${invalid.length} números sin WhatsApp</summary><div style="white-space:pre-wrap">${esc(invalid.join('\n'))}</div></details>`
+					: '✅ Todos los números tienen WhatsApp.'
+				toast(`${valid.length} con WhatsApp · ${invalid.length} quitados`)
+			} catch (e) { toast(e.message, 6000) } finally {
+				btn.disabled = false
+				btn.textContent = '✅ Validar lista (quitar números sin WhatsApp)'
+			}
+		}
 		$('#sf-file', el).onchange = async e => {
 			const f = e.target.files[0]
 			if (f) { $('#sf-list', el).value = await f.text(); count() }
@@ -1135,6 +1161,7 @@ function openNewSafeCampaign() {
 					name: $('#sf-name', el).value.trim() || 'Envío seguro',
 					message,
 					dailyPerNumber: daily,
+					hourlyPerNumber: Number($('#sf-hourly', el).value) || 8,
 					autoRamp: $('#sf-ramp', el).checked,
 					minDelay: Number($('#sf-min', el).value) * 60,
 					maxDelay: Number($('#sf-max', el).value) * 60,
@@ -1245,7 +1272,7 @@ function renderAccounts() {
 		${S.accounts.length ? `<div class="section">Tus WhatsApp (${S.accounts.length})</div><div class="group">${S.accounts.map(a => `
 			<a class="item" href="#/account/${a.id}">
 				<span class="swatch" style="--c:${esc(a.color)};width:16px;height:16px;border:0"></span>
-				<span class="grow"><b>${esc(a.name)} ${a.status === 'connected' ? healthDot(a) : ''}</b><small>${a.phone ? '+' + esc(a.phone) : 'Sin vincular'}${a.health && a.status === 'connected' ? ' · ' + esc(a.health.reason) : ''}</small></span>
+				<span class="grow"><b>${esc(a.name)} ${a.status === 'connected' ? healthDot(a) : ''}${a.reserve ? ' <small style="display:inline;color:#7C5CFF">reserva</small>' : ''}</b><small>${a.phone ? '+' + esc(a.phone) : 'Sin vincular'}${a.health && a.status === 'connected' ? ' · ' + esc(a.health.reason) : ''}</small></span>
 				<span class="status" style="color:${statusColor(a)}">${statusText(a)}</span> ›
 			</a>`).join('')}</div>` : `<div class="empty"><div class="big">📱</div>Toca <b>＋</b> para agregar tu primer WhatsApp.</div>`}
 		<p class="hint">Cada cuenta se vincula como «dispositivo vinculado», igual que WhatsApp Web. El teléfono de cada cuenta no necesita estar encendido, pero debe abrir WhatsApp al menos una vez cada 14 días.</p>
@@ -1391,6 +1418,7 @@ function renderAccount(id, full) {
 				</div>
 				<div id="ac-link"></div>
 				<div id="ac-health"></div>
+				<div id="ac-reserve"></div>
 				<div class="section">Personalizar</div>
 				<div class="group">
 					<div class="item"><span>Nombre</span><input type="text" id="ac-name" style="text-align:right"></div>
@@ -1444,6 +1472,21 @@ function renderAccount(id, full) {
 	const qr = $('#ac-qr')
 	if (qr && a.qr && qr.getAttribute('src') !== a.qr) qr.src = a.qr
 
+	const rEl = $('#ac-reserve')
+	if (rEl) {
+		const html = `<div class="section">Número de reserva</div>
+			<div class="group"><label class="item"><input type="checkbox" id="ac-reserve-cb" ${a.reserve ? 'checked' : ''}><span class="grow"><b>Usar como reserva</b><small>No se usa en los envíos masivos hasta que otro número se restrinja, descanse o se desconecte; entonces entra solo, empezando con pocos mensajes.</small></span></label></div>`
+		if (rEl.dataset.sig !== String(a.reserve)) {
+			rEl.dataset.sig = String(a.reserve)
+			rEl.innerHTML = html
+			$('#ac-reserve-cb').onchange = async e => {
+				try {
+					Object.assign(account(a.id), await api('PATCH', `/accounts/${a.id}`, { reserve: e.target.checked }))
+					toast(e.target.checked ? 'Ahora es número de reserva' : 'Ya no es de reserva')
+				} catch (err) { toast(err.message) }
+			}
+		}
+	}
 	const hEl = $('#ac-health')
 	if (hEl) {
 		const h = a.health

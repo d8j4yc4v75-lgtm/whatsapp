@@ -606,7 +606,10 @@ export class SessionManager extends EventEmitter {
 		if (!a) return null
 		const s = this.sessions.get(id)
 		const info = { id: a.id, name: a.name, color: a.color, phone: a.phone, status: s?.status || a.status, qr: s?.qr || null, kind: a.kind || 'baileys' }
-		if (a.kind !== 'cloud') info.health = accountHealth(id, info.status)
+		if (a.kind !== 'cloud') {
+			info.health = accountHealth(id, info.status)
+			info.reserve = Boolean(a.reserve)
+		}
 		if (a.kind === 'cloud') {
 			const cfg = JSON.parse(a.cloud || '{}')
 			info.error = s?.error || null
