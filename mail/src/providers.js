@@ -1,3 +1,4 @@
+import { Resolver } from 'node:dns/promises'
 // Ajustes automáticos de IMAP/SMTP por proveedor, para que el usuario solo ponga correo y contraseña
 const PROVIDERS = {
 	gmail: { label: 'Gmail', imap: 'imap.gmail.com', smtp: 'smtp.gmail.com', help: 'Activa la verificación en dos pasos y crea una «Contraseña de aplicación» en myaccount.google.com/apppasswords.' },
@@ -36,7 +37,25 @@ export function guessProvider(email) {
 	}
 }
 
-/** Para dominios propios (como los de Zoho con GoDaddy), se intenta adivinar el servidor */
+const MX_HOSTS = [
+	[/zoho/i, { provider: 'Zoho (dominio propio)', imapHost: 'imap.zoho.com', smtpHost: 'smtp.zoho.com', smtpPort: 465, help: 'Usa tu contraseña de Zoho, o una contraseña de aplicación si tienes verificación en dos pasos.' }],
+	[/google|googlemail|gmail/i, { provider: 'Google Workspace', imapHost: 'imap.gmail.com', smtpHost: 'smtp.gmail.com', smtpPort: 465, help: 'Crea una contraseña de aplicación en myaccount.google.com/apppasswords.' }],
+	[/outlook|office365|protection\.outlook/i, { provider: 'Microsoft 365', imapHost: 'outlook.office365.com', smtpHost: 'smtp.office365.com', smtpPort: 587, help: 'Crea una contraseña de aplicación en account.microsoft.com/security.' }]
+]
+
+/** Mira a dónde apunta el correo del dominio (registros MX) para saber el servidor correcto */
+export async function guessByMx(email) {
+	const domain = String(email).toLowerCase().split('@')[1] || ''
+	if (!domain) return null
+	try {
+		const resolver = new Resolver({ timeout: 4000 })
+		const mx = await resolver.resolveMx(domain)
+		const target = (mx.sort((a, b) => a.priority - b.priority)[0]?.exchange || '')
+		for (const [re, cfg] of MX_HOSTS) if (re.test(target)) return { ...cfg, imapPort: 993 }
+	} catch {}
+	return null
+}
+
 export function guessCustom(email) {
 	const domain = String(email).toLowerCase().split('@')[1] || ''
 	return {

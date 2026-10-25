@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws'
 import { db } from './db.js'
 import { API_TOKEN, PORT } from './config.js'
 import { MailManager } from './mailbox.js'
-import { guessProvider, guessCustom } from './providers.js'
+import { guessProvider, guessCustom, guessByMx } from './providers.js'
 import { VAPID_PUBLIC_KEY, saveSubscription } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 
@@ -63,19 +63,19 @@ app.get('/api/info', route(() => ({ unread: manager.totalUnread() })))
 app.post('/api/password', route(req => { changePassword(req.body.password); return { ok: true } }))
 
 // ---- Ayuda para configurar una cuenta ----
-app.get('/api/guess', route(req => {
+app.get('/api/guess', route(async req => {
 	const email = String(req.query.email || '')
 	if (!/@/.test(email)) throw new Error('Escribe el correo completo')
-	return guessProvider(email) || guessCustom(email)
+	return guessProvider(email) || (await guessByMx(email)) || guessCustom(email)
 }))
 
 // ---- Cuentas ----
 app.get('/api/accounts', route(() => manager.accounts()))
 
-const accountBody = (body, prev = {}) => {
+const accountBody = async (body, prev = {}) => {
 	const email = String(body.email ?? prev.email ?? '').trim().toLowerCase()
 	if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Correo inválido')
-	const g = guessProvider(email) || guessCustom(email)
+	const g = guessProvider(email) || (body.imapHost ? null : await guessByMx(email)) || guessCustom(email)
 	return {
 		name: String(body.name ?? prev.name ?? email.split('@')[0]).trim().slice(0, 60) || email,
 		color: /^#[0-9a-f]{6}$/i.test(body.color) ? body.color : (prev.color || '#007AFF'),
@@ -90,7 +90,7 @@ const accountBody = (body, prev = {}) => {
 }
 
 app.post('/api/accounts', route(async req => {
-	const a = accountBody(req.body)
+	const a = await accountBody(req.body)
 	if (!a.pass) throw new Error('Escribe la contraseña')
 	const { lastInsertRowid } = db.prepare(`INSERT INTO accounts (name, color, email, imap_host, imap_port, smtp_host, smtp_port, user, pass, created_at)
 		VALUES (@name, @color, @email, @imap_host, @imap_port, @smtp_host, @smtp_port, @user, @pass, ${Date.now()})`).run(a)
@@ -102,7 +102,7 @@ app.post('/api/accounts', route(async req => {
 app.patch('/api/accounts/:id', route(async req => {
 	const id = accountParam(req)
 	const prev = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id)
-	const a = accountBody(req.body, prev)
+	const a = await accountBody(req.body, prev)
 	db.prepare(`UPDATE accounts SET name=@name, color=@color, email=@email, imap_host=@imap_host, imap_port=@imap_port,
 		smtp_host=@smtp_host, smtp_port=@smtp_port, user=@user, pass=@pass WHERE id=${id}`).run(a)
 	const changedConn = ['imap_host', 'imap_port', 'user', 'pass', 'email'].some(k => a[k] !== prev[k])
