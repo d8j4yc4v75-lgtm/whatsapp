@@ -93,7 +93,12 @@ export class MailCampaignRunner {
 			const hour = hourNow()
 			for (const c of db.prepare("SELECT * FROM campaigns WHERE status = 'running'").all()) {
 				const inWindow = c.start_hour <= c.end_hour ? hour >= c.start_hour && hour < c.end_hour : hour >= c.start_hour || hour < c.end_hour
-				if (!inWindow) continue
+				if (!inWindow) {
+					const pend = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE campaign_id = ? AND status = 'pending'").get(c.id).n
+					if (!pend) this.setStatus(c.id, 'done')
+					else this.setNote(c, `Fuera de horario: empieza a las ${c.start_hour}:00`)
+					continue
+				}
 				if (Date.now() - c.last_sent_at < 3600000 / c.per_hour) continue
 				const accounts = JSON.parse(c.accounts)
 				let available = false
