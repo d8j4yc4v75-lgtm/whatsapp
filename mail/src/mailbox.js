@@ -182,30 +182,51 @@ class Mailbox {
 		} catch {} finally { lock.release() }
 	}
 
-	transporter() {
+	transporter(port) {
 		const a = this.account
+		const p = port || a.smtp_port
 		return nodemailer.createTransport({
 			host: a.smtp_host,
-			port: a.smtp_port,
-			secure: a.smtp_port === 465,
-			auth: { user: a.user, pass: a.pass }
+			port: p,
+			secure: p === 465,
+			requireTLS: p === 587,
+			auth: { user: a.user, pass: a.pass },
+			connectionTimeout: 20000,
+			greetingTimeout: 20000
 		})
+	}
+
+	// El puerto alterno: si falla el 465 por conexión, se prueba el 587 (y viceversa)
+	altPort() { return this.account.smtp_port === 465 ? 587 : 465 }
+	isConnErr(e) { return /timeout|ETIMEDOUT|ECONNECTION|ECONNREFUSED|ESOCKET|EDNS|getaddrinfo/i.test(`${e.code || ''} ${e.message || ''}`) }
+
+	async withSmtp(fn) {
+		try {
+			return await fn(this.transporter())
+		} catch (e) {
+			if (!this.isConnErr(e)) throw e
+			const alt = this.altPort()
+			const res = await fn(this.transporter(alt))
+			// Si el alterno sí jala, se guarda para la próxima
+			try { db.prepare('UPDATE accounts SET smtp_port = ? WHERE id = ?').run(alt, this.accountId) } catch {}
+			return res
+		}
 	}
 
 	async send({ to, cc, subject, text, html, inReplyTo, references, attachments }) {
 		const a = this.account
-		const info = await this.transporter().sendMail({
+		const info = await this.withSmtp(t => t.sendMail({
 			from: { name: a.name, address: a.email },
 			to, cc: cc || undefined, subject, text, html,
 			inReplyTo: inReplyTo || undefined,
 			references: references || undefined,
 			attachments: attachments || undefined
-		})
+		}))
 		return info.messageId
 	}
 
 	async verify() {
-		await this.transporter().verify()
+		await this.withSmtp(t => t.verify())
 	}
 
 	async stop() {

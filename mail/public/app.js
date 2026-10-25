@@ -422,9 +422,11 @@ function renderAccount(id, full) {
 					<button class="btn" data-act="ac-save">Guardar</button>
 				</div>
 				<div class="group">
+					<button class="btn" data-act="ac-test">✉️ Probar envío (SMTP)</button>
 					<button class="btn" data-act="ac-reconnect">Reconectar</button>
 					<button class="btn danger" data-act="ac-delete">Eliminar cuenta</button>
 				</div>
+				<p class="hint">«Probar envío» confirma que la app puede mandar correos con esta cuenta. Si da error de conexión, la app intenta sola con otro puerto (465/587).</p>
 			</div>`
 		view.dataset.color = a.color
 		bindColor(view, c => { view.dataset.color = c })
@@ -438,6 +440,13 @@ function renderAccount(id, full) {
 async function accountAction(act) {
 	const id = Number(route().arg)
 	try {
+		if (act === 'ac-test') {
+			const btn = document.querySelector('[data-act=ac-test]'); if (btn) { btn.disabled = true; btn.textContent = 'Probando…' }
+			try { await api('POST', `/accounts/${id}/test`); toast('✅ Envío listo: la app puede mandar correos') }
+			catch (e) { toast('❌ ' + e.message, 7000) }
+			finally { if (btn) { btn.disabled = false; btn.textContent = '✉️ Probar envío (SMTP)' } }
+			return
+		}
 		if (act === 'ac-save') {
 			const body = { name: $('#ac-name').value.trim(), color: $('#view').dataset.color }
 			if ($('#ac-pass').value) body.pass = $('#ac-pass').value
