@@ -556,7 +556,7 @@ function openNewCampaign() {
 		<div class="group"><div class="item"><input type="text" id="cp-subject" placeholder="Hola {{1}}, sobre tu saldo"></div></div>
 		<div class="section">Mensaje</div>
 		<div class="group"><div class="item"><textarea id="cp-body" rows="7" placeholder="Hola {{1}}:\n\nTe recordamos que tienes un saldo pendiente de \${{2}}. Responde a este correo para ver opciones de pago.\n\nSi no deseas recibir más correos, responde BAJA."></textarea></div></div>
-		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Puedes usarlas en el asunto y en el mensaje.</p>
+		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Puedes usarlas en el asunto y en el mensaje.<br>También puedes pegar <b>HTML</b> (negritas, colores, logo, botón): si el mensaje tiene etiquetas &lt;...&gt;, se envía con formato. <a href="#" data-act="cp-preview">Ver vista previa</a></p>
 		<div class="section">Lista de contactos</div>
 		<div class="group">
 			<div class="item"><textarea id="cp-list" rows="6" placeholder="Un contacto por línea:\ncorreo, nombre, monto\njuan@mail.com, Juan, 1500"></textarea></div>
@@ -648,6 +648,24 @@ document.addEventListener('click', async e => {
 		case 'new-campaign': return openNewCampaign()
 		case 'camp': { const [id, action] = val.split(':'); if (action === 'cancel' && !confirm('¿Cancelar este envío?')) return; try { const c = await api('POST', `/campaigns/${id}/${action}`); S.campaigns = S.campaigns.map(x => x.id === c.id ? c : x); renderCampaignList() } catch (err) { toast(err.message) } return }
 		case 'camp-failed': return showFailed(Number(val))
+		case 'cp-preview': {
+			e.preventDefault()
+			const sheetEl = el.closest('.sheet') || document
+			const rows = parseList(($('#cp-list', sheetEl) || {}).value || '')
+			const body = ($('#cp-body', sheetEl) || {}).value || ''
+			const subject = ($('#cp-subject', sheetEl) || {}).value || ''
+			const p0 = rows[0]?.params || []
+			const f = t => String(t).replace(/\{\{(\d+)\}\}/g, (m, n) => p0[n - 1] || m)
+			const isHtml = /<[a-z!][\s\S]*>/i.test(body)
+			const prev = document.createElement('div')
+            prev.className = 'sheet-bg'; prev.id = 'preview'
+			prev.innerHTML = `<div class="sheet"><header class="bar"><h1 style="font-size:18px">Vista previa</h1><button class="icon-btn" onclick="this.closest('.sheet-bg').remove()">Cerrar</button></header><div class="pad"><b>Asunto:</b> ${esc(f(subject))}<div style="margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff"><iframe id="pvf" style="width:100%;border:0;min-height:260px"></iframe></div></div></div>`
+			prev.addEventListener('click', ev => { if (ev.target === prev) prev.remove() })
+			document.body.appendChild(prev)
+			const doc = $('#pvf', prev).contentDocument
+			doc.open(); doc.write(isHtml ? f(body) : `<pre style="font:15px -apple-system,sans-serif;white-space:pre-wrap;margin:10px;color:#111">${esc(f(body))}</pre>`); doc.close()
+			return
+		}
 		case 'ac-save': case 'ac-reconnect': case 'ac-delete': return accountAction(act)
 		case 'push': return enablePush()
 		case 'add-label': {

@@ -107,7 +107,10 @@ export class MailCampaignRunner {
 					this.nextAt.set(acc, now + (c.min_delay + Math.random() * (c.max_delay - c.min_delay)) * 1000)
 					const params = JSON.parse(item.params)
 					try {
-						await box.send({ to: item.email, subject: fill(c.subject, params), text: fill(c.body, params) })
+						const filled = fill(c.body, params)
+						const html = /<[a-z!][\s\S]*>/i.test(c.body) ? filled : null
+						const text = html ? filled.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&') : filled
+						await box.send({ to: item.email, subject: fill(c.subject, params), text, html })
 						db.prepare("UPDATE campaign_items SET status = 'sent', sent_at = ? WHERE id = ?").run(Date.now(), item.id)
 					} catch (e) {
 						db.prepare("UPDATE campaign_items SET status = 'failed', error = ? WHERE id = ?").run(e.message.slice(0, 200), item.id)
