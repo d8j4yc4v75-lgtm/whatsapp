@@ -11,7 +11,7 @@ const isStandalone = () => window.navigator.standalone === true || matchMedia('(
 
 const S = {
 	token: store.get('token', null),
-	accounts: [], threads: [], labels: [],
+	accounts: [], threads: [], labels: [], campaigns: [],
 	filter: { account: null, label: null, unread: false, q: '' },
 	wsOk: false, ws: null, active: null, statsLoaded: false
 }
@@ -119,6 +119,7 @@ function handleEvent({ type, data }) {
 		case 'account.update': { const i = S.accounts.findIndex(a => a.id === data.id); if (i >= 0) S.accounts[i] = data; else S.accounts.push(data); break }
 		case 'account.removed': S.accounts = S.accounts.filter(a => a.id !== data.id); break
 		case 'thread.update': upsertThread(data); break
+		case 'campaign.update': { if (!data) return; const i = S.campaigns.findIndex(c => c.id === data.id); if (i >= 0) S.campaigns[i] = data; else S.campaigns.unshift(data); if (route().name === 'campaigns') renderCampaignList(); return }
 		case 'inbox.changed': reloadThreads().then(() => { if (route().name === 'inbox') renderInboxList() }); if (S.active) openThread(S.active, true); return
 	}
 	renderSoon()
@@ -144,11 +145,13 @@ function render() {
 	if (r.name === 'accounts') renderAccounts()
 	else if (r.name === 'account') renderAccount(Number(r.arg), changed)
 	else if (r.name === 'settings') { if (changed) renderSettings() }
+	else if (r.name === 'campaigns') renderCampaigns(changed)
 	else renderInbox(changed)
 }
 function tabs(active) {
 	const t = (n, i, txt, href) => `<a href="${href}" class="${active === n || (n === 'accounts' && active === 'account') ? 'active' : ''}"><span>${i}</span>${txt}${n === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
-	return `<nav class="tabs">${t('inbox', '📥', 'Bandeja', '#/')}${t('accounts', '✉️', 'Cuentas', '#/accounts')}${t('settings', '⚙️', 'Ajustes', '#/settings')}</nav>`
+	const sends = S.accounts.length ? t('campaigns', '📤', 'Envíos', '#/campaigns') : ''
+	return `<nav class="tabs">${t('inbox', '📥', 'Bandeja', '#/')}${sends}${t('accounts', '✉️', 'Cuentas', '#/accounts')}${t('settings', '⚙️', 'Ajustes', '#/settings')}</nav>`
 }
 
 // ---------- Bandeja ----------
@@ -501,6 +504,118 @@ function openLabels() {
 	})
 }
 
+// ---------- Envíos ----------
+const CAMP_ST = { running: ['Enviando', 'var(--accent)'], paused: ['En pausa', '#f5a623'], done: ['Terminado', 'var(--muted)'], cancelled: ['Cancelado', 'var(--danger)'] }
+function parseList(text) {
+	return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+		const parts = l.split(l.includes('\t') ? '\t' : l.includes(';') ? ';' : ',').map(x => x.trim().replace(/^"|"$/g, ''))
+		return { email: parts[0], params: parts.slice(1) }
+	}).filter(r => /@/.test(r.email))
+}
+async function renderCampaigns(full) {
+	if (full) {
+		$('#view').innerHTML = `
+			<header class="bar"><h1>Envíos</h1><button class="icon-btn" data-act="new-campaign" aria-label="Nuevo envío">＋</button></header>
+			<div style="min-height:100%"><div id="camp-list"></div>
+			<p class="hint">Los correos salen poco a poco, en el horario que elijas, repartidos entre tus buzones y sin pasar su límite diario (en Zoho gratis son ~50 por buzón al día). Quien responda «BAJA» no vuelve a recibir.</p></div>`
+		try { S.campaigns = await api('GET', '/campaigns') } catch (e) { toast(e.message) }
+	}
+	renderCampaignList()
+}
+function renderCampaignList() {
+	const el = $('#camp-list'); if (!el) return
+	if (!S.campaigns.length) { el.innerHTML = '<div class="empty"><div class="big">📤</div>Toca <b>＋</b> para crear tu primer envío.</div>'; return }
+	el.innerHTML = '<div class="section">Tus envíos</div><div class="group">' + S.campaigns.map(c => {
+		const n = c.counts, total = n.pending + n.sent + n.failed + n.skipped, done = n.sent + n.failed + n.skipped
+		const [st, color] = CAMP_ST[c.status] || [c.status, 'var(--muted)']
+		const pct = total ? Math.round(done / total * 100) : 0
+		return `<div class="item" style="display:block">
+			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${c.accountIds.map(accountTag).join('')}<span class="status" style="color:${color}">${st}</span></div>
+			<small>${esc(c.subject)} · ${c.dailyPerAccount}/buzón al día · ${c.startHour}:00–${c.endHour}:00</small>
+			<div style="height:6px;border-radius:3px;background:var(--line);margin:8px 0 4px;overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--accent)"></i></div>
+			<small>✅ ${n.sent} enviados · ⚠︎ ${n.failed} fallidos · ⏳ ${n.pending} pendientes${n.skipped ? ` · 🚫 ${n.skipped} baja` : ''}</small>
+			${c.note ? `<small style="color:var(--muted)">${esc(c.note)}</small>` : ''}
+			<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+				${c.status === 'running' ? `<button class="chip" data-act="camp" data-val="${c.id}:pause">Pausar</button>` : ''}
+				${c.status === 'paused' ? `<button class="chip" data-act="camp" data-val="${c.id}:resume">Reanudar</button>` : ''}
+				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
+				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
+			</div>
+		</div>`
+	}).join('') + '</div>'
+}
+function openNewCampaign() {
+	const conn = S.accounts.filter(a => a.status === 'connected')
+	if (!conn.length) return toast('Primero conecta un correo')
+	sheet('Nuevo envío', `
+		<div class="section">Nombre</div>
+		<div class="group"><div class="item"><input type="text" id="cp-name" placeholder="Ej. Recordatorios octubre"></div></div>
+		<div class="section">Enviar desde</div>
+		<div class="group">${conn.map(a => `<label class="item"><input type="checkbox" class="cp-acc" value="${a.id}" checked><span class="grow">${accountTag(a.id)} ${esc(a.email)}</span></label>`).join('')}</div>
+		<div class="section">Asunto</div>
+		<div class="group"><div class="item"><input type="text" id="cp-subject" placeholder="Hola {{1}}, sobre tu saldo"></div></div>
+		<div class="section">Mensaje</div>
+		<div class="group"><div class="item"><textarea id="cp-body" rows="7" placeholder="Hola {{1}}:\n\nTe recordamos que tienes un saldo pendiente de \${{2}}. Responde a este correo para ver opciones de pago.\n\nSi no deseas recibir más correos, responde BAJA."></textarea></div></div>
+		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Puedes usarlas en el asunto y en el mensaje.</p>
+		<div class="section">Lista de contactos</div>
+		<div class="group">
+			<div class="item"><textarea id="cp-list" rows="6" placeholder="Un contacto por línea:\ncorreo, nombre, monto\njuan@mail.com, Juan, 1500"></textarea></div>
+			<label class="btn">📄 Cargar archivo CSV<input type="file" id="cp-file" accept=".csv,.txt,text/csv" hidden></label>
+		</div>
+		<p class="hint" id="cp-count"></p>
+		<div class="section">Ritmo y horario</div>
+		<div class="group">
+			<div class="item"><span class="grow">Máximo por buzón al día</span><input type="number" id="cp-daily" value="40" min="1" max="200" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Correos por hora (total)</span><input type="number" id="cp-rate" value="20" min="1" max="200" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Desde (hora)</span><input type="number" id="cp-start" value="9" min="0" max="23" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="cp-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
+		</div>
+		<p class="hint">En Zoho gratis deja 40 o menos por buzón al día para no toparte con su límite.</p>
+		<div class="pad"><button class="btn primary" id="cp-go">Iniciar envío</button></div>`, el => {
+		const count = () => {
+			const rows = parseList($('#cp-list', el).value)
+			const accs = el.querySelectorAll('.cp-acc:checked').length
+			const daily = Number($('#cp-daily', el).value) || 40
+			const days = accs ? Math.ceil(rows.length / (accs * daily)) : 0
+			const b = $('#cp-body', el).value
+			$('#cp-count', el).innerHTML = rows.length
+				? `<b>${rows.length}</b> contactos · ${accs} buzón(es) × ${daily} al día = <b>${accs * daily} al día</b> · ~<b>${days} día(s)</b>.${rows[0] ? `<br>Ejemplo: <i>${esc(b.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || ''))}</i>` : ''}`
+				: 'Pega la lista o carga un CSV. La 1.ª columna es el correo.'
+		}
+		el.querySelectorAll('input,textarea').forEach(i => { i.addEventListener('input', count); i.addEventListener('change', count) })
+		$('#cp-file', el).onchange = async e => { const f = e.target.files[0]; if (f) { $('#cp-list', el).value = await f.text(); count() } }
+		count()
+		$('#cp-go', el).onclick = async () => {
+			const rows = parseList($('#cp-list', el).value)
+			const accountIds = [...el.querySelectorAll('.cp-acc:checked')].map(i => Number(i.value))
+			if (!accountIds.length) return toast('Marca al menos un buzón')
+			if (!$('#cp-subject', el).value.trim()) return toast('Escribe el asunto')
+			if (!$('#cp-body', el).value.trim()) return toast('Escribe el mensaje')
+			if (!rows.length) return toast('La lista está vacía')
+			if (!confirm(`Se enviará a ${rows.length} contactos desde ${accountIds.length} buzón(es). ¿Iniciar?`)) return
+			try {
+				const res = await api('POST', '/campaigns', {
+					name: $('#cp-name', el).value.trim(), accountIds,
+					subject: $('#cp-subject', el).value, body: $('#cp-body', el).value,
+					dailyPerAccount: Number($('#cp-daily', el).value), perHour: Number($('#cp-rate', el).value),
+					startHour: Number($('#cp-start', el).value), endHour: Number($('#cp-end', el).value),
+					rows
+				})
+				closeSheet()
+				if (res.invalid?.length) toast(`${res.invalid.length} correos no válidos se omitieron`, 5000)
+				S.campaigns = [res.campaign, ...S.campaigns.filter(c => c.id !== res.campaign.id)]
+				renderCampaignList()
+			} catch (e) { toast(e.message, 6000) }
+		}
+	})
+}
+async function showFailed(id) {
+	try {
+		const items = await api('GET', `/campaigns/${id}/items?status=failed`)
+		sheet('Correos fallidos', `<div class="group">${items.map(i => `<div class="item" style="display:block"><b>${esc(i.email)}</b><small>${esc(i.error || '')}</small></div>`).join('') || '<p class="hint">Sin fallidos</p>'}</div>`)
+	} catch (e) { toast(e.message) }
+}
+
 // ---------- Hojas ----------
 function sheet(title, html, bind) {
 	closeSheet()
@@ -530,6 +645,9 @@ document.addEventListener('click', async e => {
 		case 'labels': return openLabels()
 		case 'close-sheet': return closeSheet()
 		case 'add-account': return openAddAccount()
+		case 'new-campaign': return openNewCampaign()
+		case 'camp': { const [id, action] = val.split(':'); if (action === 'cancel' && !confirm('¿Cancelar este envío?')) return; try { const c = await api('POST', `/campaigns/${id}/${action}`); S.campaigns = S.campaigns.map(x => x.id === c.id ? c : x); renderCampaignList() } catch (err) { toast(err.message) } return }
+		case 'camp-failed': return showFailed(Number(val))
 		case 'ac-save': case 'ac-reconnect': case 'ac-delete': return accountAction(act)
 		case 'push': return enablePush()
 		case 'add-label': {

@@ -7,6 +7,7 @@ import { simpleParser } from 'mailparser'
 import { db } from './db.js'
 import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
+import { optOut } from './campaigns.js'
 
 export const ATTACH_DIR = path.join(DATA_DIR, 'attachments')
 const SYNC_LIMIT = 60 // correos recientes que se guardan por cuenta
@@ -95,7 +96,11 @@ class Mailbox {
 				const row = this.toRow(msg, parsed, me)
 				stmt.insert.run(row)
 				changed = true
-				if (!prev && !row.seen && !row.from_me) newest = row
+				if (!prev && !row.from_me) {
+					// Baja automática: el destinatario pide no recibir más correos
+					if (/\bbaja\b|darme de baja|no.*(correo|mensaje)|unsubscribe/i.test(`${row.subject} ${row.body_text || ''}`.slice(0, 500))) optOut(row.from_addr)
+					if (!row.seen) newest = row
+				}
 			}
 			if (changed) this.manager.emit('event', { type: 'inbox.changed', data: { accountId: this.accountId } })
 			if (newest) this.notify(newest)

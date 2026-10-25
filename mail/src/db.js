@@ -64,3 +64,41 @@ CREATE TABLE IF NOT EXISTS message_labels (
   PRIMARY KEY (thread_key, label_id)
 );
 `)
+
+// Envíos masivos de correo con plantilla
+db.exec(`
+CREATE TABLE IF NOT EXISTS campaigns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  accounts TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  per_hour INTEGER NOT NULL DEFAULT 20,
+  daily_per_account INTEGER NOT NULL DEFAULT 40,
+  start_hour INTEGER NOT NULL DEFAULT 9,
+  end_hour INTEGER NOT NULL DEFAULT 19,
+  min_delay INTEGER NOT NULL DEFAULT 60,
+  max_delay INTEGER NOT NULL DEFAULT 180,
+  status TEXT NOT NULL DEFAULT 'running',
+  note TEXT,
+  last_sent_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS campaign_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  params TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  sent_by INTEGER,
+  sent_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mitems ON campaign_items (campaign_id, status);
+
+CREATE TABLE IF NOT EXISTS optouts (
+  email TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
+);
+`)

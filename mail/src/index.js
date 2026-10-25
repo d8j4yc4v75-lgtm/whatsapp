@@ -11,9 +11,11 @@ import { MailManager } from './mailbox.js'
 import { guessProvider, guessCustom, guessByMx } from './providers.js'
 import { VAPID_PUBLIC_KEY, saveSubscription } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
+import { MailCampaignRunner, optOut, isEmail } from './campaigns.js'
 
 const STARTED_AT = new Date().toISOString()
 const manager = new MailManager()
+const campaigns = new MailCampaignRunner(manager)
 const app = express()
 app.use(express.json({ limit: '25mb' }))
 
@@ -207,6 +209,25 @@ app.post('/api/labels', route(req => {
 	return db.prepare('SELECT * FROM labels WHERE id = ?').get(lastInsertRowid)
 }))
 app.delete('/api/labels/:id', route(req => { db.prepare('DELETE FROM labels WHERE id = ?').run(Number(req.params.id)); return { ok: true } }))
+
+// ---- Envíos masivos ----
+app.get('/api/campaigns', route(() => campaigns.list()))
+app.post('/api/campaigns', route(req => {
+	const ids = [...new Set((req.body.accountIds || []).map(Number))]
+	for (const id of ids) if (!db.prepare('SELECT 1 FROM accounts WHERE id = ?').get(id)) throw new Error('Cuenta no encontrada')
+	return campaigns.create({ ...req.body, accountIds: ids })
+}))
+app.get('/api/campaigns/:cid/items', route(req => campaigns.items(Number(req.params.cid), req.query.status || null)))
+app.post('/api/campaigns/:cid/:action', route(req => {
+	const id = Number(req.params.cid); const c = campaigns.get(id)
+	if (!c) throw Object.assign(new Error('Envío no encontrado'), { status: 404 })
+	const next = { pause: 'paused', resume: 'running', cancel: 'cancelled' }[req.params.action]
+	if (!next) throw new Error('Acción inválida')
+	if (c.status === 'done' || c.status === 'cancelled') throw new Error('Este envío ya terminó')
+	campaigns.setStatus(id, next)
+	return campaigns.get(id)
+}))
+app.post('/api/optout', route(req => { optOut(req.body.email); return { ok: true } }))
 
 // ---- Notificaciones ----
 app.get('/api/push/key', route(() => ({ key: VAPID_PUBLIC_KEY })))
