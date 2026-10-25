@@ -506,12 +506,35 @@ function openLabels() {
 
 // ---------- Envíos ----------
 const CAMP_ST = { running: ['Enviando', 'var(--accent)'], paused: ['En pausa', '#f5a623'], done: ['Terminado', 'var(--muted)'], cancelled: ['Cancelado', 'var(--danger)'] }
-function parseList(text) {
-	return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
-		const parts = l.split(l.includes('\t') ? '\t' : l.includes(';') ? ';' : ',').map(x => x.trim().replace(/^"|"$/g, ''))
-		return { email: parts[0], params: parts.slice(1) }
-	}).filter(r => /@/.test(r.email))
+function splitCsvLine(line, sep) {
+	const out = []; let cur = ''; let q = false
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i]
+		if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++ } else if (ch === '"') q = false; else cur += ch }
+		else if (ch === '"') q = true
+		else if (ch === sep) { out.push(cur); cur = '' }
+		else cur += ch
+	}
+	out.push(cur)
+	return out.map(x => x.trim())
 }
+// Lee el CSV; si la 1.ª fila no empieza con un correo, la toma como encabezados
+function parseCsv(text) {
+	const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+	if (!lines.length) return { headers: [], rows: [] }
+	const sep = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ','
+	let headers = []
+	let start = 0
+	const first = splitCsvLine(lines[0], sep)
+	if (!/@/.test(first[0])) { headers = first.slice(1); start = 1 }
+	const rows = []
+	for (let i = start; i < lines.length; i++) {
+		const cells = splitCsvLine(lines[i], sep)
+		if (/@/.test(cells[0])) rows.push({ email: cells[0], params: cells.slice(1) })
+	}
+	return { headers, rows }
+}
+function parseList(text) { return parseCsv(text).rows }
 async function renderCampaigns(full) {
 	if (full) {
 		$('#view').innerHTML = `
@@ -556,7 +579,7 @@ function openNewCampaign() {
 		<div class="group"><div class="item"><input type="text" id="cp-subject" placeholder="Hola {{1}}, sobre tu saldo"></div></div>
 		<div class="section">Mensaje</div>
 		<div class="group"><div class="item"><textarea id="cp-body" rows="7" placeholder="Hola {{1}}:\n\nTe recordamos que tienes un saldo pendiente de \${{2}}. Responde a este correo para ver opciones de pago.\n\nSi no deseas recibir más correos, responde BAJA."></textarea></div></div>
-		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Puedes usarlas en el asunto y en el mensaje.<br>También puedes pegar <b>HTML</b> (negritas, colores, logo, botón): si el mensaje tiene etiquetas &lt;...&gt;, se envía con formato. <a href="#" data-act="cp-preview">Ver vista previa</a></p>
+		<p class="hint">En la plantilla puedes usar los nombres de las columnas de tu CSV, como {{nombre}} o {{total}} (la 1.ª fila del CSV son los encabezados), o también {{1}}, {{2}} por posición.<br>También puedes pegar <b>HTML</b> (negritas, colores, logo, botón): si el mensaje tiene etiquetas &lt;...&gt;, se envía con formato. <a href="#" data-act="cp-preview">Ver vista previa</a></p>
 		<div class="section">Lista de contactos</div>
 		<div class="group">
 			<div class="item"><textarea id="cp-list" rows="6" placeholder="Un contacto por línea:\ncorreo, nombre, monto\njuan@mail.com, Juan, 1500"></textarea></div>
@@ -573,14 +596,16 @@ function openNewCampaign() {
 		<p class="hint">En Zoho gratis deja 40 o menos por buzón al día para no toparte con su límite.</p>
 		<div class="pad"><button class="btn primary" id="cp-go">Iniciar envío</button></div>`, el => {
 		const count = () => {
-			const rows = parseList($('#cp-list', el).value)
+			const { headers, rows } = parseCsv($('#cp-list', el).value)
+			el._headers = headers
 			const accs = el.querySelectorAll('.cp-acc:checked').length
 			const daily = Number($('#cp-daily', el).value) || 40
 			const days = accs ? Math.ceil(rows.length / (accs * daily)) : 0
 			const b = $('#cp-body', el).value
+			const fillPrev = t => String(t).replace(/\{\{\s*([\w.áéíóúñ-]+)\s*\}\}/gi, (m, k) => { if (/^\d+$/.test(k)) return rows[0]?.params[k - 1] || m; const j = headers.findIndex(h => h.toLowerCase() === k.toLowerCase()); return j >= 0 ? (rows[0]?.params[j] ?? m) : m })
 			$('#cp-count', el).innerHTML = rows.length
-				? `<b>${rows.length}</b> contactos · ${accs} buzón(es) × ${daily} al día = <b>${accs * daily} al día</b> · ~<b>${days} día(s)</b>.${rows[0] ? `<br>Ejemplo: <i>${esc(b.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || ''))}</i>` : ''}`
-				: 'Pega la lista o carga un CSV. La 1.ª columna es el correo.'
+				? `<b>${rows.length}</b> contactos · ${accs} buzón(es) × ${daily} al día = <b>${accs * daily} al día</b> · ~<b>${days} día(s)</b>.${headers.length ? `<br>Columnas: ${headers.map(h => '{{' + esc(h) + '}}').join(', ')}` : ''}${rows[0] ? `<br>Asunto de ejemplo: <i>${esc(fillPrev($('#cp-subject', el).value))}</i>` : ''}`
+				: 'Pega la lista o carga un CSV. La 1.ª fila son los encabezados (nombre, total…) y la 1.ª columna el correo.'
 		}
 		el.querySelectorAll('input,textarea').forEach(i => { i.addEventListener('input', count); i.addEventListener('change', count) })
 		$('#cp-file', el).onchange = async e => { const f = e.target.files[0]; if (f) { $('#cp-list', el).value = await f.text(); count() } }
@@ -594,8 +619,9 @@ function openNewCampaign() {
 			if (!rows.length) return toast('La lista está vacía')
 			if (!confirm(`Se enviará a ${rows.length} contactos desde ${accountIds.length} buzón(es). ¿Iniciar?`)) return
 			try {
+				const { headers } = parseCsv($('#cp-list', el).value)
 				const res = await api('POST', '/campaigns', {
-					name: $('#cp-name', el).value.trim(), accountIds,
+					name: $('#cp-name', el).value.trim(), accountIds, headers,
 					subject: $('#cp-subject', el).value, body: $('#cp-body', el).value,
 					dailyPerAccount: Number($('#cp-daily', el).value), perHour: Number($('#cp-rate', el).value),
 					startHour: Number($('#cp-start', el).value), endHour: Number($('#cp-end', el).value),
@@ -654,8 +680,9 @@ document.addEventListener('click', async e => {
 			const rows = parseList(($('#cp-list', sheetEl) || {}).value || '')
 			const body = ($('#cp-body', sheetEl) || {}).value || ''
 			const subject = ($('#cp-subject', sheetEl) || {}).value || ''
+			const { headers } = parseCsv(($('#cp-list', sheetEl) || {}).value || '')
 			const p0 = rows[0]?.params || []
-			const f = t => String(t).replace(/\{\{(\d+)\}\}/g, (m, n) => p0[n - 1] || m)
+			const f = t => String(t).replace(/\{\{\s*([\w.áéíóúñ-]+)\s*\}\}/gi, (m, k) => { if (/^\d+$/.test(k)) return p0[k - 1] || m; const j = headers.findIndex(h => h.toLowerCase() === k.toLowerCase()); return j >= 0 ? (p0[j] ?? m) : m })
 			const isHtml = /<[a-z!][\s\S]*>/i.test(body)
 			const prev = document.createElement('div')
             prev.className = 'sheet-bg'; prev.id = 'preview'

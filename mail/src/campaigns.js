@@ -4,8 +4,14 @@ import { db } from './db.js'
 const TZ = process.env.TZ_CAMPAIGNS || 'America/Mexico_City'
 const hourNow = () => Number(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' }).format(new Date()))
 const clamp = (v, min, max, def) => Math.min(max, Math.max(min, Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : def))
-const fill = (text, params) => String(text || '').replace(/\{\{(\d+)\}\}/g, (m, n) => params[Number(n) - 1] ?? '')
+const fill = (text, params, headers) => String(text || '').replace(/\{\{\s*([\w.áéíóúñ-]+)\s*\}\}/gi, (m, key) => {
+	if (/^\d+$/.test(key)) return params[Number(key) - 1] ?? ''
+	const i = (headers || []).findIndex(h => h.toLowerCase() === String(key).toLowerCase())
+	return i >= 0 ? (params[i] ?? '') : m
+})
 export const isEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(e || '').trim())
+
+for (const sql of ['ALTER TABLE campaigns ADD COLUMN headers TEXT']) { try { db.exec(sql) } catch {} }
 
 export class MailCampaignRunner {
 	constructor(manager) {
@@ -17,7 +23,7 @@ export class MailCampaignRunner {
 		this.timer = setInterval(() => this.tick().catch(() => {}), 5000)
 	}
 
-	create({ name, accountIds, subject, body, perHour, dailyPerAccount, startHour, endHour, minDelay, maxDelay, rows }) {
+	create({ name, accountIds, subject, body, headers, perHour, dailyPerAccount, startHour, endHour, minDelay, maxDelay, rows }) {
 		if (!Array.isArray(accountIds) || !accountIds.length) throw new Error('Elige al menos una cuenta para enviar')
 		if (!String(subject || '').trim()) throw new Error('Escribe el asunto')
 		if (!String(body || '').trim()) throw new Error('Escribe el mensaje')
@@ -38,10 +44,10 @@ export class MailCampaignRunner {
 		const maxD = Math.max(minD, clamp(maxDelay, 10, 7200, 180))
 		const id = db.transaction(() => {
 			const { lastInsertRowid } = db.prepare(`INSERT INTO campaigns
-				(name, accounts, subject, body, per_hour, daily_per_account, start_hour, end_hour, min_delay, max_delay, status, created_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)`).run(
+				(name, accounts, subject, body, headers, per_hour, daily_per_account, start_hour, end_hour, min_delay, max_delay, status, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)`).run(
 				String(name || subject).slice(0, 80), JSON.stringify(accountIds.map(Number)),
-				String(subject).slice(0, 300), String(body),
+				String(subject).slice(0, 300), String(body), JSON.stringify(Array.isArray(headers) ? headers : []),
 				clamp(perHour, 1, 200, 20), clamp(dailyPerAccount, 1, 200, 40),
 				clamp(startHour, 0, 23, 9), clamp(endHour, 1, 24, 19), minD, maxD, Date.now())
 			const ins = db.prepare('INSERT INTO campaign_items (campaign_id, email, params, status, error) VALUES (?, ?, ?, ?, ?)')
@@ -57,7 +63,7 @@ export class MailCampaignRunner {
 		if (!c) return null
 		const counts = Object.fromEntries(db.prepare('SELECT status, COUNT(*) AS n FROM campaign_items WHERE campaign_id = ? GROUP BY status').all(id).map(r => [r.status, r.n]))
 		return {
-			id: c.id, name: c.name, accountIds: JSON.parse(c.accounts), subject: c.subject, body: c.body,
+			id: c.id, name: c.name, accountIds: JSON.parse(c.accounts), subject: c.subject, body: c.body, headers: JSON.parse(c.headers || '[]'),
 			perHour: c.per_hour, dailyPerAccount: c.daily_per_account, startHour: c.start_hour, endHour: c.end_hour,
 			minDelay: c.min_delay, maxDelay: c.max_delay, status: c.status, note: c.note, createdAt: c.created_at,
 			counts: { pending: counts.pending || 0, sent: counts.sent || 0, failed: counts.failed || 0, skipped: counts.skipped || 0 }
@@ -106,11 +112,12 @@ export class MailCampaignRunner {
 					db.prepare('UPDATE campaigns SET last_sent_at = ? WHERE id = ?').run(now, c.id)
 					this.nextAt.set(acc, now + (c.min_delay + Math.random() * (c.max_delay - c.min_delay)) * 1000)
 					const params = JSON.parse(item.params)
+					const headers = JSON.parse(c.headers || '[]')
 					try {
-						const filled = fill(c.body, params)
+						const filled = fill(c.body, params, headers)
 						const html = /<[a-z!][\s\S]*>/i.test(c.body) ? filled : null
 						const text = html ? filled.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&') : filled
-						await box.send({ to: item.email, subject: fill(c.subject, params), text, html })
+						await box.send({ to: item.email, subject: fill(c.subject, params, headers), text, html })
 						db.prepare("UPDATE campaign_items SET status = 'sent', sent_at = ? WHERE id = ?").run(Date.now(), item.id)
 					} catch (e) {
 						db.prepare("UPDATE campaign_items SET status = 'failed', error = ? WHERE id = ?").run(e.message.slice(0, 200), item.id)
