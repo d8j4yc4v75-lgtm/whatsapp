@@ -76,6 +76,13 @@ export class MailCampaignRunner {
 			.all(...(status ? [id, status] : [id])).map(r => ({ ...r, params: JSON.parse(r.params) }))
 	}
 	setStatus(id, status, note = null) { db.prepare('UPDATE campaigns SET status = ?, note = ? WHERE id = ?').run(status, note, id); this.emit(id) }
+	// Vuelve a poner en cola los fallidos (no los que pidieron baja) y reactiva el envío
+	retryFailed(id) {
+		const n = db.prepare("UPDATE campaign_items SET status = 'pending', error = NULL, sent_by = NULL, sent_at = NULL WHERE campaign_id = ? AND status = 'failed'").run(id).changes
+		if (n) db.prepare("UPDATE campaigns SET status = 'running', note = NULL, last_sent_at = 0 WHERE id = ?").run(id)
+		this.emit(id)
+		return n
+	}
 	setNote(c, text) { if (c.note === text) return; db.prepare('UPDATE campaigns SET note = ? WHERE id = ?').run(text, c.id); c.note = text; this.emit(c.id) }
 	emit(id) { this.manager.emit('event', { type: 'campaign.update', data: this.get(id) }) }
 

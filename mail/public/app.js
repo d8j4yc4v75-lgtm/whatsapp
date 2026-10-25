@@ -572,6 +572,7 @@ function renderCampaignList() {
 				${c.status === 'paused' ? `<button class="chip" data-act="camp" data-val="${c.id}:resume">Reanudar</button>` : ''}
 				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
 				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
+				${n.failed ? `<button class="chip" data-act="camp-retry" data-val="${c.id}">↻ Reintentar fallidos</button>` : ''}
 			</div>
 		</div>`
 	}).join('') + '</div>'
@@ -683,6 +684,15 @@ document.addEventListener('click', async e => {
 		case 'new-campaign': return openNewCampaign()
 		case 'camp': { const [id, action] = val.split(':'); if (action === 'cancel' && !confirm('¿Cancelar este envío?')) return; try { const c = await api('POST', `/campaigns/${id}/${action}`); S.campaigns = S.campaigns.map(x => x.id === c.id ? c : x); renderCampaignList() } catch (err) { toast(err.message) } return }
 		case 'camp-failed': return showFailed(Number(val))
+		case 'camp-retry': {
+			try {
+				const { retried, campaign } = await api('POST', `/campaigns/${val}/retry`)
+				S.campaigns = S.campaigns.map(x => x.id === campaign.id ? campaign : x)
+				renderCampaignList()
+				toast(retried ? `Reintentando ${retried} correo(s)` : 'No hay fallidos para reintentar')
+			} catch (err) { toast(err.message) }
+			return
+		}
 		case 'cp-preview': {
 			e.preventDefault()
 			const sheetEl = el.closest('.sheet') || document
