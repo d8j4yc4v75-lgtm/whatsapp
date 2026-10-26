@@ -105,3 +105,17 @@ CREATE TABLE IF NOT EXISTS optouts (
 
 // Envío por API HTTP (Brevo) para saltar el bloqueo de puertos SMTP en la nube
 for (const sql of ['ALTER TABLE accounts ADD COLUMN brevo_key TEXT']) { try { db.exec(sql) } catch {} }
+
+// Conexión con "Iniciar sesión con Google/Microsoft": lectura por IMAP (993) y envío por API (443),
+// sin SMTP, que la nube bloquea. provider_type: 'password' | 'google' | 'microsoft'
+for (const sql of [
+	"ALTER TABLE accounts ADD COLUMN provider_type TEXT NOT NULL DEFAULT 'password'",
+	'ALTER TABLE accounts ADD COLUMN refresh_token TEXT',
+	'ALTER TABLE accounts ADD COLUMN access_token TEXT',
+	'ALTER TABLE accounts ADD COLUMN token_expiry INTEGER'
+]) { try { db.exec(sql) } catch {} }
+
+// Ajustes globales (claves de las apps OAuth de Google/Microsoft, pegadas una sola vez)
+db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
+export const getSetting = k => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value ?? null
+export const setSetting = (k, v) => db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(k, v == null ? null : String(v))

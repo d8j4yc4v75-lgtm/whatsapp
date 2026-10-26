@@ -8,6 +8,7 @@ import { db } from './db.js'
 import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 import { optOut } from './campaigns.js'
+import { imapAccessToken, apiSend, OAUTH } from './oauth.js'
 
 export const ATTACH_DIR = path.join(DATA_DIR, 'attachments')
 const SYNC_LIMIT = 60 // correos recientes que se guardan por cuenta
@@ -52,11 +53,19 @@ class Mailbox {
 	async start() {
 		this.stopped = false
 		const a = this.account
+		let auth
+		if (a.provider_type === 'google' || a.provider_type === 'microsoft') {
+			try { auth = { user: a.email, accessToken: await imapAccessToken(a) } }
+			catch (e) { this.setStatus('error', `No se pudo renovar el permiso de ${OAUTH[a.provider_type].label}. Vuelve a conectar la cuenta. (${e.message})`); if (!this.stopped) this.scheduleReconnect(); return }
+		} else {
+			auth = { user: a.user, pass: a.pass }
+		}
+		const host = a.imap_host || (a.provider_type !== 'password' ? OAUTH[a.provider_type].imapHost : '')
 		const client = new ImapFlow({
-			host: a.imap_host,
-			port: a.imap_port,
-			secure: a.imap_port === 993,
-			auth: { user: a.user, pass: a.pass },
+			host,
+			port: a.imap_port || 993,
+			secure: (a.imap_port || 993) === 993,
+			auth,
 			logger: false,
 			emitLogs: false
 		})
@@ -213,22 +222,27 @@ class Mailbox {
 		}
 	}
 
-	async send({ to, cc, subject, text, html, inReplyTo, references, attachments }) {
+	async send({ to, cc, subject, text, html, inReplyTo, references, attachments, bulk }) {
 		const a = this.account
+		// Cuentas de Google/Microsoft: envío por su API (puerto 443), sin SMTP
+		if (a.provider_type === 'google' || a.provider_type === 'microsoft') {
+			return apiSend(a, { to, cc, subject, text, html, inReplyTo, references, attachments, bulk })
+		}
 		// Si hay clave de Brevo, se envía por API HTTP (puerto 443): la nube no bloquea ese puerto
-		if (a.brevo_key) return this.sendViaBrevo({ to, cc, subject, text, html, inReplyTo, references, attachments })
+		if (a.brevo_key) return this.sendViaBrevo({ to, cc, subject, text, html, inReplyTo, references, attachments, bulk })
 		const info = await this.withSmtp(t => t.sendMail({
 			from: { name: a.name, address: a.email },
 			to, cc: cc || undefined, subject, text, html,
 			inReplyTo: inReplyTo || undefined,
 			references: references || undefined,
-			attachments: attachments || undefined
+			attachments: attachments || undefined,
+			headers: bulk ? { 'List-Unsubscribe': `<mailto:${a.email}?subject=BAJA>` } : undefined
 		}))
 		return info.messageId
 	}
 
 	// Envía con la API de Brevo (https://api.brevo.com). Evita el timeout de SMTP en Railway.
-	async sendViaBrevo({ to, cc, subject, text, html, attachments }) {
+	async sendViaBrevo({ to, cc, subject, text, html, attachments, bulk }) {
 		const a = this.account
 		const list = v => (Array.isArray(v) ? v : String(v || '').split(',')).map(s => String(s).trim()).filter(Boolean).map(email => ({ email }))
 		const body = {
@@ -236,7 +250,8 @@ class Mailbox {
 			to: list(to),
 			subject: subject || '',
 			htmlContent: html || undefined,
-			textContent: text || (html ? undefined : ' ')
+			textContent: text || (html ? undefined : ' '),
+			headers: bulk ? { 'List-Unsubscribe': `<mailto:${a.email}?subject=BAJA>` } : undefined
 		}
 		const ccList = list(cc)
 		if (ccList.length) body.cc = ccList
@@ -259,6 +274,7 @@ class Mailbox {
 
 	async verify() {
 		const a = this.account
+		if (a.provider_type === 'google' || a.provider_type === 'microsoft') { await imapAccessToken(a); return }
 		if (a.brevo_key) {
 			const res = await fetch('https://api.brevo.com/v3/account', {
 				headers: { 'api-key': a.brevo_key, accept: 'application/json' },
@@ -314,7 +330,7 @@ export class MailManager extends EventEmitter {
 		if (!a) return null
 		const b = this.boxes.get(id)
 		const unread = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE account_id = ? AND seen = 0 AND from_me = 0').get(id).n
-		return { id: a.id, name: a.name, color: a.color, email: a.email, status: b?.status || a.status, error: b?.error || a.error || null, unread, api: Boolean(a.brevo_key) }
+		return { id: a.id, name: a.name, color: a.color, email: a.email, status: b?.status || a.status, error: b?.error || a.error || null, unread, api: Boolean(a.brevo_key), providerType: a.provider_type || 'password' }
 	}
 
 	accounts() {

@@ -129,7 +129,7 @@ export class MailCampaignRunner {
 						const filled = fill(c.body, params, headers)
 						const html = /<[a-z!][\s\S]*>/i.test(c.body) ? filled : null
 						const text = html ? filled.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&') : filled
-						await box.send({ to: item.email, subject: fill(c.subject, params, headers), text, html })
+						await box.send({ to: item.email, subject: fill(c.subject, params, headers), text, html, bulk: true })
 						db.prepare("UPDATE campaign_items SET status = 'sent', sent_at = ? WHERE id = ?").run(Date.now(), item.id)
 					} catch (e) {
 						db.prepare("UPDATE campaign_items SET status = 'failed', error = ? WHERE id = ?").run(e.message.slice(0, 200), item.id)

@@ -345,6 +345,13 @@ function openAddAccount() {
 	let color = COLORS[S.accounts.length % COLORS.length]
 	let advanced = false
 	sheet('Agregar correo', `
+		<div class="section">Conectar con un clic (recomendado)</div>
+		<div class="group">
+			<button class="btn" id="aa-google">🟦 Conectar con Google (Gmail)</button>
+			<button class="btn" id="aa-ms">🟧 Conectar con Microsoft (Outlook)</button>
+		</div>
+		<p class="hint" id="aa-oauth-hint">Entra, autoriza y vuelve. Envía por la API (no usa SMTP, así funciona en la nube).</p>
+		<div class="section">O con contraseña</div>
 		<div class="section">Datos</div>
 		<div class="group">
 			<div class="item"><input type="email" id="aa-email" placeholder="tucorreo@dominio.com" inputmode="email" autocapitalize="off"></div>
@@ -370,6 +377,15 @@ function openAddAccount() {
 		</div>
 		<div class="pad"><button class="btn primary" id="aa-go">Conectar</button></div>`, el => {
 		bindColor(el, c => { color = c })
+		const oauthGo = p => { location.href = `/oauth/${p}/start?token=${enc(S.token)}` }
+		api('GET', '/oauth/status').then(st => {
+			const ready = st.google || st.microsoft
+			if (!ready) $('#aa-oauth-hint', el).innerHTML = 'Falta un ajuste único de ~10 min. Ve a <b>Ajustes › Conectar con Google/Microsoft</b> y pega las claves (te guío ahí).'
+			$('#aa-google', el).disabled = !st.google
+			$('#aa-ms', el).disabled = !st.microsoft
+		}).catch(() => {})
+		$('#aa-google', el).onclick = () => oauthGo('google')
+		$('#aa-ms', el).onclick = () => oauthGo('microsoft')
 		let guessed = null
 		const guess = async () => {
 			const email = $('#aa-email', el).value.trim()
@@ -410,6 +426,7 @@ function openAddAccount() {
 function renderAccount(id, full) {
 	const a = account(id); const view = $('#view')
 	if (!a) { view.innerHTML = `<header class="bar"><button class="icon-btn" data-act="go" data-val="#/accounts">‹</button><h1>Cuenta</h1></header><div class="empty">Cuenta no encontrada</div>`; return }
+	const oauth = a.providerType && a.providerType !== 'password'
 	if (full || view.dataset.acc !== String(id)) {
 		view.dataset.acc = String(id)
 		view.innerHTML = `
@@ -438,6 +455,16 @@ function renderAccount(id, full) {
 			</div>`
 		view.dataset.color = a.color
 		bindColor(view, c => { view.dataset.color = c })
+		if (oauth) {
+			$('#ac-pass', view)?.closest('.item')?.remove()
+			$('#ac-brevo', view)?.closest('.item')?.remove()
+			view.querySelectorAll('.hint').forEach(p => { if (/Brevo/.test(p.textContent)) p.remove() })
+			const rc = view.querySelector('[data-act=ac-reconnect]')
+			if (rc) { rc.dataset.act = 'ac-oauth'; rc.dataset.val = a.providerType; rc.textContent = 'Volver a conectar con ' + (a.providerType === 'google' ? 'Google' : 'Microsoft') }
+			const note = document.createElement('p'); note.className = 'hint'
+			note.innerHTML = 'Conectada con <b>' + (a.providerType === 'google' ? 'Google' : 'Microsoft') + '</b>: envía por su API (sin SMTP) y lee por IMAP.'
+			view.querySelector('.group')?.insertAdjacentElement('afterend', note)
+		}
 	}
 	$('#ac-title').textContent = a.name
 	$('#ac-status').textContent = statusText(a); $('#ac-status').style.color = statusColor(a)
@@ -457,7 +484,7 @@ async function accountAction(act) {
 		}
 		if (act === 'ac-save') {
 			const body = { name: $('#ac-name').value.trim(), color: $('#view').dataset.color }
-			if ($('#ac-pass').value) body.pass = $('#ac-pass').value
+			if ($('#ac-pass')?.value) body.pass = $('#ac-pass').value
 			const bk = $('#ac-brevo') ? $('#ac-brevo').value.trim() : ''
 				if (bk === '-') body.brevoKey = ''
 				else if (bk) body.brevoKey = bk
@@ -487,6 +514,12 @@ function renderSettings() {
 				${colorPicker(COLORS[1])}
 				<button class="btn" data-act="add-label">Agregar etiqueta</button>
 			</div>
+			<div class="section">Conectar con Google / Microsoft (una vez)</div>
+			<div class="group">
+				<button class="btn" data-act="oauth-setup" data-val="google">Configurar Google (Gmail)</button>
+				<button class="btn" data-act="oauth-setup" data-val="microsoft">Configurar Microsoft (Outlook)</button>
+			</div>
+			<p class="hint">Paso único de ~10 min. Después agregas cuentas con «Conectar con un clic»: sin SMTP (funciona en la nube) y sin que el permiso caduque.</p>
 			<div class="section">Seguridad</div>
 			<div class="group">
 				<button class="btn" data-act="change-pw">Cambiar contraseña</button>
@@ -509,6 +542,56 @@ async function enablePush() {
 		if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(key) })
 		await api('POST', '/push/subscribe', sub.toJSON()); toast('Notificaciones activadas ✅'); render()
 	} catch (e) { toast('No se pudo activar: ' + e.message) }
+}
+
+// ---------- Configurar Google / Microsoft ----------
+const OAUTH_HELP = {
+	google: {
+		title: 'Configurar Google (Gmail)',
+		steps: [
+			'Entra a <b>console.cloud.google.com</b> y crea un proyecto.',
+			'Menú → «APIs y servicios» → «Biblioteca» → busca <b>Gmail API</b> → <b>Habilitar</b>.',
+			'«Pantalla de consentimiento de OAuth»: tipo <b>Externo</b>, pon un nombre y tu correo. En «Público/Audiencia» pulsa <b>PUBLICAR</b> (pasar a Producción) — así el permiso NO caduca a los 7 días.',
+			'«Credenciales» → «Crear credenciales» → «ID de cliente de OAuth» → tipo <b>Aplicación web</b>.',
+			'En «URI de redirección autorizados» pega exactamente la URL de abajo.',
+			'Copia el «ID de cliente» y el «Secreto de cliente» y pégalos aquí.'
+		]
+	},
+	microsoft: {
+		title: 'Configurar Microsoft (Outlook)',
+		steps: [
+			'Entra a <b>portal.azure.com</b> → «Microsoft Entra ID» → «Registros de aplicaciones» → <b>Nuevo registro</b>.',
+			'En «Tipos de cuenta» elige <b>cuentas en cualquier directorio y cuentas personales de Microsoft</b>.',
+			'En «URI de redirección» elige tipo <b>Web</b> y pega exactamente la URL de abajo.',
+			'«Certificados y secretos» → «Nuevo secreto de cliente» → copia el <b>Valor</b> (no el Id).',
+			'«Permisos de API» → «Agregar permiso» → delegados: <b>Mail.Send</b> (Microsoft Graph) e <b>IMAP.AccessAsUser.All</b> (Office 365 Exchange Online).',
+			'Copia el «ID de aplicación (cliente)» y el secreto, y pégalos aquí.'
+		]
+	}
+}
+function openOauthSetup(provider) {
+	const h = OAUTH_HELP[provider]; if (!h) return
+	const redirect = `${location.origin}/oauth/${provider}/callback`
+	sheet(h.title, `
+		<div class="pad">
+			<ol style="padding-left:20px;line-height:1.5;font-size:15px">${h.steps.map(s => `<li style="margin-bottom:8px">${s}</li>`).join('')}</ol>
+		</div>
+		<div class="section">URI de redirección (cópiala)</div>
+		<div class="group"><div class="item"><input type="text" id="os-redirect" value="${esc(redirect)}" readonly style="font-size:13px"></div><button class="btn" id="os-copy">Copiar URL</button></div>
+		<div class="section">Pega aquí</div>
+		<div class="group">
+			<div class="item"><input type="text" id="os-id" placeholder="ID de cliente" autocapitalize="off" autocomplete="off"></div>
+			<div class="item"><input type="text" id="os-secret" placeholder="Secreto de cliente" autocapitalize="off" autocomplete="off"></div>
+		</div>
+		<div class="pad"><button class="btn primary" id="os-save">Guardar</button></div>`, el => {
+		$('#os-copy', el).onclick = async () => { try { await navigator.clipboard.writeText(redirect); toast('URL copiada') } catch { $('#os-redirect', el).select() } }
+		$('#os-save', el).onclick = async () => {
+			const clientId = $('#os-id', el).value.trim(), clientSecret = $('#os-secret', el).value.trim()
+			if (!clientId || !clientSecret) return toast('Pega el ID y el secreto')
+			try { await api('POST', '/oauth/config', { provider, clientId, clientSecret }); closeSheet(); toast('Listo. Ahora agrega la cuenta con «Conectar con un clic».', 6000) }
+			catch (e) { toast(e.message) }
+		}
+	})
 }
 
 // ---------- Etiquetas del hilo ----------
@@ -725,6 +808,8 @@ document.addEventListener('click', async e => {
 		}
 		case 'ac-save': case 'ac-reconnect': case 'ac-delete': return accountAction(act)
 		case 'push': return enablePush()
+		case 'oauth-setup': return openOauthSetup(val)
+		case 'ac-oauth': location.href = `/oauth/${val}/start?token=${enc(S.token)}`; return
 		case 'add-label': {
 			const name = $('#nl-name').value.trim(); if (!name) return toast('Escribe un nombre')
 			try { S.labels.push(await api('POST', '/labels', { name, color: $('#view').dataset.labelColor })); S.labels.sort((a, b) => a.name.localeCompare(b.name)); renderSettings() } catch (err) { toast(err.message) }

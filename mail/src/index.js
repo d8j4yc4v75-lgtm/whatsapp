@@ -9,6 +9,7 @@ import { db } from './db.js'
 import { API_TOKEN, PORT } from './config.js'
 import { MailManager } from './mailbox.js'
 import { guessProvider, guessCustom, guessByMx } from './providers.js'
+import { OAUTH, oauthConfigured, saveClient, startAuth, finishAuth } from './oauth.js'
 import { VAPID_PUBLIC_KEY, saveSubscription } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 import { MailCampaignRunner, optOut, isEmail } from './campaigns.js'
@@ -70,6 +71,55 @@ app.get('/api/guess', route(async req => {
 	if (!/@/.test(email)) throw new Error('Escribe el correo completo')
 	return guessProvider(email) || (await guessByMx(email)) || guessCustom(email)
 }))
+
+// ---- Conectar con Google / Microsoft (OAuth) ----
+const baseUrl = req => process.env.APP_URL?.replace(/\/$/, '') || `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
+const redirectUri = (req, provider) => `${baseUrl(req)}/oauth/${provider}/callback`
+
+app.get('/api/oauth/status', route(() => Object.fromEntries(Object.keys(OAUTH).map(p => [p, oauthConfigured(p)]))))
+app.post('/api/oauth/config', route(req => {
+	const p = String(req.body.provider)
+	if (!OAUTH[p]) throw new Error('Proveedor no válido')
+	saveClient(p, req.body.clientId, req.body.clientSecret)
+	return { ok: true, configured: oauthConfigured(p) }
+}))
+// El navegador abre esta URL (con el token en la query) y la app lo manda a Google/Microsoft
+app.get('/oauth/:provider/start', (req, res) => {
+	try {
+		if (tokenOf(req) !== API_TOKEN) throw new Error('Token inválido')
+		res.redirect(startAuth(req.params.provider, redirectUri(req, req.params.provider)))
+	} catch (e) { res.status(400).send(oauthPage(`No se pudo iniciar: ${e.message}`)) }
+})
+app.get('/oauth/:provider/callback', async (req, res) => {
+	try {
+		if (req.query.error) throw new Error(String(req.query.error_description || req.query.error))
+		const r = await finishAuth(String(req.query.state || ''), String(req.query.code || ''))
+		const existing = db.prepare('SELECT id FROM accounts WHERE lower(email) = lower(?)').get(r.email)
+		const name = r.email.split('@')[0]
+		let id
+		if (existing) {
+			id = existing.id
+			db.prepare(`UPDATE accounts SET provider_type=?, refresh_token=?, access_token=?, token_expiry=?, imap_host=?, imap_port=993, user=?, status='disconnected', error=NULL WHERE id=?`)
+				.run(r.provider, r.refresh_token, r.access_token, Date.now() + r.expires_in * 1000, OAUTH[r.provider].imapHost, r.email, id)
+		} else {
+			const color = ['#007AFF', '#34C759', '#FF9500', '#AF52DE', '#FF2D55', '#5AC8FA', '#FFCC00'][db.prepare('SELECT COUNT(*) AS n FROM accounts').get().n % 7]
+			const ins = db.prepare(`INSERT INTO accounts (name, color, email, imap_host, imap_port, smtp_host, smtp_port, user, pass, provider_type, refresh_token, access_token, token_expiry, created_at)
+				VALUES (?, ?, ?, ?, 993, '', 465, ?, '', ?, ?, ?, ?, ?)`).run(name, color, r.email, OAUTH[r.provider].imapHost, r.email, r.provider, r.refresh_token, r.access_token, Date.now() + r.expires_in * 1000, Date.now())
+			id = Number(ins.lastInsertRowid)
+		}
+		await manager.boxes.get(id)?.stop(); manager.boxes.delete(id)
+		manager.start(id).catch(() => {})
+		manager.emit('event', { type: 'account.update', data: manager.accountInfo(id) })
+		res.send(oauthPage(`✅ ${r.email} conectada. Ya puedes cerrar esta pestaña.`, true))
+	} catch (e) { res.status(400).send(oauthPage(`❌ ${e.message}`)) }
+})
+function oauthPage(msg, ok) {
+	return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Conectar correo</title>
+<body style="font-family:-apple-system,system-ui,sans-serif;background:#f2f2f7;color:#111;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:24px;text-align:center">
+<div style="background:#fff;padding:28px 24px;border-radius:16px;max-width:360px"><p style="font-size:17px;margin:0 0 16px">${msg}</p>
+<a href="/" style="display:inline-block;background:#007AFF;color:#fff;text-decoration:none;padding:12px 20px;border-radius:12px">Volver a la app</a></div>
+${ok ? '<script>setTimeout(()=>{try{location.href="/"}catch{}} ,1500)</script>' : ''}</body>`
+}
 
 // ---- Cuentas ----
 app.get('/api/accounts', route(() => manager.accounts()))
