@@ -1639,14 +1639,23 @@ function renderWarmupBox(st) {
 	const box = $('#warmup-box'); if (!box) return
 	S.warmup = st
 	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}</span><small>${n.sentToday}/${n.target} hoy · ${n.ageDays}d</small></div>`).join('')
-	box.innerHTML = `
-		<div class="item"><span class="grow">Activar calentamiento</span>
-			<button class="btn ${st.enabled ? 'primary' : ''}" data-act="warmup-toggle" style="width:auto;padding:6px 14px">${st.enabled ? 'Activado' : 'Activar'}</button></div>
+	const p = st.plan || {}
+	const manual = st.auto ? '' : `
 		<div class="item"><span class="grow">Tope de mensajes por número/día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" style="text-align:right;max-width:70px"></div>
 		<p class="hint" style="margin:2px 16px 0">Es el máximo. En números nuevos arranca bajo (≈3/día) y sube solo con los días hasta ese tope.</p>
 		<div class="item"><span class="grow">Horario (de / a)</span><input type="number" id="wu-start" min="0" max="23" value="${st.startHour}" style="text-align:right;max-width:55px"><span style="margin:0 6px">a</span><input type="number" id="wu-end" min="1" max="24" value="${st.endHour}" style="text-align:right;max-width:55px"></div>
 		<div class="item"><span class="grow">Pausa entre mensajes (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" style="text-align:right;max-width:55px"><span style="margin:0 6px">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" style="text-align:right;max-width:55px"></div>
-		<button class="btn" data-act="warmup-save">Guardar ajustes</button>
+		<button class="btn" data-act="warmup-save">Guardar ajustes</button>`
+	const autoPlan = st.auto ? `
+		<div class="item"><span class="grow">Hoy enviará (total)</span><span>${p.totalPerDay || 0} mensajes</span></div>
+		<div class="item"><span class="grow">Cada</span><span>~${p.everyMin || '—'} min · ${p.startHour}–${p.endHour} h</span></div>
+		<p class="hint" style="margin:2px 16px 0">El sistema analiza cada número (estado, rechazos, antigüedad) y decide solo cuántos manda, a qué horas y con qué ritmo. Los nuevos empiezan bajos y suben solos; los que tienen rechazos o descansan no se usan.</p>` : ''
+	box.innerHTML = `
+		<div class="item"><span class="grow">Activar calentamiento</span>
+			<button class="btn ${st.enabled ? 'primary' : ''}" data-act="warmup-toggle" style="width:auto;padding:6px 14px">${st.enabled ? 'Activado' : 'Activar'}</button></div>
+		<div class="item"><span class="grow">Automático (lo decide todo solo)</span>
+			<button class="btn ${st.auto ? 'primary' : ''}" data-act="warmup-auto" style="width:auto;padding:6px 14px">${st.auto ? 'Sí' : 'Manual'}</button></div>
+		${autoPlan}${manual}
 		<div class="item"><span class="grow">Estado</span><span>${st.eligible < 2 ? `⚠️ ${st.eligible} conectado(s)` : st.running ? '🟢 Funcionando' : '⏸️ En pausa'}</span></div>
 		${nums}`
 }
@@ -1813,6 +1822,11 @@ document.addEventListener('click', async e => {
 			return accountAction(act)
 		case 'warmup-toggle': {
 			try { renderWarmupBox(await api('POST', '/warmup', { ...warmupBody(), enabled: !(S.warmup?.enabled) })) }
+			catch (err) { toast(err.message) }
+			return
+		}
+		case 'warmup-auto': {
+			try { renderWarmupBox(await api('POST', '/warmup', { ...warmupBody(), enabled: S.warmup?.enabled, auto: !(S.warmup?.auto) })) }
 			catch (err) { toast(err.message) }
 			return
 		}

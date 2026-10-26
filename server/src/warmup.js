@@ -1,4 +1,5 @@
 import { db } from './db.js'
+import { accountHealth } from './health.js'
 
 // Calentamiento: tus propios números conversan entre sí, poco a poco y a horas normales,
 // para que las cuentas nuevas se vean activas y "maduren" antes de usarlas en envíos.
@@ -45,7 +46,9 @@ const REPLIES = [
 ]
 const CLOSERS = ['Listo, gracias 🙌', 'Va, nos hablamos', 'Sale, cualquier cosa te aviso', 'Perfecto, quedamos así 👍', 'Gracias! Saludos', 'Ok, hasta al rato']
 
-const DEFAULTS = { enabled: false, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21 }
+const DEFAULTS = { enabled: false, auto: true, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21 }
+const AUTO_START = 9, AUTO_END = 21
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 export class WarmupManager {
 	constructor(manager) {
@@ -68,6 +71,7 @@ export class WarmupManager {
 		s.startHour = Math.min(23, Math.max(0, Number(s.startHour)))
 		s.endHour = Math.min(24, Math.max(s.startHour + 1, Number(s.endHour)))
 		s.enabled = Boolean(s.enabled)
+		s.auto = s.auto === undefined ? true : Boolean(s.auto)
 		db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('warmup', ?)").run(JSON.stringify(s))
 		if (s.enabled) this.nextAt = 0
 		return s
@@ -78,10 +82,30 @@ export class WarmupManager {
 		const since = Math.max(a.linked_at || 0, a.rest_ended_at || 0)
 		return since ? Math.floor((Date.now() - since) / DAY) : 0
 	}
-	// Tope del día por número: arranca bajo en números nuevos y sube hasta el que elija el usuario
-	targetFor(a, perDay) {
+	// MODO AUTOMÁTICO: analiza el número (estado, rechazos, antigüedad) y decide solo cuántos
+	autoTarget(a) {
+		const info = this.manager.accountInfo(a.id)
+		if (!info || info.status !== 'connected') return 0
+		const h = accountHealth(a.id, info.status)
+		if (!h || h.level === 'red') return 0 // descansando, desconectado o con rechazos: no lo cargamos
+		const age = h.ageDays
+		if (age < 3) return 4 + 2 * age // número nuevo: 4, 6, 8 según se va calentando
+		if (h.level === 'yellow') return 4 // tuvo algún rechazo reciente: poquito
+		return 8 // número maduro y sano: mantenimiento para verse activo
+	}
+	// Tope del día por número
+	targetFor(a, s) {
+		if (s.auto) return this.autoTarget(a)
 		const ramp = 3 + 2 * this.ageDays(a) // día 0:3, día 1:5, día 2:7…
-		return Math.max(1, Math.min(perDay, ramp))
+		return Math.max(1, Math.min(s.perDay, ramp))
+	}
+
+	// MODO AUTOMÁTICO: reparte los mensajes del día a lo largo del horario, solo
+	autoDelays(s, elig) {
+		const total = elig.reduce((n, a) => n + this.targetFor(a, s), 0)
+		const windowH = ((s.auto ? AUTO_END : s.endHour) - (s.auto ? AUTO_START : s.startHour) + 24) % 24 || 24
+		const avg = total > 0 ? (windowH * 60) / total : 60
+		return { min: clamp(avg * 0.5, 10, 240), max: clamp(avg * 1.5, 15, 300) }
 	}
 
 	// Números tuyos de WhatsApp normal, conectados, con número y que no estén descansando
@@ -97,16 +121,19 @@ export class WarmupManager {
 	sentToday(accountId) {
 		return db.prepare('SELECT COUNT(*) AS n FROM warmup_log WHERE account_id = ? AND ts > ?').get(accountId, startOfDay()).n
 	}
-	canSend(a, s) { return this.sentToday(a.id) < this.targetFor(a, s.perDay) }
+	canSend(a, s) { return this.sentToday(a.id) < this.targetFor(a, s) }
 
 	status() {
 		const s = this.settings()
 		const elig = this.eligible()
+		const total = elig.reduce((n, a) => n + this.targetFor(a, s), 0)
+		const d = this.autoDelays(s, elig)
 		return {
 			...s,
 			eligible: elig.length,
 			running: s.enabled && elig.length >= 2,
-			numbers: elig.map(a => ({ id: a.id, name: a.name, sentToday: this.sentToday(a.id), target: this.targetFor(a, s.perDay), ageDays: this.ageDays(a) }))
+			plan: { totalPerDay: total, everyMin: Math.round((d.min + d.max) / 2), startHour: s.auto ? AUTO_START : s.startHour, endHour: s.auto ? AUTO_END : s.endHour },
+			numbers: elig.map(a => ({ id: a.id, name: a.name, sentToday: this.sentToday(a.id), target: this.targetFor(a, s), ageDays: this.ageDays(a) }))
 		}
 	}
 
@@ -114,7 +141,7 @@ export class WarmupManager {
 	startConvo(elig, s) {
 		const ready = elig.filter(a => this.canSend(a, s))
 		if (ready.length < 1) return null
-		const weight = a => Math.max(1, this.targetFor(a, s.perDay) - this.sentToday(a.id))
+		const weight = a => Math.max(1, this.targetFor(a, s) - this.sentToday(a.id))
 		const total = ready.reduce((n, a) => n + weight(a), 0)
 		let r = Math.random() * total
 		let aAcc = ready[0]
@@ -130,10 +157,12 @@ export class WarmupManager {
 		const s = this.settings()
 		if (!s.enabled) return
 		const hour = hourNow()
-		const inWindow = s.startHour <= s.endHour ? hour >= s.startHour && hour < s.endHour : hour >= s.startHour || hour < s.endHour
+		const sh = s.auto ? AUTO_START : s.startHour, eh = s.auto ? AUTO_END : s.endHour
+		const inWindow = sh <= eh ? hour >= sh && hour < eh : hour >= sh || hour < eh
 		if (!inWindow) return
 		if (Date.now() < this.nextAt) return
 		const elig = this.eligible()
+		this._elig = elig
 		if (elig.length < 2) { this.convo = null; return }
 		this.busy = true
 		try {
@@ -181,5 +210,8 @@ export class WarmupManager {
 		} finally { this.busy = false }
 	}
 
-	betweenConvos(s) { this.nextAt = Date.now() + rnd(s.minDelay, s.maxDelay) * 60000 }
+	betweenConvos(s) {
+		if (s.auto) { const d = this.autoDelays(s, this._elig || []); this.nextAt = Date.now() + rnd(d.min, d.max) * 60000 }
+		else this.nextAt = Date.now() + rnd(s.minDelay, s.maxDelay) * 60000
+	}
 }
