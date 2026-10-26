@@ -215,6 +215,8 @@ class Mailbox {
 
 	async send({ to, cc, subject, text, html, inReplyTo, references, attachments }) {
 		const a = this.account
+		// Si hay clave de Brevo, se envía por API HTTP (puerto 443): la nube no bloquea ese puerto
+		if (a.brevo_key) return this.sendViaBrevo({ to, cc, subject, text, html, inReplyTo, references, attachments })
 		const info = await this.withSmtp(t => t.sendMail({
 			from: { name: a.name, address: a.email },
 			to, cc: cc || undefined, subject, text, html,
@@ -225,7 +227,46 @@ class Mailbox {
 		return info.messageId
 	}
 
+	// Envía con la API de Brevo (https://api.brevo.com). Evita el timeout de SMTP en Railway.
+	async sendViaBrevo({ to, cc, subject, text, html, attachments }) {
+		const a = this.account
+		const list = v => (Array.isArray(v) ? v : String(v || '').split(',')).map(s => String(s).trim()).filter(Boolean).map(email => ({ email }))
+		const body = {
+			sender: { name: a.name, email: a.email },
+			to: list(to),
+			subject: subject || '',
+			htmlContent: html || undefined,
+			textContent: text || (html ? undefined : ' ')
+		}
+		const ccList = list(cc)
+		if (ccList.length) body.cc = ccList
+		if (attachments?.length) {
+			body.attachment = attachments.map(at => ({
+				name: at.filename || at.name || 'adjunto',
+				content: Buffer.isBuffer(at.content) ? at.content.toString('base64') : Buffer.from(at.content || '').toString('base64')
+			}))
+		}
+		const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+			method: 'POST',
+			headers: { 'api-key': a.brevo_key, 'content-type': 'application/json', accept: 'application/json' },
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(25000)
+		})
+		const data = await res.json().catch(() => ({}))
+		if (!res.ok) throw new Error(data.message || `Brevo ${res.status}: revisa la clave API y que el remitente ${a.email} esté verificado en Brevo`)
+		return data.messageId || null
+	}
+
 	async verify() {
+		const a = this.account
+		if (a.brevo_key) {
+			const res = await fetch('https://api.brevo.com/v3/account', {
+				headers: { 'api-key': a.brevo_key, accept: 'application/json' },
+				signal: AbortSignal.timeout(20000)
+			})
+			if (!res.ok) throw new Error(`Clave de Brevo inválida (${res.status})`)
+			return
+		}
 		await this.withSmtp(t => t.verify())
 	}
 
@@ -273,7 +314,7 @@ export class MailManager extends EventEmitter {
 		if (!a) return null
 		const b = this.boxes.get(id)
 		const unread = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE account_id = ? AND seen = 0 AND from_me = 0').get(id).n
-		return { id: a.id, name: a.name, color: a.color, email: a.email, status: b?.status || a.status, error: b?.error || a.error || null, unread }
+		return { id: a.id, name: a.name, color: a.color, email: a.email, status: b?.status || a.status, error: b?.error || a.error || null, unread, api: Boolean(a.brevo_key) }
 	}
 
 	accounts() {

@@ -87,15 +87,16 @@ const accountBody = async (body, prev = {}) => {
 		smtp_host: String(body.smtpHost ?? prev.smtp_host ?? g.smtpHost).trim(),
 		smtp_port: Number(body.smtpPort ?? prev.smtp_port ?? g.smtpPort) || 465,
 		user: String(body.user ?? prev.user ?? email).trim(),
-		pass: body.pass !== undefined ? String(body.pass) : prev.pass
+		pass: body.pass !== undefined ? String(body.pass) : prev.pass,
+		brevo_key: body.brevoKey !== undefined ? (String(body.brevoKey).trim() || null) : (prev.brevo_key ?? null)
 	}
 }
 
 app.post('/api/accounts', route(async req => {
 	const a = await accountBody(req.body)
 	if (!a.pass) throw new Error('Escribe la contraseña')
-	const { lastInsertRowid } = db.prepare(`INSERT INTO accounts (name, color, email, imap_host, imap_port, smtp_host, smtp_port, user, pass, created_at)
-		VALUES (@name, @color, @email, @imap_host, @imap_port, @smtp_host, @smtp_port, @user, @pass, ${Date.now()})`).run(a)
+	const { lastInsertRowid } = db.prepare(`INSERT INTO accounts (name, color, email, imap_host, imap_port, smtp_host, smtp_port, user, pass, brevo_key, created_at)
+		VALUES (@name, @color, @email, @imap_host, @imap_port, @smtp_host, @smtp_port, @user, @pass, @brevo_key, ${Date.now()})`).run(a)
 	const id = Number(lastInsertRowid)
 	await manager.start(id)
 	return manager.accountInfo(id)
@@ -106,7 +107,7 @@ app.patch('/api/accounts/:id', route(async req => {
 	const prev = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id)
 	const a = await accountBody(req.body, prev)
 	db.prepare(`UPDATE accounts SET name=@name, color=@color, email=@email, imap_host=@imap_host, imap_port=@imap_port,
-		smtp_host=@smtp_host, smtp_port=@smtp_port, user=@user, pass=@pass WHERE id=${id}`).run(a)
+		smtp_host=@smtp_host, smtp_port=@smtp_port, user=@user, pass=@pass, brevo_key=@brevo_key WHERE id=${id}`).run(a)
 	const changedConn = ['imap_host', 'imap_port', 'user', 'pass', 'email'].some(k => a[k] !== prev[k])
 	if (changedConn) { await manager.boxes.get(id)?.stop(); manager.boxes.delete(id); await manager.start(id) }
 	return manager.accountInfo(id)

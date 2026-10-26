@@ -102,3 +102,6 @@ CREATE TABLE IF NOT EXISTS optouts (
   at INTEGER NOT NULL
 );
 `)
+
+// Envío por API HTTP (Brevo) para saltar el bloqueo de puertos SMTP en la nube
+for (const sql of ['ALTER TABLE accounts ADD COLUMN brevo_key TEXT']) { try { db.exec(sql) } catch {} }

@@ -362,6 +362,11 @@ function openAddAccount() {
 				<div class="item"><span class="grow">Servidor SMTP</span><input type="text" id="aa-smtp" style="text-align:right" placeholder="smtp.dominio.com"></div>
 				<div class="item"><span class="grow">Puerto SMTP</span><input type="number" id="aa-smtpport" style="text-align:right;max-width:80px" value="465"></div>
 			</div>
+			<div class="section">Envío por API (recomendado en la nube)</div>
+			<div class="group">
+				<div class="item"><input type="text" id="aa-brevo" placeholder="Clave API de Brevo (xkeysib-…)" autocapitalize="off" autocomplete="off"></div>
+			</div>
+			<p class="hint">Si la pones, los correos salen por Brevo (API HTTP) y se evita el bloqueo de puertos SMTP de Railway. Clave gratis en app.brevo.com › SMTP &amp; API › API Keys. El remitente debe estar verificado en Brevo.</p>
 		</div>
 		<div class="pad"><button class="btn primary" id="aa-go">Conectar</button></div>`, el => {
 		bindColor(el, c => { color = c })
@@ -389,7 +394,8 @@ function openAddAccount() {
 				imapHost: $('#aa-imap', el).value.trim() || undefined,
 				imapPort: Number($('#aa-imapport', el).value) || undefined,
 				smtpHost: $('#aa-smtp', el).value.trim() || undefined,
-				smtpPort: Number($('#aa-smtpport', el).value) || undefined
+				smtpPort: Number($('#aa-smtpport', el).value) || undefined,
+				brevoKey: $('#aa-brevo', el).value.trim() || undefined
 			}
 			try {
 				const a = await api('POST', '/accounts', body)
@@ -419,14 +425,16 @@ function renderAccount(id, full) {
 					<div class="item"><span>Nombre</span><input type="text" id="ac-name" style="text-align:right" value="${esc(a.name)}"></div>
 					${colorPicker(a.color)}
 					<div class="item"><span class="grow">Cambiar contraseña</span><input type="password" id="ac-pass" placeholder="(dejar vacío)" style="text-align:right" autocomplete="off"></div>
-					<button class="btn" data-act="ac-save">Guardar</button>
+					<div class="item"><input type="text" id="ac-brevo" placeholder="${a.api ? 'Envío por API activo · (cambiar clave)' : 'Clave API de Brevo (xkeysib-…)'}" autocapitalize="off" autocomplete="off"></div>
+						<button class="btn" data-act="ac-save">Guardar</button>
 				</div>
 				<div class="group">
-					<button class="btn" data-act="ac-test">✉️ Probar envío (SMTP)</button>
+					<button class="btn" data-act="ac-test">✉️ Probar envío</button>
 					<button class="btn" data-act="ac-reconnect">Reconectar</button>
 					<button class="btn danger" data-act="ac-delete">Eliminar cuenta</button>
 				</div>
-				<p class="hint">«Probar envío» confirma que la app puede mandar correos con esta cuenta. Si da error de conexión, la app intenta sola con otro puerto (465/587).</p>
+				<p class="hint">«Probar envío» confirma que la app puede mandar correos con esta cuenta.</p>
+					<p class="hint">Para evitar el bloqueo de puertos SMTP en la nube, pon tu clave de Brevo arriba: los correos saldrán por API HTTP. ${a.api ? 'Envío por API activo. Deja el campo vacío para conservarla; escribe «-» para quitarla.' : 'Clave gratis en app.brevo.com › SMTP &amp; API › API Keys.'} El remitente debe estar verificado en Brevo.</p>
 			</div>`
 		view.dataset.color = a.color
 		bindColor(view, c => { view.dataset.color = c })
@@ -444,13 +452,16 @@ async function accountAction(act) {
 			const btn = document.querySelector('[data-act=ac-test]'); if (btn) { btn.disabled = true; btn.textContent = 'Probando…' }
 			try { await api('POST', `/accounts/${id}/test`); toast('✅ Envío listo: la app puede mandar correos') }
 			catch (e) { toast('❌ ' + e.message, 7000) }
-			finally { if (btn) { btn.disabled = false; btn.textContent = '✉️ Probar envío (SMTP)' } }
+			finally { if (btn) { btn.disabled = false; btn.textContent = '✉️ Probar envío' } }
 			return
 		}
 		if (act === 'ac-save') {
 			const body = { name: $('#ac-name').value.trim(), color: $('#view').dataset.color }
 			if ($('#ac-pass').value) body.pass = $('#ac-pass').value
-			Object.assign(account(id), await api('PATCH', `/accounts/${id}`, body)); toast('Guardado'); render()
+			const bk = $('#ac-brevo') ? $('#ac-brevo').value.trim() : ''
+				if (bk === '-') body.brevoKey = ''
+				else if (bk) body.brevoKey = bk
+				Object.assign(account(id), await api('PATCH', `/accounts/${id}`, body)); toast('Guardado'); renderAccount(id, true)
 		} else if (act === 'ac-reconnect') {
 			Object.assign(account(id), await api('POST', `/accounts/${id}/reconnect`)); render()
 		} else if (act === 'ac-delete') {
