@@ -48,6 +48,7 @@ const CLOSERS = ['Listo, gracias 🙌', 'Va, nos hablamos', 'Sale, cualquier cos
 
 const DEFAULTS = { enabled: false, auto: true, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21 }
 const AUTO_START = 9, AUTO_END = 21
+const GRACE_HOURS = Number(process.env.WARMUP_GRACE_HOURS || 24) // espera tras vincular antes de enviar
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 export class WarmupManager {
@@ -82,20 +83,30 @@ export class WarmupManager {
 		const since = Math.max(a.linked_at || 0, a.rest_ended_at || 0)
 		return since ? Math.floor((Date.now() - since) / DAY) : 0
 	}
+	// Horas desde que se vinculó / terminó su descanso (para el periodo de gracia)
+	ageHours(a) {
+		const since = Math.max(a.linked_at || 0, a.rest_ended_at || 0)
+		return since ? (Date.now() - since) / 36e5 : 0
+	}
 	// MODO AUTOMÁTICO: analiza el número (estado, rechazos, antigüedad) y decide solo cuántos
 	autoTarget(a) {
 		const info = this.manager.accountInfo(a.id)
 		if (!info || info.status !== 'connected') return 0
 		const h = accountHealth(a.id, info.status)
 		if (!h || h.level === 'red') return 0 // descansando, desconectado o con rechazos: no lo cargamos
+		// Periodo de gracia: un número recién vinculado NO envía nada en sus primeras horas
+		// (es cuando WhatsApp más rápido restringe). Solo puede recibir.
+		if (this.ageHours(a) < GRACE_HOURS) return 0
 		const age = h.ageDays
-		if (age < 3) return 4 + 2 * age // número nuevo: 4, 6, 8 según se va calentando
-		if (h.level === 'yellow') return 4 // tuvo algún rechazo reciente: poquito
-		return 8 // número maduro y sano: mantenimiento para verse activo
+		if (age < 1) return 2 // su primer día ya pasada la gracia: muy poquito
+		if (age < 3) return 2 + age // día 1:3, día 2:4
+		if (h.level === 'yellow') return 3 // tuvo algún rechazo reciente
+		return 6 // número maduro y sano: mantenimiento para verse activo
 	}
 	// Tope del día por número
 	targetFor(a, s) {
 		if (s.auto) return this.autoTarget(a)
+		if (this.ageHours(a) < GRACE_HOURS) return 0 // gracia también en manual: no enviar recién vinculado
 		const ramp = 3 + 2 * this.ageDays(a) // día 0:3, día 1:5, día 2:7…
 		return Math.max(1, Math.min(s.perDay, ramp))
 	}

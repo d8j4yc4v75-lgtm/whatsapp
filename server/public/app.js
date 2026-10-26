@@ -1638,7 +1638,7 @@ async function loadWarmup() {
 function renderWarmupBox(st) {
 	const box = $('#warmup-box'); if (!box) return
 	S.warmup = st
-	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}</span><small>${n.sentToday}/${n.target} hoy · ${n.ageDays}d</small></div>`).join('')
+	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}</span><small>${n.target > 0 ? `${n.sentToday}/${n.target} hoy` : '⏸️ hoy no se usa'} · ${n.ageDays}d</small></div>`).join('')
 	const p = st.plan || {}
 	const manual = st.auto ? '' : `
 		<div class="item"><span class="grow">Tope de mensajes por número/día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" style="text-align:right;max-width:70px"></div>
