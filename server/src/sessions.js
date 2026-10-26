@@ -535,6 +535,12 @@ export class Session {
 		}))).catch(() => {})
 	}
 
+	// Presencia ("en línea", "escribiendo…") para que el calentamiento se vea natural
+	async setPresence(jid, state) {
+		if (!this.sock || this.status !== 'connected') return
+		try { await this.sock.sendPresenceUpdate(state, jid) } catch {}
+	}
+
 	async stop() {
 		this.stopped = true
 		try { this.sock?.end(undefined) } catch {}

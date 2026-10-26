@@ -1638,11 +1638,12 @@ async function loadWarmup() {
 function renderWarmupBox(st) {
 	const box = $('#warmup-box'); if (!box) return
 	S.warmup = st
-	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}</span><small>${n.sentToday}/${n.perDay} hoy</small></div>`).join('')
+	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}</span><small>${n.sentToday}/${n.target} hoy · ${n.ageDays}d</small></div>`).join('')
 	box.innerHTML = `
 		<div class="item"><span class="grow">Activar calentamiento</span>
 			<button class="btn ${st.enabled ? 'primary' : ''}" data-act="warmup-toggle" style="width:auto;padding:6px 14px">${st.enabled ? 'Activado' : 'Activar'}</button></div>
-		<div class="item"><span class="grow">Mensajes por número al día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" style="text-align:right;max-width:70px"></div>
+		<div class="item"><span class="grow">Tope de mensajes por número/día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" style="text-align:right;max-width:70px"></div>
+		<p class="hint" style="margin:2px 16px 0">Es el máximo. En números nuevos arranca bajo (≈3/día) y sube solo con los días hasta ese tope.</p>
 		<div class="item"><span class="grow">Horario (de / a)</span><input type="number" id="wu-start" min="0" max="23" value="${st.startHour}" style="text-align:right;max-width:55px"><span style="margin:0 6px">a</span><input type="number" id="wu-end" min="1" max="24" value="${st.endHour}" style="text-align:right;max-width:55px"></div>
 		<div class="item"><span class="grow">Pausa entre mensajes (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" style="text-align:right;max-width:55px"><span style="margin:0 6px">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" style="text-align:right;max-width:55px"></div>
 		<button class="btn" data-act="warmup-save">Guardar ajustes</button>
