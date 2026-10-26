@@ -1592,7 +1592,11 @@ function renderSettings() {
 			</div>
 			<p class="hint">Asigna etiquetas con el botón 🏷️ dentro de cada chat y filtra por ellas en la bandeja.</p>
 
-			<div class="section">Días sin envíos masivos</div>
+			<div class="section">Calentamiento de números</div>
+				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
+				<p class="hint">Tus propios números se escriben entre sí, poco a poco y en horario normal, para que las cuentas nuevas se vean activas y «maduren». Solo son tus números hablando entre ellos. Necesitas al menos <b>2 números conectados</b>.</p>
+
+				<div class="section">Días sin envíos masivos</div>
 			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
 			<p class="hint">Los días marcados no sale ningún envío masivo (los chats normales sí funcionan). Descansar los domingos ayuda a que los números se vean como de una persona real.</p>
 
@@ -1616,6 +1620,7 @@ function renderSettings() {
 			<div style="height:30px"></div>
 		</div>`
 	$('#nl-name').value = prevLabel
+	loadWarmup()
 	api('GET', '/info').then(info => {
 		const el = $('#storage')
 		if (el) el.innerHTML = info.persistent
@@ -1624,6 +1629,34 @@ function renderSettings() {
 	}).catch(() => {})
 	view.dataset.labelColor = COLORS[1]
 	bindColorPicker(view, c => { view.dataset.labelColor = c })
+}
+
+async function loadWarmup() {
+	const box = $('#warmup-box'); if (!box) return
+	try { renderWarmupBox(await api('GET', '/warmup')) } catch { box.innerHTML = '<div class="item"><span class="grow">No se pudo cargar</span></div>' }
+}
+function renderWarmupBox(st) {
+	const box = $('#warmup-box'); if (!box) return
+	S.warmup = st
+	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}</span><small>${n.sentToday}/${n.perDay} hoy</small></div>`).join('')
+	box.innerHTML = `
+		<div class="item"><span class="grow">Activar calentamiento</span>
+			<button class="btn ${st.enabled ? 'primary' : ''}" data-act="warmup-toggle" style="width:auto;padding:6px 14px">${st.enabled ? 'Activado' : 'Activar'}</button></div>
+		<div class="item"><span class="grow">Mensajes por número al día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" style="text-align:right;max-width:70px"></div>
+		<div class="item"><span class="grow">Horario (de / a)</span><input type="number" id="wu-start" min="0" max="23" value="${st.startHour}" style="text-align:right;max-width:55px"><span style="margin:0 6px">a</span><input type="number" id="wu-end" min="1" max="24" value="${st.endHour}" style="text-align:right;max-width:55px"></div>
+		<div class="item"><span class="grow">Pausa entre mensajes (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" style="text-align:right;max-width:55px"><span style="margin:0 6px">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" style="text-align:right;max-width:55px"></div>
+		<button class="btn" data-act="warmup-save">Guardar ajustes</button>
+		<div class="item"><span class="grow">Estado</span><span>${st.eligible < 2 ? `⚠️ ${st.eligible} conectado(s)` : st.running ? '🟢 Funcionando' : '⏸️ En pausa'}</span></div>
+		${nums}`
+}
+function warmupBody() {
+	return {
+		perDay: Number($('#wu-perday')?.value) || undefined,
+		startHour: Number($('#wu-start')?.value),
+		endHour: Number($('#wu-end')?.value),
+		minDelay: Number($('#wu-min')?.value) || undefined,
+		maxDelay: Number($('#wu-max')?.value) || undefined
+	}
 }
 
 function b64ToUint8(b64) {
@@ -1777,6 +1810,16 @@ document.addEventListener('click', async e => {
 			return accountAction(act)
 		case 'ac-save': case 'ac-connect': case 'ac-logout': case 'ac-delete': case 'ac-pair':
 			return accountAction(act)
+		case 'warmup-toggle': {
+			try { renderWarmupBox(await api('POST', '/warmup', { ...warmupBody(), enabled: !(S.warmup?.enabled) })) }
+			catch (err) { toast(err.message) }
+			return
+		}
+		case 'warmup-save': {
+			try { renderWarmupBox(await api('POST', '/warmup', { ...warmupBody(), enabled: S.warmup?.enabled })); toast('Guardado') }
+			catch (err) { toast(err.message) }
+			return
+		}
 		case 'push': return enablePush()
 		case 'add-label': {
 			const name = $('#nl-name').value.trim()
