@@ -152,3 +152,10 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 `)
 try { db.exec('ALTER TABLE conversation_labels ADD COLUMN at INTEGER') } catch {}
+
+// Archivar conversaciones y guardar la foto de perfil del contacto
+for (const sql of [
+	'ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0',
+	'ALTER TABLE chats ADD COLUMN avatar_url TEXT',
+	'ALTER TABLE chats ADD COLUMN avatar_ts INTEGER'
+]) { try { db.exec(sql) } catch {} }

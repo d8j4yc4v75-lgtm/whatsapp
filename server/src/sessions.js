@@ -535,6 +535,12 @@ export class Session {
 		}))).catch(() => {})
 	}
 
+	// Foto de perfil del contacto (URL del CDN de WhatsApp)
+	async profilePictureUrl(jid) {
+		if (!this.sock || this.status !== 'connected') return null
+		try { return await this.sock.profilePictureUrl(jid, 'image') } catch { return null }
+	}
+
 	// Presencia ("en línea", "escribiendo…") para que el calentamiento se vea natural
 	async setPresence(jid, state) {
 		if (!this.sock || this.status !== 'connected') return
@@ -657,8 +663,8 @@ export class SessionManager extends EventEmitter {
 	}
 
 	/** Cada conversación es la combinación cuenta + contacto; la clave es "cuenta:jid" */
-	conversations({ accountId, labelId, unread, q, limit = 500 } = {}) {
-		const where = ['(c.last_ts > 0 OR c.unread > 0)']
+	conversations({ accountId, labelId, unread, q, archived, limit = 500 } = {}) {
+		const where = ['(c.last_ts > 0 OR c.unread > 0)', archived ? 'c.archived = 1' : 'c.archived = 0']
 		const params = {}
 		if (accountId) { where.push('c.account_id = @accountId'); params.accountId = accountId }
 		if (labelId) { where.push(`(c.account_id || ':' || c.jid) IN (SELECT jid FROM conversation_labels WHERE label_id = @labelId)`); params.labelId = labelId }
@@ -668,7 +674,7 @@ export class SessionManager extends EventEmitter {
 			params.q = `%${q}%`
 		}
 		const rows = db.prepare(`
-			SELECT c.account_id, c.jid, c.last_ts, c.unread, COALESCE(ct.name, c.name, ct.notify) AS name
+			SELECT c.account_id, c.jid, c.last_ts, c.unread, c.archived, c.avatar_url, COALESCE(ct.name, c.name, ct.notify) AS name
 			FROM chats c LEFT JOIN contacts ct ON ct.jid = c.jid
 			WHERE ${where.join(' AND ')}
 			ORDER BY c.last_ts DESC
@@ -678,10 +684,42 @@ export class SessionManager extends EventEmitter {
 
 	conversation(accountId, jid) {
 		const r = db.prepare(`
-			SELECT c.account_id, c.jid, c.last_ts, c.unread, COALESCE(ct.name, c.name, ct.notify) AS name
+			SELECT c.account_id, c.jid, c.last_ts, c.unread, c.archived, c.avatar_url, COALESCE(ct.name, c.name, ct.notify) AS name
 			FROM chats c LEFT JOIN contacts ct ON ct.jid = c.jid
 			WHERE c.account_id = ? AND c.jid = ?`).get(accountId, jid)
 		return r ? this.formatConversation(r) : null
+	}
+
+	// Archiva / desarchiva una conversación
+	setArchived(accountId, jid, archived) {
+		db.prepare('UPDATE chats SET archived = ? WHERE account_id = ? AND jid = ?').run(archived ? 1 : 0, accountId, jid)
+		const conv = this.conversation(accountId, jid)
+		this.emit('event', { type: 'conversation.update', data: conv })
+		return conv
+	}
+
+	// Borra una conversación (mensajes, chat, notas, recordatorios y etiquetas)
+	deleteConversation(accountId, jid) {
+		const key = `${accountId}:${jid}`
+		db.transaction(() => {
+			db.prepare('DELETE FROM messages WHERE account_id = ? AND jid = ?').run(accountId, jid)
+			db.prepare('DELETE FROM chats WHERE account_id = ? AND jid = ?').run(accountId, jid)
+			db.prepare('DELETE FROM conversation_notes WHERE conv_key = ?').run(key)
+			db.prepare('DELETE FROM reminders WHERE conv_key = ?').run(key)
+			db.prepare('DELETE FROM conversation_labels WHERE jid = ?').run(key)
+		})()
+		this.emit('event', { type: 'conversation.removed', data: { key } })
+		return { ok: true }
+	}
+
+	// Devuelve la URL de la foto de perfil, guardándola en caché un día
+	async avatarUrl(accountId, jid) {
+		const row = db.prepare('SELECT avatar_url, avatar_ts FROM chats WHERE account_id = ? AND jid = ?').get(accountId, jid)
+		if (row && row.avatar_ts && Date.now() - row.avatar_ts < 864e5) return row.avatar_url || null
+		const s = this.sessions.get(accountId)
+		const url = s ? await s.profilePictureUrl(jid).catch(() => null) : null
+		try { db.prepare('UPDATE chats SET avatar_url = ?, avatar_ts = ? WHERE account_id = ? AND jid = ?').run(url, Date.now(), accountId, jid) } catch {}
+		return url
 	}
 
 	formatConversation(r) {
@@ -701,6 +739,8 @@ export class SessionManager extends EventEmitter {
 			lastText: preview(last),
 			lastFromMe: Boolean(last?.from_me),
 			unread: r.unread || 0,
+			archived: Boolean(r.archived),
+			hasAvatar: Boolean(r.avatar_url),
 			labelIds: labels,
 			note: note?.text || null,
 			reminder: reminder ? { at: reminder.at, text: reminder.text } : null

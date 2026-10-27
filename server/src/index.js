@@ -214,6 +214,7 @@ app.get('/api/conversations', route(req => manager.conversations({
 	accountId: Number(req.query.accountId) || null,
 	labelId: Number(req.query.labelId) || null,
 	unread: req.query.unread === '1',
+	archived: req.query.archived === '1',
 	q: req.query.q ? String(req.query.q) : null
 })))
 
@@ -242,6 +243,24 @@ app.post('/api/conversations/:key/read', route(async req => {
 	const { accountId, jid } = convKey(req.params.key)
 	await manager.markRead(accountId, jid)
 	return { ok: true }
+}))
+
+app.post('/api/conversations/:key/archive', route(req => {
+	const { accountId, jid } = convKey(req.params.key)
+	return manager.setArchived(accountId, jid, req.body.archived !== false)
+}))
+
+app.delete('/api/conversations/:key', route(req => {
+	const { accountId, jid } = convKey(req.params.key)
+	return manager.deleteConversation(accountId, jid)
+}))
+
+// Foto de perfil del contacto (redirige a la imagen del CDN de WhatsApp)
+app.get('/api/avatar/:key', route(async (req, res) => {
+	const { accountId, jid } = convKey(req.params.key)
+	const url = await manager.avatarUrl(accountId, jid)
+	if (!url) { res.status(404).end(); return }
+	res.redirect(url)
 }))
 
 app.put('/api/conversations/:key/labels', route(req => {

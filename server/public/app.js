@@ -21,7 +21,7 @@ const S = {
 	more: {},
 	campaigns: [],
 	templates: {},
-	filter: { account: null, label: null, unread: false, waiting: false, reminders: false, q: '' },
+	filter: { account: null, label: null, unread: false, waiting: false, reminders: false, archived: false, q: '' },
 	replies: [],
 	statsDays: 7,
 	restDays: [0],
@@ -62,7 +62,14 @@ const conv = key => S.convs.find(c => c.key === key)
 const keyOf = m => m.accountId + ':' + m.jid
 const accOf = key => Number(String(key).split(':')[0])
 const jidOf = key => String(key).slice(String(key).indexOf(':') + 1)
-const convName = c => c?.name || (c?.isGroup ? 'Grupo' : c?.phone ? '+' + c.phone : c?.jid || '')
+// Mostrar el número en lugar del nombre (los grupos sí conservan su nombre)
+const convName = c => c?.isGroup ? (c?.name || 'Grupo') : (c?.phone ? '+' + c.phone : (c?.name || c?.jid || ''))
+const avatarURL = c => `/api/avatar/${enc(c.key)}?token=${enc(S.token)}`
+function avatarHtml(c) {
+	const inner = c.isGroup ? '👥' : '👤'
+	const img = c.isGroup ? '' : `<img src="${avatarURL(c)}" alt="" onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`
+	return `<div class="avatar" style="background:${avatarColor(c.jid)};position:relative;overflow:hidden">${inner}${img}</div>`
+}
 const totalUnread = () => S.convs.reduce((n, c) => n + (c.unread || 0), 0)
 
 function statusText(a) {
@@ -221,8 +228,17 @@ function refreshStatusDot() {
 function upsertConv(c) {
 	if (!c) return
 	S.convs = S.convs.filter(x => x.key !== c.key)
+	// En la vista actual solo caben las que corresponden (archivadas vs normales)
+	if (Boolean(c.archived) !== Boolean(S.filter.archived)) return
 	const i = S.convs.findIndex(x => x.lastTs < c.lastTs)
 	S.convs.splice(i < 0 ? S.convs.length : i, 0, c)
+}
+
+// Carga la lista según si estamos viendo archivadas o normales
+async function loadConvList() {
+	try { S.convs = await api('GET', '/conversations' + (S.filter.archived ? '?archived=1' : '')) } catch (e) { toast(e.message) }
+	updateBadge()
+	renderInbox(false)
 }
 
 function insertMsg(m) {
@@ -282,8 +298,13 @@ function handleEvent({ type, data }) {
 		case 'reminder':
 			toast(`⏰ ${data.name}: ${data.text || 'Recordatorio'}`, 8000)
 			return
+		case 'conversation.removed':
+			S.convs = S.convs.filter(x => x.key !== data.key)
+			if (S.active === data.key && route().name === 'chat') go('#/')
+			else { updateBadge(); if (route().name === 'inbox') renderInboxList() }
+			return
 		case 'conversations.changed':
-			api('GET', '/conversations').then(c => { S.convs = c; updateBadge(); render() }).catch(() => {})
+			loadConvList()
 			return
 	}
 	renderSoon(type)
@@ -402,7 +423,8 @@ function renderChips() {
 	const chip = (act, val, text, on, color) =>
 		`<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-val="${esc(val)}" ${color ? `style="--c:${esc(color)}"` : ''}>${esc(text)}</button>`
 	$('#chips').innerHTML = [
-		chip('f-all', '', 'Todos', !f.account && !f.label && !f.unread && !f.waiting && !f.reminders),
+		chip('f-all', '', f.archived ? 'Archivados' : 'Todos', !f.account && !f.label && !f.unread && !f.waiting && !f.reminders),
+		chip('f-archived', '', '🗄️ Archivados', f.archived, '#8E8E93'),
 		chip('f-unread', '', 'No leídos', f.unread),
 		chip('f-waiting', '', `Sin responder${S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length ? ' (' + S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length + ')' : ''}`, f.waiting, '#E5484D'),
 		chip('f-reminders', '', `⏰ Recordatorios${S.convs.filter(c => c.reminder).length ? ' (' + S.convs.filter(c => c.reminder).length + ')' : ''}`, f.reminders, '#7C5CFF'),
@@ -421,7 +443,7 @@ function renderInboxList() {
 	}
 	el.innerHTML = list.map(c => `
 		<li><a class="row" href="#/chat/${enc(c.key)}">
-			<div class="avatar" style="background:${avatarColor(c.jid)}">${c.isGroup ? '👥' : esc(initials(convName(c)))}</div>
+			${avatarHtml(c)}
 			<div class="body">
 				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
 				<div class="bottom"><span class="preview">${c.lastFromMe ? 'Tú: ' : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
@@ -437,10 +459,13 @@ async function renderChat(jid, full) {
 		$('#app').innerHTML = `
 			<header class="bar">
 				<button class="icon-btn" data-act="back" aria-label="Atrás">‹</button>
+				<span id="c-avatar"></span>
 				<div class="title"><b id="c-title"></b><small id="c-sub"></small></div>
 				<button class="icon-btn" data-act="note" aria-label="Nota">📝</button>
 				<button class="icon-btn" data-act="reminder" aria-label="Recordatorio">⏰</button>
 				<button class="icon-btn" data-act="labels" aria-label="Etiquetas">🏷️</button>
+				<button class="icon-btn" data-act="archive-conv" id="c-archive" aria-label="Archivar">🗄️</button>
+				<button class="icon-btn" data-act="delete-conv" aria-label="Eliminar">🗑️</button>
 			</header>
 			<div id="c-banners"></div>
 			<div class="msgs" id="msgs"><div class="empty">Cargando…</div></div>
@@ -475,8 +500,10 @@ async function renderChat(jid, full) {
 function renderChatHeader() {
 	const c = conv(S.active)
 	$('#c-title').textContent = c ? convName(c) : '+' + jidOf(S.active).split('@')[0]
+	const av = $('#c-avatar'); if (av && c) av.innerHTML = avatarHtml(c)
+	const arch = $('#c-archive'); if (arch) { arch.textContent = c?.archived ? '📤' : '🗄️'; arch.setAttribute('aria-label', c?.archived ? 'Desarchivar' : 'Archivar') }
 	const parts = []
-	if (c?.phone && c.name) parts.push('+' + c.phone)
+	if (c?.name) parts.push(c.name) // si WhatsApp tiene un nombre guardado, va de subtítulo
 	if (c?.labelIds.length) parts.push(c.labelIds.map(label).filter(Boolean).map(l => l.name).join(', '))
 	$('#c-sub').textContent = parts.join(' · ')
 	const banners = $('#c-banners')
@@ -1058,6 +1085,17 @@ function parseList(text) {
 	}).filter(r => r.phone.replace(/\D/g, '').length >= 10)
 }
 
+// "Número + mensaje por línea": el teléfono al inicio y TODO lo demás es su mensaje
+function parseNumMsg(text) {
+	return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+		const m = l.match(/^["']?\s*(\+?[\d][\d\s\-().]{8,})[\s,:\-–—]+(.+)$/s)
+		if (!m) return null
+		const phone = m[1].replace(/\D/g, '')
+		const msg = m[2].trim()
+		return phone.length >= 10 && msg ? { phone, params: [msg] } : null
+	}).filter(Boolean)
+}
+
 function openNewCampaign() {
 	const normal = S.accounts.filter(a => a.kind !== 'cloud')
 	const cloud = S.accounts.filter(a => a.kind === 'cloud')
@@ -1076,13 +1114,16 @@ function openNewSafeCampaign() {
 	sheet('Envío en modo seguro', `
 		<div class="section">Nombre del envío</div>
 		<div class="group"><div class="item"><input type="text" id="sf-name" placeholder="Ej. Recordatorios lunes"></div></div>
+		<div class="group"><label class="item"><input type="checkbox" id="sf-perline"><span class="grow"><b>✏️ Cada línea trae su propio mensaje</b><small>En vez de una plantilla, pega el número y a un lado su mensaje ya escrito. Se reparten entre tus números.</small></span></label></div>
 		<div class="section">Números que van a enviar</div>
 		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status !== 'connected' ? 'disabled' : a.reserve ? '' : 'checked'}><span class="grow">${accountTag(a.id)} ${a.phone ? '+' + esc(a.phone) : ''}${a.reserve ? ' <b style="color:#7C5CFF">· reserva</b>' : ''}${a.health && a.status === 'connected' ? `<small>${healthDot(a)} ${esc(a.health.reason)} · hoy hasta ${a.health.suggestedDaily}</small>` : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
 		<p class="hint">La lista se reparte entre los números marcados. Los números de <b>reserva</b> entran solos si uno de los marcados se restringe, descansa o se desconecta.</p>
+		<div id="sf-msg-wrap">
 		<div class="section">Mensaje</div>
 		<div class="group"><div class="item"><textarea id="sf-msg" rows="5" placeholder="Hola {{1}}, te escribo por tu saldo pendiente de \${{2}}. ¿Te puedo compartir opciones para ponerte al corriente? Si no deseas recibir mensajes, responde BAJA."></textarea></div></div>
 		<div id="sf-review"></div>
 		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Mensajes cortos, amables y con el nombre de la persona se bloquean menos.</p>
+		</div>
 		<div class="section">Lista de contactos</div>
 		<div class="group">
 			<div class="item"><textarea id="sf-list" rows="6" placeholder="Un contacto por línea:\nteléfono, nombre, monto\n8112345678, Juan, 1500"></textarea></div>
@@ -1103,21 +1144,33 @@ function openNewSafeCampaign() {
 		</div>
 		<p class="hint">Recomendado: 20–30 por número al día, máximo 8 por hora y pausas de 2 a 5 minutos. Más rápido aumenta el riesgo de que WhatsApp restrinja el número.</p>
 		<div class="pad"><button class="btn primary" id="sf-go">Iniciar envío</button></div>`, el => {
+		const perlineOn = () => $('#sf-perline', el).checked
+		const rowsNow = () => perlineOn() ? parseNumMsg($('#sf-list', el).value) : parseList($('#sf-list', el).value)
+		const phoneOfLine = l => (perlineOn() ? parseNumMsg(l) : parseList(l))[0]?.phone
 		const count = () => {
-			const rows = parseList($('#sf-list', el).value)
+			const perline = perlineOn()
+			const rows = rowsNow()
 			const accs = el.querySelectorAll('.sf-acc:checked').length
 			const daily = Number($('#sf-daily', el).value) || 30
-			const msg = $('#sf-msg', el).value
-			$('#sf-review', el).innerHTML = reviewHTML(msg)
+			const msg = perline ? '' : $('#sf-msg', el).value
+			$('#sf-review', el).innerHTML = perline ? '' : reviewHTML(msg)
 			const days = accs ? Math.ceil(rows.length / (accs * daily)) : 0
+			const example = perline ? (rows[0]?.params[0] || '') : (msg && rows[0] ? msg.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || '') : '')
 			$('#sf-count', el).innerHTML = rows.length
-				? `<b>${rows.length}</b> contactos · ${accs} número(s) × ${daily} al día = <b>${accs * daily} al día</b> · terminaría en unos <b>${days} día(s)</b>.${msg && rows[0] ? `<br>Ejemplo del primero: <i>${esc(msg.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || ''))}</i>` : ''}`
-				: 'Pega la lista o carga un archivo. La primera columna es el teléfono (10 dígitos).'
+				? `<b>${rows.length}</b> contactos · ${accs} número(s) × ${daily} al día = <b>${accs * daily} al día</b> · terminaría en unos <b>${days} día(s)</b>.${example ? `<br>Ejemplo del primero: <i>${esc(example)}</i>` : ''}`
+				: (perline ? 'Pega una línea por contacto: el número y a un lado su mensaje.' : 'Pega la lista o carga un archivo. La primera columna es el teléfono (10 dígitos).')
+		}
+		$('#sf-perline', el).onchange = () => {
+			$('#sf-msg-wrap', el).hidden = perlineOn()
+			$('#sf-list', el).placeholder = perlineOn()
+				? '6642047600 Hola Luis, te recuerdo tu pago de hoy\n5562096467 Buenas tardes Liliana, no olvides tu compromiso'
+				: 'Un contacto por línea:\nteléfono, nombre, monto\n8112345678, Juan, 1500'
+			count()
 		}
 		el.querySelectorAll('input, textarea').forEach(i => { i.addEventListener('input', count); i.addEventListener('change', count) })
 		$('#sf-validate', el).onclick = async () => {
 			const lines = $('#sf-list', el).value.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-			const rows = parseList($('#sf-list', el).value)
+			const rows = rowsNow()
 			if (!rows.length) return toast('Primero pega o carga la lista')
 			const btn = $('#sf-validate', el)
 			btn.disabled = true
@@ -1127,7 +1180,7 @@ function openNewSafeCampaign() {
 				const { valid, invalid } = await api('POST', '/validate-list', { phones: rows.map(r => r.phone), accountIds })
 				const ok = new Set(valid)
 				// Se conservan solo las filas con WhatsApp (y las que no parecen teléfono, como encabezados, se quitan)
-				$('#sf-list', el).value = lines.filter(l => ok.has(parseList(l)[0]?.phone)).join('\n')
+				$('#sf-list', el).value = lines.filter(l => ok.has(phoneOfLine(l))).join('\n')
 				count()
 				$('#sf-invalid', el).innerHTML = invalid.length
 					? `<details><summary>Se quitaron ${invalid.length} números sin WhatsApp</summary><div style="white-space:pre-wrap">${esc(invalid.join('\n'))}</div></details>`
@@ -1144,13 +1197,15 @@ function openNewSafeCampaign() {
 		}
 		count()
 		$('#sf-go', el).onclick = async () => {
-			const rows = parseList($('#sf-list', el).value)
+			const perline = perlineOn()
+			const rows = rowsNow()
 			const accountIds = [...el.querySelectorAll('.sf-acc:checked')].map(i => Number(i.value))
-			const message = $('#sf-msg', el).value.trim()
+			const message = perline ? '{{1}}' : $('#sf-msg', el).value.trim()
 			if (!accountIds.length) return toast('Marca al menos un número conectado')
-			if (!message) return toast('Escribe el mensaje')
-			if (reviewMessage(message).level === 'alto' && !confirm('El revisor marcó el mensaje con riesgo ALTO de reportes o restricción. ¿Enviar de todos modos?')) return
-			if (!rows.length) return toast('La lista está vacía')
+			if (!perline && !message) return toast('Escribe el mensaje')
+			if (!rows.length) return toast(perline ? 'Pega los números con su mensaje' : 'La lista está vacía')
+			const sample = perline ? (rows[0]?.params[0] || '') : message
+			if (reviewMessage(sample).level === 'alto' && !confirm('El revisor marcó el mensaje con riesgo ALTO de reportes o restricción. ¿Enviar de todos modos?')) return
 			const daily = Number($('#sf-daily', el).value) || 30
 			if (daily > 50 && !confirm(`${daily} mensajes por número al día es mucho y aumenta el riesgo de restricción. ¿Continuar?`)) return
 			if (!confirm(`Se enviará a ${rows.length} contactos desde ${accountIds.length} número(s). ¿Iniciar?`)) return
@@ -1714,7 +1769,19 @@ document.addEventListener('click', async e => {
 	switch (act) {
 		case 'go': return go(val)
 		case 'back': return history.length > 1 ? history.back() : go('#/')
-		case 'f-all': S.filter.account = null; S.filter.label = null; S.filter.unread = false; S.filter.waiting = false; S.filter.reminders = false; return renderInbox(false)
+		case 'f-all': { const wasArch = S.filter.archived; S.filter.account = null; S.filter.label = null; S.filter.unread = false; S.filter.waiting = false; S.filter.reminders = false; S.filter.archived = false; return wasArch ? loadConvList() : renderInbox(false) }
+		case 'f-archived': S.filter.archived = !S.filter.archived; S.filter.unread = false; S.filter.waiting = false; S.filter.reminders = false; return loadConvList()
+		case 'archive-conv': {
+			const c = conv(S.active); if (!c) return
+			try { await api('POST', `/conversations/${enc(c.key)}/archive`, { archived: !c.archived }); toast(c.archived ? 'Desarchivada' : 'Archivada 🗄️'); S.convs = S.convs.filter(x => x.key !== c.key); go('#/') } catch (err) { toast(err.message) }
+			return
+		}
+		case 'delete-conv': {
+			const c = conv(S.active); if (!c) return
+			if (!confirm('¿Eliminar esta conversación y sus mensajes? No se puede deshacer.')) return
+			try { await api('DELETE', `/conversations/${enc(c.key)}`); S.convs = S.convs.filter(x => x.key !== c.key); toast('Conversación eliminada'); go('#/') } catch (err) { toast(err.message) }
+			return
+		}
 		case 'f-waiting': S.filter.waiting = !S.filter.waiting; if (S.filter.waiting) S.filter.reminders = false; return renderInbox(false)
 		case 'f-reminders': S.filter.reminders = !S.filter.reminders; if (S.filter.reminders) S.filter.waiting = false; return renderInbox(false)
 		case 'f-unread': S.filter.unread = !S.filter.unread; return renderInbox(false)
