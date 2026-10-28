@@ -60,6 +60,8 @@ export class CampaignRunner {
 		this.busy = false
 		// Próximo momento en que cada número del modo seguro puede volver a enviar
 		this.nextAt = new Map()
+		// Respiro global: no deja que dos números envíen al mismo instante (se ve menos a "robot")
+		this.globalNextAt = 0
 		this.recover()
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
 	}
@@ -297,6 +299,8 @@ export class CampaignRunner {
 			const now = Date.now()
 			if (!this.nextAt.has(acc)) this.nextAt.set(acc, now + Math.random() * 30000)
 			if (now < this.nextAt.get(acc)) continue
+			// Respiro global: si otro número envió hace un momento, este espera su turno (no todos a la vez)
+			if (now < this.globalNextAt) break
 			const item = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 1").get(c.id)
 			if (!item) break
 			// Se reserva el contacto antes de enviar para no repetirlo
@@ -322,6 +326,9 @@ export class CampaignRunner {
 				if (noWa) this.nextAt.set(acc, Date.now() + 5000)
 			}
 			this.emit(c.id)
+			// Deja pasar unos segundos antes de que CUALQUIER otro número envíe, y corta aquí la vuelta
+			this.globalNextAt = Date.now() + 8000 + Math.random() * 17000
+			break
 		}
 		if (!anyAvailable) {
 			const connected = active.some(a => this.manager.sessions.get(a)?.status === 'connected')
