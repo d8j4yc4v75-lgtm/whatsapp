@@ -547,6 +547,17 @@ export class Session {
 		try { await this.sock.sendPresenceUpdate(state, jid) } catch {}
 	}
 
+	// Reacciona (emoji) al último mensaje recibido en una conversación (para el calentamiento)
+	async reactLast(jid, emoji) {
+		if (!this.sock || this.status !== 'connected') return false
+		const row = db.prepare('SELECT id, remote_jid, participant FROM messages WHERE account_id = ? AND jid = ? AND from_me = 0 ORDER BY ts DESC LIMIT 1').get(this.accountId, jid)
+		if (!row) return false
+		try {
+			await this.sock.sendMessage(row.remote_jid, { react: { text: emoji, key: { remoteJid: row.remote_jid, id: row.id, fromMe: false, participant: row.participant || undefined } } })
+			return true
+		} catch { return false }
+	}
+
 	async stop() {
 		this.stopped = true
 		try { this.sock?.end(undefined) } catch {}

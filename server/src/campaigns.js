@@ -40,6 +40,19 @@ for (const sql of [
 
 const fill = (text, params) => String(text || '').replace(/\{\{(\d+)\}\}/g, (m, n) => params[Number(n) - 1] ?? '')
 const clamp = (v, min, max, def) => Math.min(max, Math.max(min, Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : def))
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+// Spintax: {hola|qué tal|buenas} elige una opción al azar en cada envío, para que el
+// mensaje no salga idéntico siempre (WhatsApp bloquea menos lo que se ve variado).
+const spin = text => {
+	let s = String(text || '')
+	for (let i = 0; i < 6 && /\{[^{}]*\|[^{}]*\}/.test(s); i++) {
+		s = s.replace(/\{([^{}]*\|[^{}]*)\}/g, (m, opts) => { const a = opts.split('|'); return a[Math.floor(Math.random() * a.length)] })
+	}
+	return s
+}
+// Variación estable del tope diario por número y día (±15%), para que no todos manden el mismo número
+const dailyJitter = acc => { const h = ((acc * 2654435761) ^ Math.floor(Date.now() / 864e5)) >>> 0; return 0.85 + (h % 1000) / 1000 * 0.30 }
 
 export class CampaignRunner {
 	constructor(manager) {
@@ -267,13 +280,15 @@ export class CampaignRunner {
 		if (!pending) return this.setStatus(c.id, 'done')
 
 		let anyAvailable = false
-		for (const acc of active) {
+		// Orden al azar: así no siempre envía primero el mismo número
+		for (const acc of [...active].sort(() => Math.random() - 0.5)) {
 			const session = this.manager.sessions.get(acc)
 			if (!session || session instanceof CloudSession || session.status !== 'connected') continue
 			// Con «subir poco a poco», el límite depende de la salud del número
 			const health = accountHealth(acc, session.status)
 			if (health?.restUntil) continue
-			const limit = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
+			const base = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
+			const limit = Math.max(1, Math.round(base * dailyJitter(acc)))
 			if (this.safeSentLast24h(acc) >= limit) continue
 			// Límite por hora para que no se junten muchos mensajes seguidos
 			const lastHour = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE sent_by = ? AND status IN ('sent', 'failed', 'sending') AND sent_at > ?").get(acc, Date.now() - 3600000).n
@@ -289,9 +304,16 @@ export class CampaignRunner {
 			const delay = (c.min_delay + Math.random() * (c.max_delay - c.min_delay)) * 1000
 			this.nextAt.set(acc, now + delay)
 			try {
+				const text = spin(fill(c.message, JSON.parse(item.params)))
 				const jid = await this.manager.resolvePhone(acc, item.phone)
-				const sent = await session.send(jid, { text: fill(c.message, JSON.parse(item.params)) })
+				// "Escribiendo…" un momento (proporcional al largo) antes de enviar, como una persona
+				await session.setPresence(jid, 'composing').catch(() => {})
+				await sleep(Math.min(5000, 900 + text.length * 25))
+				const sent = await session.send(jid, { text })
+				await session.setPresence(jid, 'paused').catch(() => {})
 				db.prepare("UPDATE campaign_items SET status = 'sent', message_id = ?, sent_at = ?, jid = ? WHERE id = ?").run(sent.id, Date.now(), jid, item.id)
+				// Micro-descanso: de vez en cuando el número "se despega" un rato, como alguien real
+				if (Math.random() < 0.08) this.nextAt.set(acc, Date.now() + (10 + Math.random() * 20) * 60000)
 			} catch (e) {
 				const noWa = /no tiene WhatsApp|inválido/i.test(e.message)
 				db.prepare("UPDATE campaign_items SET status = 'failed', error = ?, sent_at = ?, sent_by = ? WHERE id = ?")

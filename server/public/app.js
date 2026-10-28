@@ -64,6 +64,12 @@ const accOf = key => Number(String(key).split(':')[0])
 const jidOf = key => String(key).slice(String(key).indexOf(':') + 1)
 // Mostrar el número en lugar del nombre (los grupos sí conservan su nombre)
 const convName = c => c?.isGroup ? (c?.name || 'Grupo') : (c?.phone ? '+' + c.phone : (c?.name || c?.jid || ''))
+// Spintax: {a|b|c} → una opción al azar (para la vista previa; el servidor hace lo mismo al enviar)
+const spin = text => {
+	let s = String(text || '')
+	for (let i = 0; i < 6 && /\{[^{}]*\|[^{}]*\}/.test(s); i++) s = s.replace(/\{([^{}]*\|[^{}]*)\}/g, (m, o) => { const a = o.split('|'); return a[Math.floor(Math.random() * a.length)] })
+	return s
+}
 const avatarURL = c => `/api/avatar/${enc(c.key)}?token=${enc(S.token)}`
 function avatarHtml(c) {
 	const inner = c.isGroup ? '👥' : '👤'
@@ -1122,7 +1128,7 @@ function openNewSafeCampaign() {
 		<div class="section">Mensaje</div>
 		<div class="group"><div class="item"><textarea id="sf-msg" rows="5" placeholder="Hola {{1}}, te escribo por tu saldo pendiente de \${{2}}. ¿Te puedo compartir opciones para ponerte al corriente? Si no deseas recibir mensajes, responde BAJA."></textarea></div></div>
 		<div id="sf-review"></div>
-		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Mensajes cortos, amables y con el nombre de la persona se bloquean menos.</p>
+		<p class="hint">{{1}} es la 2.ª columna de tu lista (por ejemplo el nombre), {{2}} la 3.ª (el monto), y así. Mensajes cortos, amables y con el nombre de la persona se bloquean menos.<br>Para que no salga idéntico siempre, usa <b>variantes</b> entre llaves separadas por «|»: <i>{Hola|Qué tal|Buen día} {{1}}</i> manda una al azar en cada envío.</p>
 		</div>
 		<div class="section">Lista de contactos</div>
 		<div class="group">
@@ -1155,7 +1161,7 @@ function openNewSafeCampaign() {
 			const msg = perline ? '' : $('#sf-msg', el).value
 			$('#sf-review', el).innerHTML = perline ? '' : reviewHTML(msg)
 			const days = accs ? Math.ceil(rows.length / (accs * daily)) : 0
-			const example = perline ? (rows[0]?.params[0] || '') : (msg && rows[0] ? msg.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || '') : '')
+			const example = perline ? (rows[0]?.params[0] || '') : (msg && rows[0] ? spin(msg.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || '')) : '')
 			$('#sf-count', el).innerHTML = rows.length
 				? `<b>${rows.length}</b> contactos · ${accs} número(s) × ${daily} al día = <b>${accs * daily} al día</b> · terminaría en unos <b>${days} día(s)</b>.${example ? `<br>Ejemplo del primero: <i>${esc(example)}</i>` : ''}`
 				: (perline ? 'Pega una línea por contacto: el número y a un lado su mensaje.' : 'Pega la lista o carga un archivo. La primera columna es el teléfono (10 dígitos).')

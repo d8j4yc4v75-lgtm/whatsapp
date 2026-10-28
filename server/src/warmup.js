@@ -45,6 +45,17 @@ const REPLIES = [
 	'Ok perfecto', 'Me parece 👌'
 ]
 const CLOSERS = ['Listo, gracias 🙌', 'Va, nos hablamos', 'Sale, cualquier cosa te aviso', 'Perfecto, quedamos así 👍', 'Gracias! Saludos', 'Ok, hasta al rato']
+// Saludos según la hora, para que el primer mensaje de la charla suene natural
+const GREET = {
+	manana: ['Buenos días ☀️', '¿Cómo amaneciste?', 'Buen día!', 'Hola, buen día', '¿Qué tal la mañana?'],
+	tarde: ['Buenas tardes', '¿Qué tal la tarde?', 'Hola, buenas', '¿Cómo va la tarde?'],
+	noche: ['Buenas noches', '¿Qué tal el día?', 'Hola, buenas noches', '¿Cómo te fue hoy?']
+}
+const openerFor = hour => {
+	const base = hour < 12 ? GREET.manana : hour < 19 ? GREET.tarde : GREET.noche
+	return Math.random() < 0.6 ? pick(base) : pick(OPENERS)
+}
+const REACTS = ['👍', '❤️', '😂', '🙌', '👌', '🔥', '😅']
 
 const DEFAULTS = { enabled: false, auto: true, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21 }
 const AUTO_START = 9, AUTO_END = 21
@@ -188,18 +199,24 @@ export class WarmupManager {
 			const toAcc = elig.find(a => a.id === toId)
 			if (!fromAcc || !toAcc || !this.canSend(fromAcc, s)) { this.convo = null; this.betweenConvos(s); return }
 
-			const text = c.msgIndex === 0 ? pick(OPENERS)
-				: c.turnsLeft <= 1 ? pick(CLOSERS)
-					: Math.random() < 0.5 ? pick(REPLIES) : pick(FOLLOWUPS)
-
 			const toJid = jidOf(toAcc.phone)
 			const fromSession = this.manager.get(fromAcc.id)
-			// "escribiendo…" un ratito antes de enviar
-			await fromSession.setPresence(toJid, 'composing')
-			await sleep(irnd(1200, 3500))
-			await fromSession.send(toJid, { text })
-			await fromSession.setPresence(toJid, 'paused')
-			db.prepare('INSERT INTO warmup_log (account_id, peer_id, ts) VALUES (?, ?, ?)').run(fromAcc.id, toAcc.id, Date.now())
+
+			// A media charla, a veces se reacciona con un emoji en vez de escribir (como una persona)
+			const canReact = c.msgIndex > 0 && c.turnsLeft > 1
+			if (canReact && Math.random() < 0.22 && await fromSession.reactLast(toJid, pick(REACTS))) {
+				db.prepare('INSERT INTO warmup_log (account_id, peer_id, ts) VALUES (?, ?, ?)').run(fromAcc.id, toAcc.id, Date.now())
+			} else {
+				const text = c.msgIndex === 0 ? openerFor(hour)
+					: c.turnsLeft <= 1 ? pick(CLOSERS)
+						: Math.random() < 0.5 ? pick(REPLIES) : pick(FOLLOWUPS)
+				// "escribiendo…" un tiempo proporcional al largo del mensaje
+				await fromSession.setPresence(toJid, 'composing')
+				await sleep(Math.min(5000, irnd(700, 1200) + text.length * irnd(25, 55)))
+				await fromSession.send(toJid, { text })
+				await fromSession.setPresence(toJid, 'paused')
+				db.prepare('INSERT INTO warmup_log (account_id, peer_id, ts) VALUES (?, ?, ?)').run(fromAcc.id, toAcc.id, Date.now())
+			}
 
 			// El que recibe lo marca como leído unos segundos después (se ve real)
 			const fromJid = jidOf(fromAcc.phone)
