@@ -1120,7 +1120,7 @@ function renderCampaignList() {
 		const safe = c.kind === 'safe'
 		const waiting = c.note === 'limit' || c.note === 'limit-safe' || /^Esperando/.test(c.note || '')
 		const why = c.note === 'limit' ? 'Esperando: se alcanzó el límite diario de Meta'
-			: c.note === 'limit-safe' ? 'Esperando: los números ya enviaron su máximo de hoy. Sigue mañana sola.'
+			: c.note === 'limit-safe' ? (c.forced ? 'Esperando a que algún número pueda enviar (conectado y sin rechazos).' : 'Esperando: los números ya enviaron su máximo de hoy. Sigue mañana sola. Si es urgente, toca «⚡ Enviar ya».')
 			: c.note || ''
 		const tags = safe
 			? c.accountIds.map(id => c.disabledIds.includes(id) ? `<span style="opacity:.4;text-decoration:line-through">${accountTag(id)}</span>` : accountTag(id)).join('')
@@ -1129,7 +1129,7 @@ function renderCampaignList() {
 			? `Modo seguro · ${c.autoRamp ? 'sube poco a poco hasta ' : ''}${c.dailyPerNumber} por número al día · ${c.hourlyPerNumber || 8} por hora · pausas de ${Math.round(c.minDelay / 60)}–${Math.round(c.maxDelay / 60)} min · ${c.startHour}:00–${c.endHour}:00`
 			: `Plantilla ${esc(c.template)} · ${c.perHour}/hora · ${c.startHour}:00–${c.endHour}:00`
 		return `<div class="item" style="display:block">
-			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${tags}<span class="status" style="color:${color}">${st}</span></div>
+			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${c.forced ? '<span class="pill warn">⚡ Urgente</span>' : ''}${tags}<span class="status" style="color:${color}">${st}</span></div>
 			<small>${info}</small>
 			<div class="bar-progress"><i style="width:${pct}%"></i></div>
 			<small>✅ ${n.sent} enviados · 👀 ${n.read} leídos · 💬 ${n.replied} respondieron · ⚠︎ ${n.failed} fallidos · ⏳ ${n.pending} pendientes${n.skipped ? ` · 🚫 ${n.skipped} con BAJA` : ''}</small>
@@ -1137,6 +1137,7 @@ function renderCampaignList() {
 			<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
 				${c.status === 'running' ? `<button class="chip" data-act="camp" data-val="${c.id}:pause">Pausar</button>` : ''}
 				${c.status === 'paused' ? `<button class="chip" data-act="camp" data-val="${c.id}:resume">Reanudar</button>` : ''}
+				${safe && (c.status === 'running' || c.status === 'paused') && n.pending ? `<button class="chip" style="--c:#C77700" data-act="camp-force" data-val="${c.id}">${c.forced ? 'Quitar urgente' : '⚡ Enviar ya (ignorar límites)'}</button>` : ''}
 				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
 				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
 				<a class="chip" style="--c:#1D6F42;text-decoration:none" href="/api/campaigns/${c.id}/export?token=${enc(S.token)}" download>📊 Excel</a>
@@ -1202,6 +1203,7 @@ function openNewSafeCampaign() {
 		<div class="section">Cuidado de los números</div>
 		<div class="group">
 			<label class="item"><input type="checkbox" id="sf-ramp" checked><span class="grow"><b>Subir el límite poco a poco</b><small>Recomendado. Cada número manda según su salud: 10 al día los primeros días y hasta el máximo cuando ya está sano. Si WhatsApp le rechaza mensajes, baja o se detiene.</small></span></label>
+			<label class="item"><input type="checkbox" id="sf-forced"><span class="grow"><b>⚡ Urgente: ignorar los límites</b><small>Para recordatorios obligatorios. Envía aunque los números ya llegaron a su tope del día o de la hora, aunque sea día de descanso o la persona ya haya recibido otro mensaje hoy. Sigue respetando las pausas entre mensajes y nunca usa números a los que WhatsApp les está rechazando mensajes. Úsalo solo cuando sea necesario: sube el riesgo de restricción.</small></span></label>
 			<div class="item"><span class="grow">Máximo por número al día</span><input type="number" id="sf-daily" value="30" min="1" max="200" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Máximo por número por hora</span><input type="number" id="sf-hourly" value="8" min="1" max="60" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Pausa mínima (minutos)</span><input type="number" id="sf-min" value="2" min="1" max="60" style="text-align:right;max-width:80px"></div>
@@ -1275,6 +1277,7 @@ function openNewSafeCampaign() {
 			if (reviewMessage(sample).level === 'alto' && !confirm('El revisor marcó el mensaje con riesgo ALTO de reportes o restricción. ¿Enviar de todos modos?')) return
 			const daily = Number($('#sf-daily', el).value) || 30
 			if (daily > 50 && !confirm(`${daily} mensajes por número al día es mucho y aumenta el riesgo de restricción. ¿Continuar?`)) return
+			if ($('#sf-forced', el).checked && !confirm('⚡ Modo urgente: se ignorarán los topes diarios y por hora de tus números. Sube el riesgo de restricción. ¿Continuar?')) return
 			if (!confirm(`Se enviará a ${rows.length} contactos desde ${accountIds.length} número(s). ¿Iniciar?`)) return
 			try {
 				const res = await api('POST', '/campaigns', {
@@ -1285,6 +1288,7 @@ function openNewSafeCampaign() {
 					dailyPerNumber: daily,
 					hourlyPerNumber: Number($('#sf-hourly', el).value) || 8,
 					autoRamp: $('#sf-ramp', el).checked,
+				forced: $('#sf-forced', el).checked,
 					minDelay: Number($('#sf-min', el).value) * 60,
 					maxDelay: Number($('#sf-max', el).value) * 60,
 					startHour: Number($('#sf-start', el).value),
@@ -1951,6 +1955,18 @@ document.addEventListener('click', async e => {
 			return
 		}
 		case 'camp-failed': return showFailed(Number(val))
+		case 'camp-force': {
+			const c = S.campaigns.find(x => x.id === Number(val)); if (!c) return
+			if (!c.forced && !confirm('⚡ Enviar ya: este envío ignorará los topes diarios y por hora de tus números (y los días de descanso) para terminar los recordatorios. Sube el riesgo de restricción. ¿Continuar?')) return
+			try {
+				let upd = await api('POST', `/campaigns/${c.id}/force`, { forced: !c.forced })
+				if (!c.forced && upd.status === 'paused') upd = await api('POST', `/campaigns/${c.id}/resume`)
+				S.campaigns = S.campaigns.map(x => x.id === upd.id ? upd : x)
+				renderCampaignList()
+				toast(upd.forced ? '⚡ Enviando sin límites (con pausas entre mensajes)' : 'Volvió a los límites normales')
+			} catch (err) { toast(err.message) }
+			return
+		}
 		case 'rest': {
 			const id = Number(route().arg)
 			const days = Number(val)

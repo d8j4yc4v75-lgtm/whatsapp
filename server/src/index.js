@@ -311,6 +311,14 @@ app.post('/api/campaigns', route(req => {
 
 app.get('/api/campaigns/:cid/items', route(req => campaigns.items(Number(req.params.cid), req.query.status || null)))
 
+app.post('/api/campaigns/:cid/force', route(req => {
+	const id = Number(req.params.cid)
+	const c = campaigns.get(id)
+	if (!c) throw Object.assign(new Error('Envío no encontrado'), { status: 404 })
+	if (c.kind !== 'safe') throw new Error('Solo aplica al modo seguro')
+	return campaigns.setForced(id, req.body.forced !== false)
+}))
+
 app.post('/api/campaigns/:cid/:action', route(req => {
 	const id = Number(req.params.cid)
 	const c = campaigns.get(id)

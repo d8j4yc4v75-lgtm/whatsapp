@@ -34,7 +34,9 @@ for (const sql of [
 	'ALTER TABLE campaigns ADD COLUMN auto_ramp INTEGER NOT NULL DEFAULT 1',
 	'ALTER TABLE campaigns ADD COLUMN hourly_per_number INTEGER NOT NULL DEFAULT 8',
 	'ALTER TABLE campaigns ADD COLUMN target_numbers INTEGER',
-	'ALTER TABLE accounts ADD COLUMN reserve INTEGER NOT NULL DEFAULT 0'
+	'ALTER TABLE accounts ADD COLUMN reserve INTEGER NOT NULL DEFAULT 0',
+	// Urgente: ignora los topes diarios/por hora sugeridos (recordatorios obligatorios)
+	'ALTER TABLE campaigns ADD COLUMN forced INTEGER NOT NULL DEFAULT 0'
 ]) {
 	try { db.exec(sql) } catch {}
 }
@@ -63,7 +65,7 @@ export class CampaignRunner {
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
 	}
 
-	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, rows }) {
+	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, forced, rows }) {
 		const safe = kind === 'safe'
 		if (!Array.isArray(rows) || !rows.length) throw new Error('La lista está vacía')
 		if (rows.length > 20000) throw new Error('Máximo 20,000 contactos por envío')
@@ -115,6 +117,7 @@ export class CampaignRunner {
 			}
 			return Number(lastInsertRowid)
 		})()
+		if (forced) db.prepare('UPDATE campaigns SET forced = 1 WHERE id = ?').run(id)
 		this.emit(id)
 		return { campaign: this.get(id), invalid }
 	}
@@ -143,6 +146,7 @@ export class CampaignRunner {
 			perHour: c.per_hour,
 			dailyPerNumber: c.daily_per_number,
 			autoRamp: c.auto_ramp !== 0,
+			forced: Boolean(c.forced),
 			hourlyPerNumber: c.hourly_per_number,
 			minDelay: c.min_delay,
 			maxDelay: c.max_delay,
@@ -162,6 +166,13 @@ export class CampaignRunner {
 	items(id, status) {
 		return db.prepare(`SELECT phone, params, status, error, sent_at FROM campaign_items WHERE campaign_id = ? ${status ? 'AND status = ?' : ''} ORDER BY id LIMIT 2000`)
 			.all(...(status ? [id, status] : [id])).map(r => ({ ...r, params: JSON.parse(r.params) }))
+	}
+
+	/** Activa o quita el modo urgente de un envío ya creado */
+	setForced(id, on) {
+		db.prepare('UPDATE campaigns SET forced = ?, note = NULL WHERE id = ?').run(on ? 1 : 0, id)
+		this.emit(id)
+		return this.get(id)
 	}
 
 	setStatus(id, status, noteText = null) {
@@ -201,7 +212,8 @@ export class CampaignRunner {
 			// Días de descanso: ese día no sale ningún envío masivo
 			const restToday = restDays().includes(weekdayNow())
 			for (const c of db.prepare("SELECT * FROM campaigns WHERE status = 'running'").all()) {
-				const inWindow = !restToday && (c.start_hour <= c.end_hour ? hour >= c.start_hour && hour < c.end_hour : hour >= c.start_hour || hour < c.end_hour)
+				// Un envío urgente sí sale en días de descanso (solo respeta su horario)
+				const inWindow = (!restToday || c.forced) && (c.start_hour <= c.end_hour ? hour >= c.start_hour && hour < c.end_hour : hour >= c.start_hour || hour < c.end_hour)
 				if (c.kind === 'safe') await this.tickSafe(c, inWindow)
 				else if (inWindow) await this.tickCloud(c)
 			}
@@ -286,6 +298,13 @@ export class CampaignRunner {
 			// Con «subir poco a poco», el límite depende de la salud del número
 			const health = accountHealth(acc, session.status)
 			if (health?.restUntil) continue
+			// Urgente: sin topes diarios ni por hora (solo las pausas entre mensajes). Nunca usa un número
+			// al que WhatsApp le está rechazando mensajes: fallarían y lo terminarían de bloquear.
+			if (c.forced) {
+				if (health?.level === 'red') continue
+				ready.set(acc, session)
+				continue
+			}
 			let base = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
 			// Freno: si casi nadie le contesta, baja a la mitad (con «subir poco a poco» ya lo hace la salud)
 			if (c.auto_ramp === 0) { const rr = replyStats(acc); if (rr.sent >= 30 && rr.rate < 0.05) base = Math.ceil(base / 2) }
@@ -356,7 +375,7 @@ export class CampaignRunner {
 		const since = Date.now() - 864e5
 		let neutral = null
 		for (const it of cands) {
-			if (recent.get(it.phone, since)) continue
+			if (!c.forced && recent.get(it.phone, since)) continue
 			const digits = String(it.phone).replace(/\D/g, '')
 			const d = digits.slice(-10)
 			const own = owners.all(`${digits}@s.whatsapp.net`, `521${d}@s.whatsapp.net`, `52${d}@s.whatsapp.net`).map(r => r.account_id).filter(a => ready.has(a))
