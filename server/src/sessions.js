@@ -547,6 +547,18 @@ export class Session {
 		try { await this.sock.sendPresenceUpdate(state, jid) } catch {}
 	}
 
+	// "En línea" un rato (como quien abre WhatsApp) y luego vuelve a desconectado.
+	// Si ya estaba en línea, solo alarga el tiempo.
+	async online(ms = 45000) {
+		if (!this.sock || this.status !== 'connected') return
+		if (!this.offlineTimer) { try { await this.sock.sendPresenceUpdate('available') } catch {} }
+		clearTimeout(this.offlineTimer)
+		this.offlineTimer = setTimeout(() => {
+			this.offlineTimer = null
+			if (this.sock && this.status === 'connected') this.sock.sendPresenceUpdate('unavailable').catch(() => {})
+		}, ms)
+	}
+
 	// Reacciona (emoji) al último mensaje recibido en una conversación (para el calentamiento)
 	async reactLast(jid, emoji) {
 		if (!this.sock || this.status !== 'connected') return false

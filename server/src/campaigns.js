@@ -1,7 +1,8 @@
 import { db } from './db.js'
 import { note } from './sessions.js'
 import { CloudSession, normalizePhone } from './cloud.js'
-import { accountHealth } from './health.js'
+import { accountHealth, replyStats } from './health.js'
+import { vary } from './text.js'
 
 // Envíos masivos: con plantillas de la API oficial, o en «modo seguro» con cuentas de WhatsApp normal.
 // Se mandan escalonados, en horario y respetando límites diarios.
@@ -38,19 +39,15 @@ for (const sql of [
 	try { db.exec(sql) } catch {}
 }
 
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_items_phone ON campaign_items (phone, sent_at)') } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_chats_jid ON chats (jid)') } catch {}
+
 const fill = (text, params) => String(text || '').replace(/\{\{(\d+)\}\}/g, (m, n) => params[Number(n) - 1] ?? '')
 const clamp = (v, min, max, def) => Math.min(max, Math.max(min, Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : def))
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-// Spintax: {hola|qué tal|buenas} elige una opción al azar en cada envío, para que el
-// mensaje no salga idéntico siempre (WhatsApp bloquea menos lo que se ve variado).
-const spin = text => {
-	let s = String(text || '')
-	for (let i = 0; i < 6 && /\{[^{}]*\|[^{}]*\}/.test(s); i++) {
-		s = s.replace(/\{([^{}]*\|[^{}]*)\}/g, (m, opts) => { const a = opts.split('|'); return a[Math.floor(Math.random() * a.length)] })
-	}
-	return s
-}
+// Variantes {a|b|c}: solo se procesan si el mensaje las usa (así no se toca un texto normal)
+const variar = t => /\{[^{}]*\|/.test(t) ? vary(t) : t
 // Variación estable del tope diario por número y día (±15%), para que no todos manden el mismo número
 const dailyJitter = acc => { const h = ((acc * 2654435761) ^ Math.floor(Date.now() / 864e5)) >>> 0; return 0.85 + (h % 1000) / 1000 * 0.30 }
 
@@ -281,38 +278,46 @@ export class CampaignRunner {
 		const pending = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE campaign_id = ? AND status = 'pending'").get(c.id).n
 		if (!pending) return this.setStatus(c.id, 'done')
 
-		let anyAvailable = false
-		// Orden al azar: así no siempre envía primero el mismo número
-		for (const acc of [...active].sort(() => Math.random() - 0.5)) {
+		// Qué números pueden enviar ahora (conectados, sin descanso y debajo de sus topes)
+		const ready = new Map()
+		for (const acc of active) {
 			const session = this.manager.sessions.get(acc)
 			if (!session || session instanceof CloudSession || session.status !== 'connected') continue
 			// Con «subir poco a poco», el límite depende de la salud del número
 			const health = accountHealth(acc, session.status)
 			if (health?.restUntil) continue
-			const base = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
+			let base = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
+			// Freno: si casi nadie le contesta, baja a la mitad (con «subir poco a poco» ya lo hace la salud)
+			if (c.auto_ramp === 0) { const rr = replyStats(acc); if (rr.sent >= 30 && rr.rate < 0.05) base = Math.ceil(base / 2) }
 			const limit = Math.max(1, Math.round(base * dailyJitter(acc)))
 			if (this.safeSentLast24h(acc) >= limit) continue
 			// Límite por hora para que no se junten muchos mensajes seguidos
 			const lastHour = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE sent_by = ? AND status IN ('sent', 'failed', 'sending') AND sent_at > ?").get(acc, Date.now() - 3600000).n
 			if (lastHour >= (c.hourly_per_number || 8)) continue
-			anyAvailable = true
+			ready.set(acc, session)
+		}
+		const anyAvailable = ready.size > 0
+		// Orden al azar: así no siempre envía primero el mismo número
+		for (const acc of [...ready.keys()].sort(() => Math.random() - 0.5)) {
+			const session = ready.get(acc)
 			const now = Date.now()
 			if (!this.nextAt.has(acc)) this.nextAt.set(acc, now + Math.random() * 30000)
 			if (now < this.nextAt.get(acc)) continue
 			// Respiro global: si otro número envió hace un momento, este espera su turno (no todos a la vez)
 			if (now < this.globalNextAt) break
-			const item = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 1").get(c.id)
-			if (!item) break
+			const item = this.pickItem(c, acc, ready)
+			if (!item) continue
 			// Se reserva el contacto antes de enviar para no repetirlo
 			db.prepare("UPDATE campaign_items SET status = 'sending', sent_by = ?, sent_at = ? WHERE id = ?").run(acc, now, item.id)
 			const delay = (c.min_delay + Math.random() * (c.max_delay - c.min_delay)) * 1000
 			this.nextAt.set(acc, now + delay)
 			try {
-				const text = spin(fill(c.message, JSON.parse(item.params)))
+				const text = variar(fill(c.message, JSON.parse(item.params)))
 				const jid = await this.manager.resolvePhone(acc, item.phone)
-				// "Escribiendo…" un momento (proporcional al largo) antes de enviar, como una persona
+				// En línea → "escribiendo…" (proporcional al largo) → enviar → desconectado, como una persona
+				await session.online?.((30 + Math.random() * 60) * 1000)
 				await session.setPresence(jid, 'composing').catch(() => {})
-				await sleep(Math.min(5000, 900 + text.length * 25))
+				await sleep(Math.min(6000, 900 + text.length * 30))
 				const sent = await session.send(jid, { text })
 				await session.setPresence(jid, 'paused').catch(() => {})
 				db.prepare("UPDATE campaign_items SET status = 'sent', message_id = ?, sent_at = ?, jid = ? WHERE id = ?").run(sent.id, Date.now(), jid, item.id)
@@ -336,6 +341,30 @@ export class CampaignRunner {
 		} else if (c.note === 'limit-safe' || c.note === 'Esperando a que los números elegidos estén conectados') {
 			this.setNote(c, null)
 		}
+	}
+
+	/**
+	 * Elige el siguiente contacto para este número:
+	 * - Si este número ya platicó antes con la persona, se lo manda él (se ve como seguir una charla).
+	 * - Si otro número que puede enviar ya platicó con ella, se lo deja a ese.
+	 * - No se le escribe a alguien que ya recibió un mensaje masivo en las últimas 24 h (de cualquier envío).
+	 */
+	pickItem(c, acc, ready) {
+		const cands = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 200").all(c.id)
+		const recent = db.prepare("SELECT 1 FROM campaign_items WHERE phone = ? AND status IN ('sent', 'sending') AND sent_at > ? LIMIT 1")
+		const owners = db.prepare('SELECT account_id FROM chats WHERE jid IN (?, ?, ?) AND last_ts > 0')
+		const since = Date.now() - 864e5
+		let neutral = null
+		for (const it of cands) {
+			if (recent.get(it.phone, since)) continue
+			const digits = String(it.phone).replace(/\D/g, '')
+			const d = digits.slice(-10)
+			const own = owners.all(`${digits}@s.whatsapp.net`, `521${d}@s.whatsapp.net`, `52${d}@s.whatsapp.net`).map(r => r.account_id).filter(a => ready.has(a))
+			if (own.includes(acc)) return it
+			if (own.length) continue
+			if (!neutral) neutral = it
+		}
+		return neutral
 	}
 
 	/** Tras un reinicio, los contactos que quedaron «enviando» vuelven a la cola */
