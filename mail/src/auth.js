@@ -8,6 +8,15 @@ const file = path.join(DATA_DIR, 'password.json')
 
 const hash = (password, salt) => crypto.scryptSync(password, salt, 64).toString('hex')
 
+// Recuperación: si en Railway se agrega la variable RESET_PASSWORD, esa queda como la nueva
+// contraseña al arrancar. Solo quien tiene acceso a Railway puede hacerlo. Luego se borra la variable.
+if (String(process.env.RESET_PASSWORD || '').length >= 6) {
+	const salt = crypto.randomBytes(16).toString('hex')
+	fs.mkdirSync(DATA_DIR, { recursive: true })
+	fs.writeFileSync(file, JSON.stringify({ salt, hash: hash(String(process.env.RESET_PASSWORD), salt) }))
+	console.log('Contraseña restablecida con la variable RESET_PASSWORD (bórrala en Railway cuando entres)')
+}
+
 export function hasPassword() {
 	return fs.existsSync(file)
 }
