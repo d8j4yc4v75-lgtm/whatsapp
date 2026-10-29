@@ -62,8 +62,17 @@ const conv = key => S.convs.find(c => c.key === key)
 const keyOf = m => m.accountId + ':' + m.jid
 const accOf = key => Number(String(key).split(':')[0])
 const jidOf = key => String(key).slice(String(key).indexOf(':') + 1)
+// Número con espacios, como lo muestra WhatsApp: +52 1 664 204 7600
+function fmtPhone(p) {
+	const d = String(p || '').replace(/\D/g, '')
+	if (!d) return ''
+	if (/^521\d{10}$/.test(d)) return `+52 1 ${d.slice(3, 6)} ${d.slice(6, 9)} ${d.slice(9)}`
+	if (/^52\d{10}$/.test(d)) return `+52 ${d.slice(2, 5)} ${d.slice(5, 8)} ${d.slice(8)}`
+	if (/^1\d{10}$/.test(d)) return `+1 ${d.slice(1, 4)} ${d.slice(4, 7)} ${d.slice(7)}`
+	return '+' + d
+}
 // Mostrar el número en lugar del nombre (los grupos sí conservan su nombre)
-const convName = c => c?.isGroup ? (c?.name || 'Grupo') : (c?.phone ? '+' + c.phone : (c?.name || c?.jid || ''))
+const convName = c => c?.isGroup ? (c?.name || 'Grupo') : (c?.phone ? fmtPhone(c.phone) : (c?.name || c?.jid || ''))
 // Spintax: {a|b|c} → una opción al azar (para la vista previa; el servidor hace lo mismo al enviar)
 const spin = text => {
 	let s = String(text || '')
@@ -71,10 +80,12 @@ const spin = text => {
 	return s
 }
 const avatarURL = c => `/api/avatar/${enc(c.key)}?token=${enc(S.token)}`
+// Silueta gris como la de WhatsApp cuando no hay foto
+const PH_PERSON = '<svg class="ph" viewBox="0 0 212 212" aria-hidden="true"><path fill="currentColor" d="M106 106c21 0 38-17 38-39s-17-39-38-39-38 17-38 39 17 39 38 39Zm0 14c-37 0-80 19-80 44v30h160v-30c0-25-43-44-80-44Z"/></svg>'
+const PH_GROUP = '<svg class="ph" viewBox="0 0 212 212" aria-hidden="true"><path fill="currentColor" d="M76 100c17 0 30-13 30-30S93 40 76 40 46 53 46 70s13 30 30 30Zm66 0c17 0 30-13 30-30s-13-30-30-30c-6 0-11 2-16 4 6 7 9 16 9 26s-3 19-9 26c5 3 10 4 16 4ZM76 114c-29 0-62 15-62 35v25h124v-25c0-20-33-35-62-35Zm66 0c-5 0-10 0-15 1 13 9 23 20 23 34v25h48v-25c0-20-29-35-56-35Z"/></svg>'
 function avatarHtml(c) {
-	const inner = c.isGroup ? '👥' : '👤'
-	const img = c.isGroup ? '' : `<img src="${avatarURL(c)}" alt="" onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`
-	return `<div class="avatar" style="background:${avatarColor(c.jid)};position:relative;overflow:hidden">${inner}${img}</div>`
+	const img = c.isGroup ? '' : `<img src="${avatarURL(c)}" alt="" onerror="this.remove()">`
+	return `<div class="avatar">${c.isGroup ? PH_GROUP : PH_PERSON}${img}</div>`
 }
 const totalUnread = () => S.convs.reduce((n, c) => n + (c.unread || 0), 0)
 
@@ -143,7 +154,37 @@ function reviewHTML(text) {
 }
 
 const HEALTH = { green: ['🟢', 'Sano'], yellow: ['🟡', 'Con cuidado'], red: ['🔴', 'Descansar'] }
-const healthDot = a => a?.health ? HEALTH[a.health.level][0] : ''
+const healthDot = a => a?.health ? `<i class="hdot ${a.health.level}" title="${HEALTH[a.health.level][1]}"></i>` : ''
+
+// Íconos (trazo fino, estilo iOS)
+const svg = (d, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
+const IC = {
+	chats: svg('<path d="M4.5 12a7.5 7.5 0 1 1 3.1 6.1L4 19.5l1.3-3.4A7.4 7.4 0 0 1 4.5 12Z"/><path d="M8.5 11h7M8.5 14h4.5"/>'),
+	send: svg('<path d="M21 3 10.5 13.5"/><path d="M21 3 14.5 21l-4-7.5L3 9.5 21 3Z"/>'),
+	phone: svg('<rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M11 18.5h2"/>'),
+	gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
+	compose: svg('<path d="M11 4H5.5A2.5 2.5 0 0 0 3 6.5v12A2.5 2.5 0 0 0 5.5 21h12a2.5 2.5 0 0 0 2.5-2.5V13"/><path d="M18.4 2.6a2 2 0 0 1 2.9 2.9L12 14.8l-3.8.9.9-3.8Z"/>'),
+	plus: svg('<path d="M12 5v14M5 12h14"/>'),
+	back: svg('<path d="M15 19 8 12l7-7"/>', 'back-ic'),
+	more: svg('<circle cx="12" cy="12" r="9"/><circle cx="8" cy="12" r=".6" fill="currentColor"/><circle cx="12" cy="12" r=".6" fill="currentColor"/><circle cx="16" cy="12" r=".6" fill="currentColor"/>'),
+	mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>'),
+	sendFill: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6V10l12.6 2-12.6 2Z"/></svg>',
+	trash: svg('<path d="M4 6.5h16M9 6.5V4.5h6v2M6.5 6.5l1 13h9l1-13M10 10.5v6M14 10.5v6"/>'),
+	archive: svg('<rect x="3" y="4" width="18" height="4.5" rx="1.2"/><path d="M5 8.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8.5M10 12.5h4"/>'),
+	unarchive: svg('<rect x="3" y="4" width="18" height="4.5" rx="1.2"/><path d="M5 8.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8.5M12 17.5v-5M9.5 15l2.5-2.5 2.5 2.5"/>'),
+	note: svg('<path d="M14.5 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V7.5Z"/><path d="M14.5 3v4.5H19M8.5 12.5h7M8.5 16h5"/>'),
+	clock: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/>'),
+	tag: svg('<path d="M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8a1.4 1.4 0 0 1 0 2l-7 7a1.4 1.4 0 0 1-2 0Z"/><circle cx="8" cy="8" r="1.4"/>'),
+	doc: svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'),
+	template: svg('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
+	chevron: svg('<path d="m9 6 6 6-6 6"/>', 'chev')
+}
+const TICK1 = '<svg class="tick" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2l6.5-7.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+const TICK2 = '<svg class="tick" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2l6.5-7.7M7.6 8.4l.8.8 6.1-7.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+// Encabezado grande estilo iOS ("Chats", "Ajustes"…)
+const largeBar = (title, right = '', left = '') => `<header class="bar large"><div class="bar-row">${left}<span class="grow"></span>${right}</div></header><h1 class="large-title">${title}</h1>`
+// Barra de navegación con regreso (‹ Cuentas) y título centrado
+const navBar = (title, backHash, backText, right = '') => `<header class="bar nav"><button class="icon-btn back" data-act="go" data-val="${backHash}" aria-label="Atrás">${IC.back}<span>${backText}</span></button><h1 id="nav-title">${title}</h1><span class="nav-right">${right}</span></header>`
 
 function accountTag(id) {
 	const a = account(id)
@@ -155,6 +196,9 @@ function updateBadge() {
 	if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {})
 	const b = $('#tab-badge')
 	if (b) { b.textContent = n; b.hidden = !n }
+	// En el chat, junto a la flecha de regreso: no leídos de los demás chats (como en iPhone)
+	const bb = $('#back-badge')
+	if (bb) { const others = n - (conv(S.active)?.unread || 0); bb.textContent = others; bb.hidden = others <= 0 }
 }
 
 // ---------- Acceso ----------
@@ -364,9 +408,9 @@ function render() {
 
 function tabs(active) {
 	const t = (name, icon, text, href) =>
-		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') ? 'active' : ''}"><span>${icon}</span>${text}${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
-	const sends = S.accounts.length ? t('campaigns', '📤', 'Envíos', '#/campaigns') : ''
-	return `<nav class="tabs">${t('inbox', '💬', 'Bandeja', '#/')}${sends}${t('accounts', '📱', 'Cuentas', '#/accounts')}${t('settings', '⚙️', 'Ajustes', '#/settings')}</nav>`
+		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') ? 'active' : ''}">${icon}<span>${text}</span>${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
+	const sends = S.accounts.length ? t('campaigns', IC.send, 'Envíos', '#/campaigns') : ''
+	return `<nav class="tabs">${t('inbox', IC.chats, 'Chats', '#/')}${sends}${t('accounts', IC.phone, 'Cuentas', '#/accounts')}${t('settings', IC.gear, 'Ajustes', '#/settings')}</nav>`
 }
 
 // ---------- Bandeja ----------
@@ -412,10 +456,9 @@ function renderInbox(full) {
 	const view = $('#view')
 	if (full) {
 		view.innerHTML = `
-			<header class="bar"><i class="dot ${S.wsOk ? 'on' : ''}" id="ws-dot" title="Conexión con el servidor"></i><h1>Bandeja</h1>
-				<button class="icon-btn" data-act="new-chat" aria-label="Nuevo chat">✏️</button></header>
+			${largeBar('Chats', `<button class="icon-btn" data-act="new-chat" aria-label="Nuevo chat">${IC.compose}</button>`, `<i class="dot ${S.wsOk ? 'on' : ''}" id="ws-dot" title="Conexión con el servidor"></i>`)}
 			${!isStandalone() && /iPhone|iPad/.test(navigator.userAgent) ? `<div class="install"><b>Instala la app</b>Toca <b style="display:inline">Compartir ⬆︎</b> y luego <b style="display:inline">«Añadir a pantalla de inicio»</b>. Así se abre como app y recibe notificaciones.</div>` : ''}
-			<div class="search"><input id="q" type="search" placeholder="Buscar nombre, número o mensaje" value="${esc(S.filter.q)}"></div>
+			<div class="search"><input id="q" type="search" placeholder="Buscar" value="${esc(S.filter.q)}"></div>
 			<div class="chips" id="chips"></div>
 			<ul class="list" id="convs"></ul>`
 		$('#q').oninput = e => { S.filter.q = e.target.value; renderInboxList() }
@@ -429,11 +472,11 @@ function renderChips() {
 	const chip = (act, val, text, on, color) =>
 		`<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-val="${esc(val)}" ${color ? `style="--c:${esc(color)}"` : ''}>${esc(text)}</button>`
 	$('#chips').innerHTML = [
-		chip('f-all', '', f.archived ? 'Archivados' : 'Todos', !f.account && !f.label && !f.unread && !f.waiting && !f.reminders),
-		chip('f-archived', '', '🗄️ Archivados', f.archived, '#8E8E93'),
+		chip('f-all', '', 'Todos', !f.account && !f.label && !f.unread && !f.waiting && !f.reminders),
+		chip('f-archived', '', 'Archivados', f.archived),
 		chip('f-unread', '', 'No leídos', f.unread),
 		chip('f-waiting', '', `Sin responder${S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length ? ' (' + S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length + ')' : ''}`, f.waiting, '#E5484D'),
-		chip('f-reminders', '', `⏰ Recordatorios${S.convs.filter(c => c.reminder).length ? ' (' + S.convs.filter(c => c.reminder).length + ')' : ''}`, f.reminders, '#7C5CFF'),
+		chip('f-reminders', '', `Recordatorios${S.convs.filter(c => c.reminder).length ? ' (' + S.convs.filter(c => c.reminder).length + ')' : ''}`, f.reminders, '#7C5CFF'),
 		...S.accounts.map(a => chip('f-account', a.id, a.name, f.account === a.id, a.color)),
 		...S.labels.map(l => chip('f-label', l.id, '# ' + l.name, f.label === l.id, l.color))
 	].join('')
@@ -453,7 +496,7 @@ function renderInboxList() {
 			<div class="body">
 				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
 				<div class="bottom"><span class="preview">${c.lastFromMe ? 'Tú: ' : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
-				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}${c.reminder ? `<span class="tag" style="--c:#7C5CFF">⏰ ${esc(reminderLabel(c.reminder.at))}</span>` : ''}${c.note ? '<span class="tag" style="--c:#B7791F">📝 Nota</span>' : ''}${S.filter.waiting ? `<span class="tag" style="--c:#E5484D">${waitingLabel(c.lastTs)}</span>` : ''}</div>
+				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}${c.reminder ? `<span class="tag" style="--c:#7C5CFF">${esc(reminderLabel(c.reminder.at))}</span>` : ''}${c.note ? '<span class="tag" style="--c:#B7791F">Nota</span>' : ''}${S.filter.waiting ? `<span class="tag" style="--c:#E5484D">${waitingLabel(c.lastTs)}</span>` : ''}</div>
 			</div>
 		</a></li>`).join('')
 }
@@ -463,15 +506,11 @@ async function renderChat(jid, full) {
 	if (full) {
 		S.active = jid
 		$('#app').innerHTML = `
-			<header class="bar">
-				<button class="icon-btn" data-act="back" aria-label="Atrás">‹</button>
-				<span id="c-avatar"></span>
-				<div class="title"><b id="c-title"></b><small id="c-sub"></small></div>
-				<button class="icon-btn" data-act="note" aria-label="Nota">📝</button>
-				<button class="icon-btn" data-act="reminder" aria-label="Recordatorio">⏰</button>
-				<button class="icon-btn" data-act="labels" aria-label="Etiquetas">🏷️</button>
-				<button class="icon-btn" data-act="archive-conv" id="c-archive" aria-label="Archivar">🗄️</button>
-				<button class="icon-btn" data-act="delete-conv" aria-label="Eliminar">🗑️</button>
+			<header class="bar chat-bar">
+				<button class="icon-btn back" data-act="back" aria-label="Atrás">${IC.back}<i class="badge" id="back-badge" hidden></i></button>
+				<span id="c-avatar" class="c-avatar" data-act="chat-menu"></span>
+				<div class="title" data-act="chat-menu"><b id="c-title"></b><small id="c-sub"></small></div>
+				<button class="icon-btn" data-act="chat-menu" aria-label="Más opciones">${IC.more}</button>
 			</header>
 			<div id="c-banners"></div>
 			<div class="msgs" id="msgs"><div class="empty">Cargando…</div></div>
@@ -505,17 +544,19 @@ async function renderChat(jid, full) {
 
 function renderChatHeader() {
 	const c = conv(S.active)
-	$('#c-title').textContent = c ? convName(c) : '+' + jidOf(S.active).split('@')[0]
+	$('#c-title').textContent = c ? convName(c) : fmtPhone(jidOf(S.active).split('@')[0])
 	const av = $('#c-avatar'); if (av && c) av.innerHTML = avatarHtml(c)
-	const arch = $('#c-archive'); if (arch) { arch.textContent = c?.archived ? '📤' : '🗄️'; arch.setAttribute('aria-label', c?.archived ? 'Desarchivar' : 'Archivar') }
+	updateBadge()
 	const parts = []
 	if (c?.name) parts.push(c.name) // si WhatsApp tiene un nombre guardado, va de subtítulo
+	const acc = account(accOf(S.active))
+	if (acc) parts.push('vía ' + acc.name)
 	if (c?.labelIds.length) parts.push(c.labelIds.map(label).filter(Boolean).map(l => l.name).join(', '))
 	$('#c-sub').textContent = parts.join(' · ')
 	const banners = $('#c-banners')
 	if (banners) {
-		const html = (c?.note ? `<div class="banner note" data-act="note">📝 ${esc(c.note)}</div>` : '')
-			+ (c?.reminder ? `<div class="banner reminder" data-act="reminder">⏰ ${esc(reminderLabel(c.reminder.at))}${c.reminder.text ? ' · ' + esc(c.reminder.text) : ''}</div>` : '')
+		const html = (c?.note ? `<div class="banner note" data-act="note">${IC.note}<span>${esc(c.note)}</span></div>` : '')
+			+ (c?.reminder ? `<div class="banner reminder" data-act="reminder">${IC.clock}<span>${esc(reminderLabel(c.reminder.at))}${c.reminder.text ? ' · ' + esc(c.reminder.text) : ''}</span></div>` : '')
 		if (banners.innerHTML !== html) banners.innerHTML = html
 	}
 }
@@ -558,7 +599,7 @@ async function openReminder() {
 		['En 1 semana', (() => { const d = new Date(tomorrow); d.setDate(d.getDate() + 6); return d.getTime() })()]
 	]
 	sheet('Recordatorio', `
-		${list.length ? `<div class="section">Pendientes</div><div class="group">${list.map(r => `<div class="item"><span class="grow">⏰ ${esc(reminderLabel(r.at))}<small>${esc(r.text || '')}</small></span><button class="icon-btn" data-act="rem-del" data-val="${r.id}" aria-label="Borrar">🗑️</button></div>`).join('')}</div>` : ''}
+		${list.length ? `<div class="section">Pendientes</div><div class="group">${list.map(r => `<div class="item"><span class="grow">⏰ ${esc(reminderLabel(r.at))}<small>${esc(r.text || '')}</small></span><button class="icon-btn" data-act="rem-del" data-val="${r.id}" aria-label="Borrar">${IC.trash}</button></div>`).join('')}</div>` : ''}
 		<div class="section">Nuevo recordatorio</div>
 		<div class="chips" style="padding:8px 16px">${quick.map(([t, at]) => `<button class="chip" data-rem-at="${at}">${t}</button>`).join('')}</div>
 		<div class="group">
@@ -612,7 +653,7 @@ function renderFrom() {
 	const el = $('#from')
 	if (!el) return
 	const a = account(accOf(S.active))
-	el.innerHTML = `${accountTag(accOf(S.active))}${a?.phone ? ' <small>+' + esc(a.phone) + '</small>' : ''}${a && a.status !== 'connected' ? ` <b style="color:var(--danger)">· ${statusText(a)}</b>` : ''}`
+	el.innerHTML = `${accountTag(accOf(S.active))}${a?.phone ? ' <small>' + esc(fmtPhone(a.phone)) + '</small>' : ''}${a && a.status !== 'connected' ? ` <b style="color:var(--danger)">· ${statusText(a)}</b>` : ''}`
 	const hint = $('#hint24')
 	if (hint) {
 		const closed = a?.kind === 'cloud' && !windowOpen(S.active)
@@ -624,24 +665,26 @@ function renderComposer() {
 	const row = $('#compose-row')
 	if (S.recorder) {
 		row.innerHTML = `
-			<button class="round ghost" data-act="rec-cancel" aria-label="Cancelar">🗑️</button>
-			<div class="recording"><span style="color:var(--danger)">●</span><span id="rec-time">0:00</span></div>
-			<button class="round rec" data-act="rec-send" aria-label="Enviar nota de voz">➤</button>`
+			<button class="round ghost" data-act="rec-cancel" aria-label="Cancelar">${IC.trash}</button>
+			<div class="recording"><span class="rec-dot"></span><span id="rec-time">0:00</span></div>
+			<button class="round rec" data-act="rec-send" aria-label="Enviar nota de voz">${IC.sendFill}</button>`
 		return
 	}
 	const prev = $('#text')?.value || ''
 	const isCloud = account(accOf(S.active))?.kind === 'cloud'
 	row.innerHTML = `
-		<button class="round ghost" data-act="attach" aria-label="Adjuntar">＋</button>
-		${isCloud ? '<button class="round ghost" data-act="tpl-chat" aria-label="Plantilla" style="font-size:22px">📋</button>' : ''}
-		<textarea id="text" rows="1" placeholder="Mensaje (escribe / para respuestas rápidas)"></textarea>
-		<button class="round" id="send-btn" data-act="send" aria-label="Enviar">🎤</button>`
+		<button class="round ghost" data-act="attach" aria-label="Adjuntar">${IC.plus}</button>
+		${isCloud ? `<button class="round ghost" data-act="tpl-chat" aria-label="Plantilla">${IC.template}</button>` : ''}
+		<textarea id="text" rows="1" placeholder="Mensaje"></textarea>
+		<button class="round mic" id="send-btn" data-act="send" aria-label="Enviar">${IC.mic}</button>`
 	const ta = $('#text')
 	ta.value = prev
 	const sync = () => {
 		ta.style.height = 'auto'
 		ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'
-		$('#send-btn').textContent = ta.value.trim() ? '➤' : '🎤'
+		const btn = $('#send-btn')
+		const has = Boolean(ta.value.trim())
+		if (btn.classList.contains('mic') === has) { btn.classList.toggle('mic', !has); btn.innerHTML = has ? IC.sendFill : IC.mic }
 	}
 	ta.oninput = () => { sync(); renderQuickReplies() }
 	sync()
@@ -659,18 +702,27 @@ function msgContent(m) {
 		case 'audio':
 			return `<audio src="${mediaURL(m)}" controls preload="none"></audio>`
 		case 'document':
-			return `<a class="doc" href="${mediaURL(m)}" target="_blank" rel="noopener">📄 <span>${esc(m.fileName || 'Documento')}</span></a>${cap}`
+			return `<a class="doc" href="${mediaURL(m)}" target="_blank" rel="noopener">${IC.doc}<span>${esc(m.fileName || 'Documento')}</span></a>${cap}`
 		default:
 			return `<div class="text">${linkify(m.text || '')}</div>`
 	}
 }
 
+function dayLabel(d) {
+	const start = t => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()
+	const diff = Math.round((start(new Date()) - start(d)) / 864e5)
+	if (diff === 0) return 'Hoy'
+	if (diff === 1) return 'Ayer'
+	if (diff < 7) return d.toLocaleDateString('es', { weekday: 'long' })
+	return d.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })
+}
+
 function ticks(status) {
-	if (status === 0) return '<span style="color:var(--danger)">⚠︎ No enviado</span>'
-	if (status === 1) return '🕓'
-	if (status === 2) return '✓'
-	if (status === 3) return '✓✓'
-	return '<span class="read">✓✓</span>'
+	if (status === 0) return '<span class="fail">No enviado</span>'
+	if (status === 1) return `<span class="pend">${IC.clock}</span>`
+	if (status === 2) return TICK1
+	if (status === 3) return TICK2
+	return `<span class="read">${TICK2}</span>`
 }
 
 function messageItems() {
@@ -680,20 +732,27 @@ function messageItems() {
 	if (S.more[S.active]) items.push({ key: 'older', html: '<button class="chip more" data-act="older">Cargar mensajes anteriores</button>' })
 	if (!list.length) items.push({ key: 'empty', html: '<div class="empty">Escribe el primer mensaje 👋</div>' })
 	let lastDay = ''
+	let prev = null
 	for (const m of list) {
 		const d = new Date(m.ts)
 		const day = d.toDateString()
+		// Primera burbuja de un grupo (cambia quién escribe, el número o el día): lleva colita y etiqueta
+		const first = !prev || prev.fromMe !== m.fromMe || prev.accountId !== m.accountId || day !== lastDay || (isGroup && !m.fromMe && prev.sender !== m.sender)
+		const next = list[list.indexOf(m) + 1]
+		const last = !next || next.fromMe !== m.fromMe || next.accountId !== m.accountId || new Date(next.ts).toDateString() !== day || (isGroup && !m.fromMe && next.sender !== m.sender)
+		prev = m
 		if (day !== lastDay) {
 			lastDay = day
-			items.push({ key: 'day:' + day, html: `<div class="day">${d.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</div>` })
+			items.push({ key: 'day:' + day, html: `<div class="day">${dayLabel(d)}</div>` })
 		}
 		const a = account(m.accountId)
 		const time = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
 		items.push({
 			key: m.accountId + ':' + m.id,
 			meta: `${time} ${m.fromMe ? ticks(m.status) : ''}`,
-			html: `<div class="msg ${m.fromMe ? 'me' : ''}" style="--c:${esc(a?.color || '#8E8E93')}">
-				<div class="head">${accountTag(m.accountId)}${isGroup && !m.fromMe ? `<span class="sender">${esc(m.senderName || (m.sender || '').split('@')[0])}</span>` : ''}</div>
+			last,
+			html: `<div class="msg ${m.fromMe ? 'me' : ''} ${first ? 'first' : ''} ${['image', 'video', 'sticker'].includes(m.type) && !m.text ? 'media' : ''}" style="--c:${esc(a?.color || '#8E8E93')}">
+				${first && isGroup && !m.fromMe ? `<div class="head"><span class="sender">${esc(m.senderName || fmtPhone((m.sender || '').split('@')[0]))}</span></div>` : ''}
 				${msgContent(m)}
 				${m.fromMe && m.error ? `<div class="err">⚠︎ ${esc(m.error)}</div>` : ''}
 				<div class="meta"></div>
@@ -743,6 +802,8 @@ function renderMessages(scrollToEnd) {
 		}
 		if (renderMessages.keepOffset) box.scrollTop = box.scrollHeight - prevHeight + prevTop
 	}
+	// La colita va en la última burbuja de cada grupo (como en iPhone); se pone sin recrear nodos
+	for (const it of items) if (it.last !== undefined && it.node) it.node.classList.toggle('tail', it.last)
 	box._items = items
 	if (scrollToEnd || (nearBottom && !renderMessages.keepOffset)) box.scrollTop = box.scrollHeight
 	renderMessages.keepOffset = false
@@ -999,7 +1060,7 @@ const CAMPAIGN_STATUS = { running: ['Enviando', 'var(--accent)'], paused: ['En p
 async function renderCampaigns(full) {
 	if (full) {
 		$('#view').innerHTML = `
-			<header class="bar"><h1>Envíos</h1><button class="icon-btn" data-act="new-campaign" aria-label="Nuevo envío">＋</button></header>
+			${largeBar('Envíos', `<button class="icon-btn" data-act="new-campaign" aria-label="Nuevo envío">${IC.plus}</button>`)}
 			<div class="settings" style="min-height:100%">
 			<div class="section">Resultados</div>
 			<div class="chips" style="padding:4px 16px 8px">${[[1, 'Hoy'], [7, '7 días'], [30, '30 días']].map(([d, t]) => `<button class="chip ${S.statsDays === d ? 'on' : ''}" data-act="stats-days" data-val="${d}">${t}</button>`).join('')}</div>
@@ -1122,7 +1183,7 @@ function openNewSafeCampaign() {
 		<div class="group"><div class="item"><input type="text" id="sf-name" placeholder="Ej. Recordatorios lunes"></div></div>
 		<div class="group"><label class="item"><input type="checkbox" id="sf-perline"><span class="grow"><b>✏️ Cada línea trae su propio mensaje</b><small>En vez de una plantilla, pega el número y a un lado su mensaje ya escrito. Se reparten entre tus números.</small></span></label></div>
 		<div class="section">Números que van a enviar</div>
-		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status !== 'connected' ? 'disabled' : a.reserve ? '' : 'checked'}><span class="grow">${accountTag(a.id)} ${a.phone ? '+' + esc(a.phone) : ''}${a.reserve ? ' <b style="color:#7C5CFF">· reserva</b>' : ''}${a.health && a.status === 'connected' ? `<small>${healthDot(a)} ${esc(a.health.reason)} · hoy hasta ${a.health.suggestedDaily}</small>` : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
+		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status !== 'connected' ? 'disabled' : a.reserve ? '' : 'checked'}><span class="grow">${accountTag(a.id)} ${a.phone ? esc(fmtPhone(a.phone)) : ''}${a.reserve ? ' <b style="color:#7C5CFF">· reserva</b>' : ''}${a.health && a.status === 'connected' ? `<small>${healthDot(a)} ${esc(a.health.reason)} · hoy hasta ${a.health.suggestedDaily}</small>` : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
 		<p class="hint">La lista se reparte entre los números marcados. Los números de <b>reserva</b> entran solos si uno de los marcados se restringe, descansa o se desconecta.</p>
 		<div id="sf-msg-wrap">
 		<div class="section">Mensaje</div>
@@ -1328,13 +1389,13 @@ async function showFailed(id) {
 // ---------- Cuentas ----------
 function renderAccounts() {
 	$('#view').innerHTML = `
-		<header class="bar"><h1>Cuentas</h1><button class="icon-btn" data-act="add-account" aria-label="Agregar">＋</button></header>
+		${largeBar('Cuentas', `<button class="icon-btn" data-act="add-account" aria-label="Agregar">${IC.plus}</button>`)}
 		<div class="settings" style="min-height:100%">
 		${S.accounts.length ? `<div class="section">Tus WhatsApp (${S.accounts.length})</div><div class="group">${S.accounts.map(a => `
 			<a class="item" href="#/account/${a.id}">
 				<span class="swatch" style="--c:${esc(a.color)};width:16px;height:16px;border:0"></span>
-				<span class="grow"><b>${esc(a.name)} ${a.status === 'connected' ? healthDot(a) : ''}${a.reserve ? ' <small style="display:inline;color:#7C5CFF">reserva</small>' : ''}</b><small>${a.phone ? '+' + esc(a.phone) : 'Sin vincular'}${a.health && a.status === 'connected' ? ' · ' + esc(a.health.reason) : ''}</small></span>
-				<span class="status" style="color:${statusColor(a)}">${statusText(a)}</span> ›
+				<span class="grow"><b>${esc(a.name)} ${a.status === 'connected' ? healthDot(a) : ''}${a.reserve ? ' <small style="display:inline;color:#7C5CFF">reserva</small>' : ''}</b><small>${a.phone ? esc(fmtPhone(a.phone)) : 'Sin vincular'}${a.health && a.status === 'connected' ? ' · ' + esc(a.health.reason) : ''}${a.health?.replyRate != null ? ` · le contestan ${a.health.replyRate}%` : ''}</small></span>
+				<span class="status" style="color:${statusColor(a)}">${statusText(a)}</span>${IC.chevron}
 			</a>`).join('')}</div>` : `<div class="empty"><div class="big">📱</div>Toca <b>＋</b> para agregar tu primer WhatsApp.</div>`}
 		<p class="hint">Cada cuenta se vincula como «dispositivo vinculado», igual que WhatsApp Web. El teléfono de cada cuenta no necesita estar encendido, pero debe abrir WhatsApp al menos una vez cada 14 días.</p>
 		</div>`
@@ -1466,12 +1527,12 @@ function renderAccount(id, full) {
 	const a = account(id)
 	const view = $('#view')
 	if (!a) {
-		view.innerHTML = `<header class="bar"><button class="icon-btn" data-act="go" data-val="#/accounts">‹</button><h1>Cuenta</h1></header><div class="empty">Cuenta no encontrada</div>`
+		view.innerHTML = `${navBar('Cuenta', '#/accounts', 'Cuentas')}<div class="empty">Cuenta no encontrada</div>`
 		return
 	}
 	if (full) {
 		view.innerHTML = `
-			<header class="bar"><button class="icon-btn" data-act="go" data-val="#/accounts" aria-label="Atrás">‹</button><h1 id="ac-title"></h1></header>
+			${navBar('', '#/accounts', 'Cuentas').replace('id="nav-title"', 'id="ac-title"')}
 			<div class="settings" style="min-height:100%">
 				<div class="group" style="margin-top:16px">
 					<div class="item"><span class="grow">Estado</span><span class="status" id="ac-status"></span></div>
@@ -1497,7 +1558,7 @@ function renderAccount(id, full) {
 	$('#ac-title').textContent = a.name
 	$('#ac-status').textContent = statusText(a)
 	$('#ac-status').style.color = statusColor(a)
-	$('#ac-phone').textContent = a.phone ? '+' + a.phone : '—'
+	$('#ac-phone').textContent = a.phone ? fmtPhone(a.phone) : '—'
 
 	if (a.kind === 'cloud') {
 		renderCloudAccount(a)
@@ -1638,7 +1699,7 @@ function renderSettings() {
 		: '<button class="btn" data-act="push">Activar notificaciones</button>'
 	const prevLabel = $('#nl-name')?.value || ''
 	view.innerHTML = `
-		<header class="bar"><h1>Ajustes</h1></header>
+		${largeBar('Ajustes')}
 		<div class="settings" style="min-height:100%">
 			<div class="section">Notificaciones</div>
 			<div class="group">${notif}</div>
@@ -1646,16 +1707,16 @@ function renderSettings() {
 
 			<div class="section">Etiquetas</div>
 			<div class="group">
-				${S.labels.map(l => `<div class="item"><span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span><span class="grow"></span><button class="icon-btn" data-act="del-label" data-val="${l.id}" aria-label="Borrar">🗑️</button></div>`).join('')}
+				${S.labels.map(l => `<div class="item"><span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span><span class="grow"></span><button class="icon-btn" data-act="del-label" data-val="${l.id}" aria-label="Borrar">${IC.trash}</button></div>`).join('')}
 				<div class="item"><input type="text" id="nl-name" placeholder="Nueva etiqueta (ej. Cliente, Pendiente)"></div>
 				${colorPicker(COLORS[1])}
 				<button class="btn" data-act="add-label">Agregar etiqueta</button>
 			</div>
-			<p class="hint">Asigna etiquetas con el botón 🏷️ dentro de cada chat y filtra por ellas en la bandeja.</p>
+			<p class="hint">Asigna etiquetas desde el menú ⋯ de cada chat y filtra por ellas en la bandeja.</p>
 
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
-				<p class="hint">Tus propios números se escriben entre sí, poco a poco y en horario normal, para que las cuentas nuevas se vean activas y «maduren». Solo son tus números hablando entre ellos. Necesitas al menos <b>2 números conectados</b>.</p>
+				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Los recién vinculados solo reciben sus primeras 24 h. Necesitas al menos <b>2 números conectados</b>.</p>
 
 				<div class="section">Días sin envíos masivos</div>
 			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
@@ -1663,7 +1724,7 @@ function renderSettings() {
 
 			<div class="section">Respuestas rápidas</div>
 			<div class="group">
-				${S.replies.map(r => `<div class="item"><span class="grow"><b>${esc(r.title)}</b><small style="white-space:pre-wrap">${esc(r.text)}</small></span><button class="icon-btn" data-act="del-reply" data-val="${r.id}" aria-label="Borrar">🗑️</button></div>`).join('')}
+				${S.replies.map(r => `<div class="item"><span class="grow"><b>${esc(r.title)}</b><small style="white-space:pre-wrap">${esc(r.text)}</small></span><button class="icon-btn" data-act="del-reply" data-val="${r.id}" aria-label="Borrar">${IC.trash}</button></div>`).join('')}
 				<div class="item"><input type="text" id="qr-title" placeholder="Nombre (ej. Datos de pago)"></div>
 				<div class="item"><textarea id="qr-text" rows="3" placeholder="Texto. Usa {nombre} para poner el nombre del cliente."></textarea></div>
 				<button class="btn" data-act="add-reply">Agregar respuesta rápida</button>
@@ -1699,35 +1760,34 @@ async function loadWarmup() {
 function renderWarmupBox(st) {
 	const box = $('#warmup-box'); if (!box) return
 	S.warmup = st
-	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}</span><small>${n.target > 0 ? `${n.sentToday}/${n.target} hoy` : '⏸️ hoy no se usa'} · ${n.ageDays}d</small></div>`).join('')
 	const p = st.plan || {}
+	const sw = (act, on) => `<label class="switch"><input type="checkbox" data-act="${act}" ${on ? 'checked' : ''}><i></i></label>`
+	const state = st.eligible < 2 ? `<span class="pill warn">${st.eligible} conectado(s) · faltan números</span>`
+		: !st.enabled ? '<span class="pill">En pausa</span>'
+			: '<span class="pill ok">Funcionando</span>'
+	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}<small>${n.grace ? 'Recién vinculado: solo recibe las primeras 24 h' : n.target > 0 ? `${n.sentToday} de ${n.target} hoy · ${n.ageDays} día(s) vinculado` : 'Hoy no se usa (descanso o rechazos)'}</small></span>${n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`).join('')
 	const manual = st.auto ? '' : `
-		<div class="item"><span class="grow">Tope de mensajes por número/día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" style="text-align:right;max-width:70px"></div>
-		<p class="hint" style="margin:2px 16px 0">Es el máximo. En números nuevos arranca bajo (≈3/día) y sube solo con los días hasta ese tope.</p>
-		<div class="item"><span class="grow">Horario (de / a)</span><input type="number" id="wu-start" min="0" max="23" value="${st.startHour}" style="text-align:right;max-width:55px"><span style="margin:0 6px">a</span><input type="number" id="wu-end" min="1" max="24" value="${st.endHour}" style="text-align:right;max-width:55px"></div>
-		<div class="item"><span class="grow">Pausa entre mensajes (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" style="text-align:right;max-width:55px"><span style="margin:0 6px">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" style="text-align:right;max-width:55px"></div>
-		<button class="btn" data-act="warmup-save">Guardar ajustes</button>`
-	const autoPlan = st.auto ? `
-		<div class="item"><span class="grow">Hoy enviará (total)</span><span>${p.totalPerDay || 0} mensajes</span></div>
-		<div class="item"><span class="grow">Cada</span><span>~${p.everyMin || '—'} min · ${p.startHour}–${p.endHour} h</span></div>
-		<p class="hint" style="margin:2px 16px 0">El sistema analiza cada número (estado, rechazos, antigüedad) y decide solo cuántos manda, a qué horas y con qué ritmo. Los nuevos empiezan bajos y suben solos; los que tienen rechazos o descansan no se usan.</p>` : ''
+		<div class="item"><span class="grow">Tope por número al día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" class="num"></div>
+		${st.allDay ? '' : `<div class="item"><span class="grow">Horario</span><input type="number" id="wu-start" min="0" max="23" value="${st.startHour}" class="num"><span class="muted">a</span><input type="number" id="wu-end" min="1" max="24" value="${st.endHour}" class="num"></div>`}
+		<div class="item"><span class="grow">Pausa entre charlas (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" class="num"><span class="muted">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" class="num"></div>
+		<button class="btn" data-act="warmup-save">Guardar</button>`
 	box.innerHTML = `
-		<div class="item"><span class="grow">Activar calentamiento</span>
-			<button class="btn ${st.enabled ? 'primary' : ''}" data-act="warmup-toggle" style="width:auto;padding:6px 14px">${st.enabled ? 'Activado' : 'Activar'}</button></div>
-		<div class="item"><span class="grow">Automático (lo decide todo solo)</span>
-			<button class="btn ${st.auto ? 'primary' : ''}" data-act="warmup-auto" style="width:auto;padding:6px 14px">${st.auto ? 'Sí' : 'Manual'}</button></div>
-		${autoPlan}${manual}
-		<div class="item"><span class="grow">Estado</span><span>${st.eligible < 2 ? `⚠️ ${st.eligible} conectado(s)` : st.running ? '🟢 Funcionando' : '⏸️ En pausa'}</span></div>
-		${nums}`
+		<div class="item"><span class="grow">Calentamiento</span>${sw('warmup-toggle', st.enabled)}</div>
+		<div class="item"><span class="grow">Automático<small>Decide solo cuánto y cuándo según cada número</small></span>${sw('warmup-auto', st.auto)}</div>
+		<div class="item"><span class="grow">Las 24 horas<small>De noche casi no habla, como una persona</small></span>${sw('warmup-allday', st.allDay)}</div>
+		${manual}
+		<div class="item"><span class="grow">Estado</span>${state}</div>
+		${st.enabled && st.eligible >= 2 ? `
+		<div class="item"><span class="grow">Actividad en este momento</span><span class="muted">${p.activity === 'alta' ? 'Alta' : p.activity === 'media' ? 'Media' : 'Baja (noche)'}</span></div>
+		<div class="item"><span class="grow">Mensajes planeados hoy</span><span class="muted">${p.totalPerDay || 0}</span></div>
+		<div class="item"><span class="grow">Próxima charla</span><span class="muted">${p.nextConvoIn == null ? '—' : p.nextConvoIn < 1 ? 'en un momento' : `en ~${p.nextConvoIn} min`}${p.activeConvos ? ` · ${p.activeConvos} en curso` : ''}</span></div>` : ''}
+		${nums ? `<div class="item sub-head"><span class="grow">Números</span></div>${nums}` : ''}`
 }
 function warmupBody() {
-	return {
-		perDay: Number($('#wu-perday')?.value) || undefined,
-		startHour: Number($('#wu-start')?.value),
-		endHour: Number($('#wu-end')?.value),
-		minDelay: Number($('#wu-min')?.value) || undefined,
-		maxDelay: Number($('#wu-max')?.value) || undefined
-	}
+	const v = id => { const el = $(id); return el && el.value !== '' ? Number(el.value) : undefined }
+	const b = { perDay: v('#wu-perday'), startHour: v('#wu-start'), endHour: v('#wu-end'), minDelay: v('#wu-min'), maxDelay: v('#wu-max') }
+	for (const k of Object.keys(b)) if (b[k] === undefined || Number.isNaN(b[k])) delete b[k]
+	return b
 }
 
 function b64ToUint8(b64) {
@@ -1759,12 +1819,26 @@ function sheet(title, html, bind) {
 	const bg = document.createElement('div')
 	bg.className = 'sheet-bg'
 	bg.id = 'sheet'
-	bg.innerHTML = `<div class="sheet"><header class="bar"><h1 style="font-size:18px">${esc(title)}</h1><button class="icon-btn" data-act="close-sheet">Cerrar</button></header>${html}</div>`
+	bg.innerHTML = `<div class="sheet"><div class="grabber"></div><header class="sheet-bar"><span></span><h1>${esc(title)}</h1><button class="link" data-act="close-sheet">Listo</button></header><div class="sheet-body">${html}</div></div>`
 	bg.addEventListener('click', e => { if (e.target === bg) closeSheet() })
 	document.body.appendChild(bg)
 	bind?.(bg)
 }
 function closeSheet() { $('#sheet')?.remove() }
+
+// Menú de acciones que sube desde abajo (como el de iOS)
+function actionSheet(title, actions) {
+	closeSheet()
+	const bg = document.createElement('div')
+	bg.className = 'sheet-bg action'
+	bg.id = 'sheet'
+	bg.innerHTML = `<div class="actions">
+		<div class="as-group">${title ? `<div class="as-title">${esc(title)}</div>` : ''}${actions.map(a => `<button class="as-btn ${a.danger ? 'danger' : ''}" data-act="${a.act}"${a.val != null ? ` data-val="${esc(a.val)}"` : ''}><span>${esc(a.text)}</span>${a.icon || ''}</button>`).join('')}</div>
+		<div class="as-group"><button class="as-btn cancel" data-act="close-sheet">Cancelar</button></div>
+	</div>`
+	bg.addEventListener('click', e => { if (e.target === bg) closeSheet() })
+	document.body.appendChild(bg)
+}
 
 // ---------- Eventos ----------
 document.addEventListener('click', async e => {
@@ -1772,7 +1846,18 @@ document.addEventListener('click', async e => {
 	if (!el) return
 	const act = el.dataset.act
 	const val = el.dataset.val
+	if (el.classList.contains('as-btn')) closeSheet()
 	switch (act) {
+		case 'chat-menu': {
+			const c = conv(S.active)
+			return actionSheet(c ? convName(c) : '', [
+				{ act: 'note', text: c?.note ? 'Editar nota' : 'Agregar nota', icon: IC.note },
+				{ act: 'reminder', text: 'Recordatorio', icon: IC.clock },
+				{ act: 'labels', text: 'Etiquetas', icon: IC.tag },
+				{ act: 'archive-conv', text: c?.archived ? 'Desarchivar chat' : 'Archivar chat', icon: c?.archived ? IC.unarchive : IC.archive },
+				{ act: 'delete-conv', text: 'Eliminar chat', icon: IC.trash, danger: true }
+			])
+		}
 		case 'go': return go(val)
 		case 'back': return history.length > 1 ? history.back() : go('#/')
 		case 'f-all': { const wasArch = S.filter.archived; S.filter.account = null; S.filter.label = null; S.filter.unread = false; S.filter.waiting = false; S.filter.reminders = false; S.filter.archived = false; return wasArch ? loadConvList() : renderInbox(false) }
@@ -1898,6 +1983,11 @@ document.addEventListener('click', async e => {
 			catch (err) { toast(err.message) }
 			return
 		}
+		case 'warmup-allday': {
+			try { renderWarmupBox(await api('POST', '/warmup', { ...warmupBody(), enabled: S.warmup?.enabled, allDay: !(S.warmup?.allDay) })) }
+			catch (err) { toast(err.message) }
+			return
+		}
 		case 'warmup-auto': {
 			try { renderWarmupBox(await api('POST', '/warmup', { ...warmupBody(), enabled: S.warmup?.enabled, auto: !(S.warmup?.auto) })) }
 			catch (err) { toast(err.message) }
@@ -1947,7 +2037,7 @@ document.addEventListener('keydown', e => {
 	}
 })
 
-window.addEventListener('hashchange', render)
+window.addEventListener('hashchange', () => { if ($('#sheet.action')) closeSheet(); render() })
 
 document.addEventListener('visibilitychange', () => {
 	// iOS suspende la conexión en segundo plano: al volver se resincroniza
