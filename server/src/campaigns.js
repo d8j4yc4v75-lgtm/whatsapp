@@ -50,19 +50,28 @@ try { db.exec('CREATE INDEX IF NOT EXISTS idx_chats_jid ON chats (jid)') } catch
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_items_message ON campaign_items (message_id)') } catch {}
 
 /**
- * ¿Alguno de tus números ya tiene chat con este cliente? Cuenta si el cliente te escribió alguna vez
- * o si tú le escribiste a mano. Los mensajes que salieron de envíos masivos no cuentan
- * (si no, cada recordatorio brincaría a todos los que recibieron el anterior).
+ * ¿Con cuáles de tus números ya hay chat con este cliente? (cualquier mensaje, de ida o de vuelta,
+ * incluso de envíos anteriores, o un chat que ya existía en el teléfono)
  */
-const chatStmt = db.prepare(`
-	SELECT 1 FROM messages m WHERE m.jid IN (?, ?, ?)
-	AND (m.from_me = 0 OR NOT EXISTS (SELECT 1 FROM campaign_items ci WHERE ci.message_id = m.id)) LIMIT 1`)
-export function hasChat(phone) {
+const chatAccStmt = db.prepare(`
+	SELECT account_id FROM messages WHERE jid IN (?, ?, ?)
+	UNION SELECT account_id FROM chats WHERE jid IN (?, ?, ?) AND last_ts > 0`)
+export function chatAccounts(phone) {
 	const digits = String(phone || '').replace(/\D/g, '')
 	const d = digits.slice(-10)
-	return Boolean(chatStmt.get(`${digits}@s.whatsapp.net`, `521${d}@s.whatsapp.net`, `52${d}@s.whatsapp.net`))
+	const v = [`${digits}@s.whatsapp.net`, `521${d}@s.whatsapp.net`, `52${d}@s.whatsapp.net`]
+	return new Set(chatAccStmt.all(...v, ...v).map(r => r.account_id))
 }
-const CHAT_SKIP = 'Ya tiene chat con uno de tus números'
+const CHAT_SKIP = 'Ya tiene chat con todos los números del envío'
+// Los que se brincaron con la regla anterior (cuando un solo número tenía chat) vuelven a la cola
+// para que ahora se los mande otro número que no haya platicado con ellos
+{
+	const old = db.prepare("SELECT DISTINCT campaign_id FROM campaign_items WHERE status = 'skipped' AND error = 'Ya tiene chat con uno de tus números'").all().map(r => r.campaign_id)
+	if (old.length) {
+		db.prepare("UPDATE campaign_items SET status = 'pending', error = NULL WHERE status = 'skipped' AND error = 'Ya tiene chat con uno de tus números'").run()
+		for (const id of old) db.prepare("UPDATE campaigns SET status = 'running', note = NULL WHERE id = ? AND status = 'done'").run(id)
+	}
+}
 
 const fill = (text, params) => String(text || '').replace(/\{\{(\d+)\}\}/g, (m, n) => params[Number(n) - 1] ?? '')
 const clamp = (v, min, max, def) => Math.min(max, Math.max(min, Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : def))
@@ -104,7 +113,9 @@ export class CampaignRunner {
 			seen.add(phone)
 			const bare = phone.replace(/^521/, '52')
 			const optout = optouts.has(phone) || optouts.has(bare) || optouts.has('521' + bare.slice(2))
-			items.push({ phone, params: (r.params || []).map(p => String(p ?? '').trim()), skipped: optout, chat: !optout && Boolean(skipChats) && hasChat(phone) })
+			const senders = safe ? accountIds.map(Number) : [Number(accountId)]
+			const withChat = !optout && skipChats ? chatAccounts(phone) : null
+			items.push({ phone, params: (r.params || []).map(p => String(p ?? '').trim()), skipped: optout, chat: Boolean(withChat) && senders.every(a => withChat.has(a)) })
 		}
 		if (!items.length) throw new Error('Ningún número de la lista es válido')
 		const minD = clamp(minDelay, 30, 3600, 120)
@@ -151,7 +162,7 @@ export class CampaignRunner {
 		const read = db.prepare(`
 			SELECT COUNT(*) AS n FROM campaign_items i JOIN messages m ON m.id = i.message_id
 			WHERE i.campaign_id = ? AND m.status >= 4`).get(id).n
-		const withChat = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE campaign_id = ? AND status = 'skipped' AND error = ?").get(id, CHAT_SKIP).n
+		const withChat = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE campaign_id = ? AND status = 'skipped' AND error LIKE 'Ya tiene chat%'").get(id).n
 		const replied = db.prepare(`
 			SELECT COUNT(*) AS n FROM campaign_items i
 			WHERE i.campaign_id = ? AND i.status = 'sent' AND EXISTS (
@@ -260,7 +271,7 @@ export class CampaignRunner {
 		if (!pendingItems.length) return this.setStatus(c.id, 'done')
 		const item = pendingItems.find(it => goodLocalTime(it.phone, c.start_hour, c.end_hour))
 		if (!item) return
-		if (c.skip_chats && hasChat(item.phone)) { this.skipForChat(item); return this.emit(c.id) }
+		if (c.skip_chats && chatAccounts(item.phone).has(c.account_id)) { this.skipForChat(item); return this.emit(c.id) }
 		db.prepare('UPDATE campaigns SET last_sent_at = ?, note = NULL WHERE id = ?').run(Date.now(), c.id)
 		try {
 			const { id, jid } = await session.sendTemplate(item.phone, { name: c.template, language: c.language, params: JSON.parse(item.params) })
@@ -398,6 +409,8 @@ export class CampaignRunner {
 	 * Elige el siguiente contacto para este número:
 	 * - Si este número ya platicó antes con la persona, se lo manda él (se ve como seguir una charla).
 	 * - Si otro número que puede enviar ya platicó con ella, se lo deja a ese.
+	 * - Con «enviar desde un número sin chat» es al revés: el número que ya platicó con la persona
+	 *   no le escribe; se lo manda el siguiente número del envío que nunca le ha escrito.
 	 * - No se le escribe a alguien que ya recibió un mensaje masivo en las últimas 24 h (de cualquier envío).
 	 */
 	pickItem(c, acc, ready) {
@@ -405,9 +418,20 @@ export class CampaignRunner {
 		const recent = db.prepare("SELECT 1 FROM campaign_items WHERE phone = ? AND status IN ('sent', 'sending') AND sent_at > ? LIMIT 1")
 		const owners = db.prepare('SELECT account_id FROM chats WHERE jid IN (?, ?, ?) AND last_ts > 0')
 		const since = Date.now() - 864e5
+		const disabled = new Set(c.disabled ? JSON.parse(c.disabled) : [])
+		const senders = JSON.parse(c.accounts || '[]').filter(a => !disabled.has(a))
 		let neutral = null
 		for (const it of cands) {
-			if (c.skip_chats && hasChat(it.phone)) { this.skipForChat(it); continue }
+			if (c.skip_chats) {
+				const withChat = chatAccounts(it.phone)
+				// Todos los números del envío ya platicaron con este cliente → se brinca
+				if (senders.length && senders.every(a => withChat.has(a))) { this.skipForChat(it); continue }
+				// Este número ya platicó con él → se lo manda otro número del envío que no tenga chat
+				if (withChat.has(acc)) continue
+				if (!goodLocalTime(it.phone, c.start_hour, c.end_hour)) continue
+				if (!c.forced && recent.get(it.phone, since)) continue
+				return it
+			}
 			// Solo a buena hora para el cliente: su hora local (según su lada) dentro del horario del envío y de 7 a 22 h
 			if (!goodLocalTime(it.phone, c.start_hour, c.end_hour)) continue
 			if (!c.forced && recent.get(it.phone, since)) continue

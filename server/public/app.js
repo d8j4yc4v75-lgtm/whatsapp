@@ -1219,7 +1219,7 @@ function renderCampaignList() {
 			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${c.forced ? '<span class="pill warn">⚡ Urgente</span>' : ''}${tags}<span class="status" style="color:${color}">${st}</span></div>
 			<small>${info}</small>
 			<div class="bar-progress"><i style="width:${pct}%"></i></div>
-			<small>✅ ${n.sent} enviados · 👀 ${n.read} leídos · 💬 ${n.replied} respondieron · ⚠︎ ${n.failed} fallidos · ⏳ ${n.pending} pendientes${n.withChat ? ` · 💬 ${n.withChat} brincados (ya tenían chat)` : ''}${n.skipped - (n.withChat || 0) > 0 ? ` · 🚫 ${n.skipped - (n.withChat || 0)} con BAJA` : ''}</small>
+			<small>✅ ${n.sent} enviados · 👀 ${n.read} leídos · 💬 ${n.replied} respondieron · ⚠︎ ${n.failed} fallidos · ⏳ ${n.pending} pendientes${n.withChat ? ` · 💬 ${n.withChat} brincados (todos tus números ya tenían chat)` : ''}${n.skipped - (n.withChat || 0) > 0 ? ` · 🚫 ${n.skipped - (n.withChat || 0)} con BAJA` : ''}</small>
 			${why ? `<small style="color:${waiting ? 'var(--muted)' : 'var(--danger)'}">${esc(why)}</small>` : ''}
 			<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
 				${c.status === 'running' ? `<button class="chip" data-act="camp" data-val="${c.id}:pause">Pausar</button>` : ''}
@@ -1290,7 +1290,7 @@ function openNewSafeCampaign() {
 		<div class="section">Cuidado de los números</div>
 		<div class="group">
 			<label class="item"><input type="checkbox" id="sf-ramp" checked><span class="grow"><b>Subir el límite poco a poco</b><small>Recomendado. Cada número manda según su salud: 10 al día los primeros días y hasta el máximo cuando ya está sano. Si WhatsApp le rechaza mensajes, baja o se detiene.</small></span></label>
-			<label class="item"><input type="checkbox" id="sf-skipchats" checked><span class="grow"><b>Brincar a quien ya tiene chat</b><small>Si alguno de tus números ya platica con ese cliente (él te escribió o tú le escribiste a mano), no se le manda el masivo. Los mensajes de envíos anteriores no cuentan como chat.</small></span></label>
+			<label class="item"><input type="checkbox" id="sf-skipchats" checked><span class="grow"><b>Enviar desde un número sin chat</b><small>Si el WhatsApp 1 ya tiene chat con ese cliente, se lo manda el 2; si el 2 también, el 3, y así. Si todos los números que marcaste ya tienen chat con él, se brinca.</small></span></label>
 			<label class="item"><input type="checkbox" id="sf-forced"><span class="grow"><b>⚡ Urgente: ignorar los límites</b><small>Para recordatorios obligatorios. Envía aunque los números ya llegaron a su tope del día o de la hora, aunque sea día de descanso o la persona ya haya recibido otro mensaje hoy. Sigue respetando las pausas entre mensajes y nunca usa números a los que WhatsApp les está rechazando mensajes. Úsalo solo cuando sea necesario: sube el riesgo de restricción.</small></span></label>
 			<div class="item"><span class="grow">Máximo por número al día</span><input type="number" id="sf-daily" value="30" min="1" max="200" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Máximo por número por hora</span><input type="number" id="sf-hourly" value="8" min="1" max="60" style="text-align:right;max-width:80px"></div>
@@ -1413,7 +1413,7 @@ function openNewCloudCampaign() {
 			<div class="item"><span class="grow">Mensajes por hora</span><input type="number" id="cp-rate" value="50" min="1" max="600" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Desde (hora)</span><input type="number" id="cp-start" value="9" min="0" max="23" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="cp-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
-			<label class="item"><input type="checkbox" id="cp-skipchats" checked><span class="grow"><b>Brincar a quien ya tiene chat</b><small>Si alguno de tus números ya platica con ese cliente, no se le manda la plantilla.</small></span></label>
+			<label class="item"><input type="checkbox" id="cp-skipchats" checked><span class="grow"><b>Brincar si ya tiene chat</b><small>Si este número ya tiene chat con ese cliente, no se le manda la plantilla.</small></span></label>
 		</div>
 		<div class="pad"><button class="btn primary" id="cp-go">Iniciar envío</button></div>`, el => {
 		const loadTpl = async () => {
