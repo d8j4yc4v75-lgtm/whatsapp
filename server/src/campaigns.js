@@ -3,6 +3,7 @@ import { note } from './sessions.js'
 import { CloudSession, normalizePhone } from './cloud.js'
 import { accountHealth, replyStats } from './health.js'
 import { vary } from './text.js'
+import { goodLocalTime } from './smart.js'
 
 // Envíos masivos: con plantillas de la API oficial, o en «modo seguro» con cuentas de WhatsApp normal.
 // Se mandan escalonados, en horario y respetando límites diarios.
@@ -255,8 +256,10 @@ export class CampaignRunner {
 		if (!(session instanceof CloudSession) || session.status !== 'connected') return
 		const limit = session.config.dailyLimit || 250
 		if (this.sentLast24h(c.account_id) >= limit) return this.setNote(c, 'limit')
-		const item = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 1").get(c.id)
-		if (!item) return this.setStatus(c.id, 'done')
+		const pendingItems = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 200").all(c.id)
+		if (!pendingItems.length) return this.setStatus(c.id, 'done')
+		const item = pendingItems.find(it => goodLocalTime(it.phone, c.start_hour, c.end_hour))
+		if (!item) return
 		if (c.skip_chats && hasChat(item.phone)) { this.skipForChat(item); return this.emit(c.id) }
 		db.prepare('UPDATE campaigns SET last_sent_at = ?, note = NULL WHERE id = ?').run(Date.now(), c.id)
 		try {
@@ -326,10 +329,11 @@ export class CampaignRunner {
 			// Con «subir poco a poco», el límite depende de la salud del número
 			const health = accountHealth(acc, session.status)
 			if (health?.restUntil) continue
+			// En rojo (rechazos o mensajes que no se entregan) no se usa en ningún modo: fallaría y lo terminaría de bloquear
+			if (health?.level === 'red') continue
 			// Urgente: sin topes diarios ni por hora (solo las pausas entre mensajes). Nunca usa un número
 			// al que WhatsApp le está rechazando mensajes: fallarían y lo terminarían de bloquear.
 			if (c.forced) {
-				if (health?.level === 'red') continue
 				ready.set(acc, session)
 				continue
 			}
@@ -404,6 +408,8 @@ export class CampaignRunner {
 		let neutral = null
 		for (const it of cands) {
 			if (c.skip_chats && hasChat(it.phone)) { this.skipForChat(it); continue }
+			// Solo a buena hora para el cliente: su hora local (según su lada) dentro del horario del envío y de 7 a 22 h
+			if (!goodLocalTime(it.phone, c.start_hour, c.end_hour)) continue
 			if (!c.forced && recent.get(it.phone, since)) continue
 			const digits = String(it.phone).replace(/\D/g, '')
 			const d = digits.slice(-10)

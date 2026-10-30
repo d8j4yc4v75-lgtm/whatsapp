@@ -498,3 +498,9 @@ details summary { cursor: pointer; }
 }
 .profile-photo .cam .ic { width: 18px; height: 18px; }
 .profile-head .link { background: none; border: 0; color: var(--accent-strong); font-size: 16px; font-weight: 500; }
+
+/* Asistente: qué pidió el cliente y respuesta sugerida */
+.suggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 6px 6px; font-size: 13px; }
+.suggest .sg-tag { font-weight: 600; }
+.suggest small { color: var(--muted); }
+.suggest .chip { padding: 5px 11px; font-size: 13.5px; background: var(--chip-on-bg); color: var(--chip-on); }

@@ -71,6 +71,29 @@ export function replyStats(accountId) {
 	return v
 }
 
+// Entregas de sus mensajes masivos (últimas 3 h, enviados hace más de 20 min para darles tiempo de llegar)
+const dlvCache = new Map()
+export function deliveryStats(accountId) {
+	const hit = dlvCache.get(accountId)
+	if (hit && Date.now() - hit.at < 120000) return hit.v
+	let v = { total: 0, delivered: 0 }
+	try {
+		const now = Date.now()
+		v = db.prepare(`
+			SELECT COUNT(*) AS total, SUM(CASE WHEN m.status >= 3 THEN 1 ELSE 0 END) AS delivered
+			FROM campaign_items ci JOIN messages m ON m.account_id = ci.sent_by AND m.id = ci.message_id
+			WHERE ci.sent_by = ? AND ci.status = 'sent' AND ci.sent_at BETWEEN ? AND ?`).get(accountId, now - 3 * 3600e3, now - 20 * 60e3)
+		v = { total: v.total || 0, delivered: v.delivered || 0 }
+	} catch {}
+	dlvCache.set(accountId, { at: Date.now(), v })
+	return v
+}
+// Entregas de los demás números en la misma ventana (para comparar)
+function othersDelivery(accountId) {
+	const ids = db.prepare("SELECT id FROM accounts WHERE id != ? AND (kind IS NULL OR kind != 'cloud')").all(accountId).map(r => r.id)
+	return ids.map(deliveryStats).reduce((s, x) => ({ total: s.total + x.total, delivered: s.delivered + x.delivered }), { total: 0, delivered: 0 })
+}
+
 export function accountHealth(accountId, status) {
 	const a = q.account.get(accountId)
 	if (!a || a.kind === 'cloud') return null
@@ -112,6 +135,18 @@ export function accountHealth(accountId, status) {
 	} else {
 		level = 'green'
 		reason = 'Sin rechazos recientes.'
+	}
+	// Alerta temprana: sus mensajes se quedan en una palomita (no se entregan) mientras los de los demás
+	// números sí llegan → WhatsApp probablemente lo está frenando. Se pausa en masivos hasta que se normalice.
+	const dv = deliveryStats(accountId)
+	if (level !== 'red' && dv.total >= 8 && dv.delivered / dv.total < 0.3) {
+		const o = othersDelivery(accountId)
+		const othersOk = o.total >= 8 ? o.delivered / o.total >= 0.6 : dv.delivered / dv.total < 0.15
+		if (othersOk) {
+			level = 'red'
+			reason = `Sus mensajes no se están entregando (${dv.total - dv.delivered} de ${dv.total} con una palomita) y los de tus otros números sí. WhatsApp podría estar frenándolo: no se usa en masivos por unas horas.`
+			suggestedDaily = 0
+		}
 	}
 	// Si casi nadie le contesta, WhatsApp lo ve como spam (y la gente lo reporta): bajar el ritmo
 	const rs = replyStats(accountId)

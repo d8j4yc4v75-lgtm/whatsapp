@@ -521,6 +521,7 @@ async function renderChat(jid, full) {
 			<footer class="composer">
 				<div class="qr-pop" id="qr-pop" hidden></div>
 				<div class="from">Enviando desde <span id="from"></span></div>
+				<div class="suggest" id="suggest" hidden></div>
 				<div class="hint24" id="hint24" hidden>Pasaron más de 24 h desde el último mensaje del cliente: solo puedes enviar una <a href="#" data-act="tpl-chat">plantilla 📋</a>.</div>
 				<div class="compose-row" id="compose-row"></div>
 				<input type="file" id="file" hidden>
@@ -768,6 +769,30 @@ function messageItems() {
 	return items
 }
 
+// ---------- Asistente: qué pidió el cliente y respuesta sugerida ----------
+const INTENT_UI = {
+	queja: { tag: '⚠️ Queja', note: 'Ya no recibirá masivos. Responde con cuidado.' },
+	baja: { tag: '🚫 Pidió baja', note: 'Ya no recibirá masivos.' },
+	equivocado: { tag: '❓ Número equivocado', note: 'Ya no recibirá masivos.', reply: /equivocad/i },
+	pagado: { tag: '💰 Dice que ya pagó', reply: /comprobante/i, replyIfProof: /gracias/i },
+	promesa: { tag: '🤝 Prometió pagar', note: 'Se creó un recordatorio para ese día.', reply: /promesa|compromiso/i },
+	datos_pago: { tag: '🏦 Pide datos de pago', reply: /datos|cuenta|pagar/i },
+	negociar: { tag: '💬 Quiere negociar', reply: /opciones|convenio|plan/i }
+}
+function updateSuggestion() {
+	const el = $('#suggest')
+	if (!el) return
+	const list = S.msgs[S.active] || []
+	const last = list[list.length - 1]
+	const ui = last && !last.fromMe && last.intent ? INTENT_UI[last.intent] : null
+	if (!ui) { el.hidden = true; el.innerHTML = ''; return }
+	const re = last.intent === 'pagado' && /comprobante/i.test(last.text || '') ? ui.replyIfProof : ui.reply
+	const r = re ? (S.replies || []).find(x => re.test(x.title) || re.test(x.text)) : null
+	const html = `<span class="sg-tag">${ui.tag}</span>${ui.note ? `<small>${esc(ui.note)}</small>` : ''}${r ? `<button class="chip" data-act="qr-pick" data-val="${r.id}">💡 ${esc(r.title)}</button>` : ''}`
+	if (el.innerHTML !== html) el.innerHTML = html
+	el.hidden = false
+}
+
 // ---------- Menú de cada mensaje (mantener presionado) ----------
 function bindMsgPress(box) {
 	let timer = null, sx = 0, sy = 0
@@ -863,6 +888,7 @@ function renderMessages(scrollToEnd) {
 		}
 		if (renderMessages.keepOffset) box.scrollTop = box.scrollHeight - prevHeight + prevTop
 	}
+	updateSuggestion()
 	// La colita va en la última burbuja de cada grupo (como en iPhone); se pone sin recrear nodos
 	for (const it of items) if (it.last !== undefined && it.node) it.node.classList.toggle('tail', it.last)
 	box._items = items
@@ -1854,6 +1880,10 @@ function renderSettings() {
 			</div>
 			<p class="hint">Asigna etiquetas desde el menú ⋯ de cada chat y filtra por ellas en la bandeja.</p>
 
+			<div class="section">Asistente inteligente</div>
+			<div class="group"><div class="item"><span class="grow">Entender respuestas de clientes<small>Etiqueta, da de baja, crea recordatorios y sugiere respuestas</small></span><label class="switch"><input type="checkbox" data-act="smart-toggle" id="smart-cb" checked><i></i></label></div></div>
+			<p class="hint">Cuando un cliente contesta, la app lo entiende y actúa sola: «ya pagué» → etiqueta <b>Pagó</b>; «mañana le deposito» → <b>Promesa de pago</b> y recordatorio ese día; «número equivocado», «baja» o una queja → ya no recibe masivos; «¿a qué cuenta deposito?» → te sugiere tu respuesta de datos de pago. Además los masivos respetan la hora local del cliente (según su lada) y el horario legal de 7 a 22 h.</p>
+
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
 				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Los recién vinculados solo reciben sus primeras 24 h. Necesitas al menos <b>2 números conectados</b>.</p>
@@ -1883,6 +1913,7 @@ function renderSettings() {
 		</div>`
 	$('#nl-name').value = prevLabel
 	loadWarmup()
+	api('GET', '/settings/smart').then(r => { const cb = $('#smart-cb'); if (cb) cb.checked = r.enabled }).catch(() => {})
 	api('GET', '/info').then(info => {
 		const el = $('#storage')
 		if (el) el.innerHTML = info.persistent
@@ -2158,6 +2189,11 @@ document.addEventListener('click', async e => {
 			return accountAction(act)
 		case 'warmup-toggle': {
 			try { renderWarmupBox(await api('POST', '/warmup', { ...warmupBody(), enabled: !(S.warmup?.enabled) })) }
+			catch (err) { toast(err.message) }
+			return
+		}
+		case 'smart-toggle': {
+			try { const r = await api('PUT', '/settings/smart', { enabled: el.checked }); toast(r.enabled ? 'Asistente activado' : 'Asistente desactivado') }
 			catch (err) { toast(err.message) }
 			return
 		}

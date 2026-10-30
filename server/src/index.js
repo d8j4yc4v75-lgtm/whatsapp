@@ -15,6 +15,7 @@ import { hasFfmpeg, toM4a, toMp4, toOpus } from './ffmpeg.js'
 import { CloudSession, validSignature, webhookVerifyToken } from './cloud.js'
 import { CampaignRunner } from './campaigns.js'
 import { WarmupManager } from './warmup.js'
+import { smartEnabled, setSmartEnabled } from './smart.js'
 import { setupExtras } from './extras.js'
 import { diskInfo, startMaintenance } from './maintenance.js'
 
@@ -288,6 +289,10 @@ app.post('/api/send-template', route(async req => {
 }))
 
 // ---- Envíos masivos ----
+// ---- Asistente inteligente (entiende las respuestas de los clientes) ----
+app.get('/api/settings/smart', route(() => ({ enabled: smartEnabled() })))
+app.put('/api/settings/smart', route(req => { setSmartEnabled(req.body.enabled !== false); return { enabled: smartEnabled() } }))
+
 // ---- Calentamiento (tus números se escriben entre sí) ----
 app.get('/api/warmup', route(() => warmup.status()))
 app.post('/api/warmup', route(req => { warmup.save(req.body || {}); return warmup.status() }))

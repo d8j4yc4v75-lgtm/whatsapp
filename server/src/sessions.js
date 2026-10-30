@@ -20,6 +20,7 @@ import makeWASocket, {
 	normalizeMessageContent
 } from 'baileys'
 import { db } from './db.js'
+import { smartIncoming, INTENTS } from './smart.js'
 import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 import { CloudSession, normalizePhone } from './cloud.js'
@@ -533,10 +534,16 @@ export class Session {
 				note(this.accountId, 'optout')
 				this.send(jid, { text: 'Listo, ya no te enviaremos más mensajes. Gracias.' }).catch(() => {})
 			}
+			// Asistente: entiende la respuesta (pagó, promesa, queja, número equivocado…) y actúa solo
+			let intent = null
+			if (!isGroup && row.text) {
+				try { intent = smartIncoming({ accountId: this.accountId, jid, msgId: key.id, text: row.text }) } catch (e) { note(this.accountId, 'smart-error', e.message) }
+				if (intent) this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
+			}
 			const conv = this.manager.conversation(this.accountId, jid)
 			const account = stmt.getAccount.get(this.accountId)
 			sendPush({
-				title: `${conv?.name || jid.split('@')[0]} · ${account?.name}`,
+				title: `${intent ? INTENTS[intent].tag + ' · ' : ''}${conv?.name || jid.split('@')[0]} · ${account?.name}`,
 				body: (isGroup && row.sender_name ? `${row.sender_name}: ` : '') + preview(row),
 				jid: `${this.accountId}:${jid}`,
 				badge: this.manager.totalUnread()
@@ -763,6 +770,7 @@ export class SessionManager extends EventEmitter {
 			error: r.error || null,
 			status: r.status,
 			edited: Boolean(r.edited),
+			intent: r.intent || null,
 			deleted: Boolean(r.deleted)
 		}
 	}
