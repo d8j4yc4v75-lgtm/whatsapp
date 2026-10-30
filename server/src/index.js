@@ -375,6 +375,35 @@ app.post('/api/send-media', upload.single('file'), route(async req => {
 	return manager.get(accountId).send(jid, content, { buffer: file.buffer, mime, fileName })
 }))
 
+// ---- Editar / eliminar para todos ----
+const baileysSession = req => {
+	const s = manager.get(accountParam(req))
+	if (!s.editMessage) throw new Error('Esto no está disponible en cuentas de la API oficial')
+	return s
+}
+app.post('/api/messages/:id/:msgId/edit', route(req => baileysSession(req).editMessage(req.params.msgId, req.body.text)))
+app.post('/api/messages/:id/:msgId/delete', route(req => baileysSession(req).deleteForEveryone(req.params.msgId)))
+
+// ---- Perfil de WhatsApp de cada número (foto, nombre, info) ----
+app.get('/api/accounts/:id/profile', route(req => baileysSession(req).getProfile()))
+app.put('/api/accounts/:id/profile', route(async req => {
+	const s = baileysSession(req)
+	if (req.body.name !== undefined) await s.setProfileName(req.body.name)
+	if (req.body.status !== undefined) await s.setProfileStatus(req.body.status)
+	return s.getProfile()
+}))
+app.post('/api/accounts/:id/profile/photo', upload.single('file'), route(async req => {
+	const s = baileysSession(req)
+	if (!req.file) throw new Error('Elige una foto')
+	await s.setProfilePhoto(req.file.buffer)
+	return s.getProfile()
+}))
+app.delete('/api/accounts/:id/profile/photo', route(async req => {
+	const s = baileysSession(req)
+	await s.removeProfilePhoto()
+	return s.getProfile()
+}))
+
 app.get('/api/media/:id/:msgId', route(async (req, res) => {
 	const id = accountParam(req)
 	const session = manager.sessions.get(id)

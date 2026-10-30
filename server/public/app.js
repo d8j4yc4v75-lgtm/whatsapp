@@ -177,7 +177,11 @@ const IC = {
 	tag: svg('<path d="M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8a1.4 1.4 0 0 1 0 2l-7 7a1.4 1.4 0 0 1-2 0Z"/><circle cx="8" cy="8" r="1.4"/>'),
 	doc: svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'),
 	template: svg('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
-	chevron: svg('<path d="m9 6 6 6-6 6"/>', 'chev')
+	chevron: svg('<path d="m9 6 6 6-6 6"/>', 'chev'),
+	copy: svg('<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>'),
+	pencil: svg('<path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/><path d="m14.5 5.5 3 3"/>'),
+	ban: svg('<circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/>'),
+	camera: svg('<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5Z"/><circle cx="12" cy="12.5" r="3.5"/>')
 }
 const TICK1 = '<svg class="tick" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2l6.5-7.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 const TICK2 = '<svg class="tick" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2l6.5-7.7M7.6 8.4l.8.8 6.1-7.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
@@ -522,6 +526,7 @@ async function renderChat(jid, full) {
 				<input type="file" id="file" hidden>
 			</footer>`
 		renderComposer()
+		bindMsgPress($('#msgs'))
 		$('#file').onchange = e => {
 			const f = e.target.files[0]
 			e.target.value = ''
@@ -691,6 +696,7 @@ function renderComposer() {
 }
 
 function msgContent(m) {
+	if (m.deleted) return `<div class="text deleted">${IC.ban}<span>${m.fromMe ? 'Eliminaste este mensaje' : 'Se eliminó este mensaje'}</span></div>`
 	const cap = m.text ? `<div class="text">${linkify(m.text)}</div>` : ''
 	switch (m.type) {
 		case 'image':
@@ -749,9 +755,9 @@ function messageItems() {
 		const time = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
 		items.push({
 			key: m.accountId + ':' + m.id,
-			meta: `${time} ${m.fromMe ? ticks(m.status) : ''}`,
+			meta: `${m.edited && !m.deleted ? '<span class="edited">Editado</span>' : ''}${time} ${m.fromMe ? ticks(m.status) : ''}`,
 			last,
-			html: `<div class="msg ${m.fromMe ? 'me' : ''} ${first ? 'first' : ''} ${['image', 'video', 'sticker'].includes(m.type) && !m.text ? 'media' : ''}" style="--c:${esc(a?.color || '#8E8E93')}">
+			html: `<div data-mid="${esc(m.id)}" data-acc="${m.accountId}" class="msg ${m.fromMe ? 'me' : ''} ${first ? 'first' : ''} ${['image', 'video', 'sticker'].includes(m.type) && !m.text ? 'media' : ''}" style="--c:${esc(a?.color || '#8E8E93')}">
 				${first && isGroup && !m.fromMe ? `<div class="head"><span class="sender">${esc(m.senderName || fmtPhone((m.sender || '').split('@')[0]))}</span></div>` : ''}
 				${msgContent(m)}
 				${m.fromMe && m.error ? `<div class="err">⚠︎ ${esc(m.error)}</div>` : ''}
@@ -760,6 +766,61 @@ function messageItems() {
 		})
 	}
 	return items
+}
+
+// ---------- Menú de cada mensaje (mantener presionado) ----------
+function bindMsgPress(box) {
+	let timer = null, sx = 0, sy = 0
+	const open = el => {
+		const m = (S.msgs[S.active] || []).find(x => x.id === el.dataset.mid && String(x.accountId) === el.dataset.acc)
+		if (!m) return
+		el.classList.add('pressed')
+		setTimeout(() => el.classList.remove('pressed'), 250)
+		openMsgMenu(m)
+	}
+	box.addEventListener('touchstart', e => {
+		const el = e.target.closest('.msg')
+		if (!el || e.target.closest('audio, video, a')) return
+		sx = e.touches[0].clientX; sy = e.touches[0].clientY
+		timer = setTimeout(() => { timer = null; navigator.vibrate?.(10); open(el) }, 450)
+	}, { passive: true })
+	box.addEventListener('touchmove', e => {
+		if (timer && (Math.abs(e.touches[0].clientX - sx) > 8 || Math.abs(e.touches[0].clientY - sy) > 8)) { clearTimeout(timer); timer = null }
+	}, { passive: true })
+	box.addEventListener('touchend', () => { clearTimeout(timer); timer = null })
+	box.addEventListener('contextmenu', e => { const el = e.target.closest('.msg'); if (el) { e.preventDefault(); open(el) } })
+}
+function openMsgMenu(m) {
+	S.menuMsg = m
+	const age = Date.now() - m.ts
+	const canChange = m.fromMe && !m.deleted && account(m.accountId)?.kind !== 'cloud'
+	const acts = []
+	if (m.text && !m.deleted) acts.push({ act: 'msg-copy', text: 'Copiar', icon: IC.copy })
+	if (canChange && m.type === 'text' && age < 15 * 60000) acts.push({ act: 'msg-edit', text: 'Editar', icon: IC.pencil })
+	if (canChange && age < 2 * 864e5) acts.push({ act: 'msg-delete', text: 'Eliminar para todos', icon: IC.trash, danger: true })
+	if (!acts.length) return
+	const note = canChange && m.type === 'text' && age >= 15 * 60000 ? 'WhatsApp solo deja editar en los primeros 15 minutos' : ''
+	actionSheet(note, acts)
+}
+function openEditMsg(m) {
+	sheet('Editar mensaje', `
+		<div class="group" style="margin-top:12px"><div class="item"><textarea id="em-text" rows="5"></textarea></div></div>
+		<p class="hint">El cliente verá el mensaje corregido con la marca «Editado». Solo se puede durante 15 minutos después de enviarlo.</p>
+		<div class="pad"><button class="btn primary" id="em-save">Guardar</button></div>`, el => {
+		const ta = $('#em-text', el)
+		ta.value = m.text || ''
+		setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length) }, 300)
+		$('#em-save', el).onclick = async () => {
+			const text = ta.value.trim()
+			if (!text) return toast('Escribe el mensaje')
+			if (text === m.text) return closeSheet()
+			const btn = $('#em-save', el); btn.disabled = true
+			try {
+				insertMsg(await api('POST', `/messages/${m.accountId}/${enc(m.id)}/edit`, { text }))
+				closeSheet(); renderMessages(false); toast('Mensaje editado')
+			} catch (e) { toast(e.message, 6000) } finally { btn.disabled = false }
+		}
+	})
 }
 
 function makeNode(item) {
@@ -1527,6 +1588,66 @@ async function renderTemplateList(accountId, refresh) {
 	}
 }
 
+// ---------- Perfil de WhatsApp (foto, nombre, info) ----------
+async function loadProfile(id) {
+	const el = $('#ac-profile'); if (!el) return
+	el.innerHTML = '<div class="section">Perfil de WhatsApp</div><div class="group"><div class="item"><span class="grow muted">Cargando perfil…</span></div></div>'
+	try { renderProfile(id, await api('GET', `/accounts/${id}/profile`)) }
+	catch (e) { el.innerHTML = `<div class="section">Perfil de WhatsApp</div><p class="hint">No se pudo leer el perfil: ${esc(e.message)}</p>` }
+}
+function renderProfile(id, p) {
+	const el = $('#ac-profile'); if (!el) return
+	el.innerHTML = `
+		<div class="section">Perfil de WhatsApp</div>
+		<div class="group">
+			<div class="profile-head">
+				<button class="profile-photo" data-act="pf-photo" aria-label="Cambiar foto">${p.picture ? `<img src="${esc(p.picture)}" alt="">` : PH_PERSON}<span class="cam">${IC.camera}</span></button>
+				<button class="link" data-act="pf-photo">${p.picture ? 'Cambiar foto' : 'Poner foto'}</button>
+			</div>
+			<div class="item"><span>Nombre</span><input type="text" id="pf-name" maxlength="25" placeholder="Tu nombre" style="text-align:right"></div>
+			<div class="item"><span>Info</span><input type="text" id="pf-status" maxlength="139" placeholder="Disponible" style="text-align:right"></div>
+			<button class="btn" data-act="pf-save" data-val="${id}">Guardar nombre e info</button>
+			${p.picture ? `<button class="btn danger" data-act="pf-photo-del" data-val="${id}">Quitar foto</button>` : ''}
+		</div>
+		<input type="file" id="pf-file" accept="image/*" hidden>
+		<p class="hint">Así te ven tus clientes en WhatsApp. Un perfil con foto, nombre e info se ve más confiable y lo reportan menos.</p>`
+	$('#pf-name').value = p.name || ''
+	$('#pf-status').value = p.status || ''
+	$('#pf-file').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) uploadProfilePhoto(id, f) }
+}
+// Recorta la foto en cuadro de 640×640 y la convierte a JPG (lo que pide WhatsApp)
+function squareJpeg(file, size = 640) {
+	return new Promise((resolve, reject) => {
+		const img = new Image()
+		const url = URL.createObjectURL(file)
+		img.onload = () => {
+			const side = Math.min(img.naturalWidth, img.naturalHeight)
+			const c = document.createElement('canvas')
+			c.width = c.height = size
+			const ctx = c.getContext('2d')
+			ctx.fillStyle = '#fff'
+			ctx.fillRect(0, 0, size, size)
+			ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size)
+			URL.revokeObjectURL(url)
+			c.toBlob(b => b ? resolve(b) : reject(new Error('No se pudo procesar la foto')), 'image/jpeg', 0.88)
+		}
+		img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo abrir la foto')) }
+		img.src = url
+	})
+}
+async function uploadProfilePhoto(id, file) {
+	try {
+		toast('Subiendo foto…', 20000)
+		const fd = new FormData()
+		fd.append('file', await squareJpeg(file), 'perfil.jpg')
+		const res = await fetch(`/api/accounts/${id}/profile/photo`, { method: 'POST', headers: { Authorization: 'Bearer ' + S.token }, body: fd })
+		const data = await res.json().catch(() => ({}))
+		if (!res.ok) throw new Error(data.error || 'Error ' + res.status)
+		renderProfile(id, data)
+		toast('Foto actualizada ✅')
+	} catch (e) { toast(e.message, 6000) }
+}
+
 function renderAccount(id, full) {
 	const a = account(id)
 	const view = $('#view')
@@ -1543,6 +1664,7 @@ function renderAccount(id, full) {
 					<div class="item" id="ac-phone-row"><span class="grow">Número</span><span id="ac-phone"></span></div>
 				</div>
 				<div id="ac-link"></div>
+				<div id="ac-profile"></div>
 				<div id="ac-health"></div>
 				<div id="ac-reserve"></div>
 				<div class="section">Personalizar</div>
@@ -1598,6 +1720,16 @@ function renderAccount(id, full) {
 	const qr = $('#ac-qr')
 	if (qr && a.qr && qr.getAttribute('src') !== a.qr) qr.src = a.qr
 
+	const pEl = $('#ac-profile')
+	if (pEl) {
+		const sig = a.status === 'connected' ? 'on' : 'off'
+		if (pEl.dataset.sig !== sig) {
+			pEl.dataset.sig = sig
+			if (sig === 'on') loadProfile(a.id)
+			else pEl.innerHTML = ''
+		}
+	}
+
 	const rEl = $('#ac-reserve')
 	if (rEl) {
 		const html = `<div class="section">Número de reserva</div>
@@ -1619,7 +1751,7 @@ function renderAccount(id, full) {
 		const html = h && a.status === 'connected' ? `
 			<div class="section">Salud del número</div>
 			<div class="group">
-				<div class="item"><span class="grow">Semáforo</span><span>${HEALTH[h.level][0]} ${HEALTH[h.level][1]}</span></div>
+				<div class="item"><span class="grow">Semáforo</span><span>${healthDot(a)} ${HEALTH[h.level][1]}</span></div>
 				<div class="item"><span class="grow">Rechazos de WhatsApp</span><span>${h.rejections24h} en 24 h · ${h.rejections72h} en 3 días</span></div>
 				<div class="item"><span class="grow">Días vinculado</span><span>${h.ageDays}</span></div>
 				<div class="item"><span class="grow">Envíos sugeridos hoy</span><span><b>${h.suggestedDaily}</b></span></div>
@@ -1852,6 +1984,32 @@ document.addEventListener('click', async e => {
 	const val = el.dataset.val
 	if (el.classList.contains('as-btn')) closeSheet()
 	switch (act) {
+		case 'msg-copy': {
+			const m = S.menuMsg; if (!m?.text) return
+			try { await navigator.clipboard.writeText(m.text); toast('Copiado') } catch { toast('No se pudo copiar') }
+			return
+		}
+		case 'msg-edit': return S.menuMsg && openEditMsg(S.menuMsg)
+		case 'msg-delete': {
+			const m = S.menuMsg; if (!m) return
+			if (!confirm('¿Eliminar este mensaje para todos? El cliente verá «Se eliminó este mensaje».')) return
+			try { insertMsg(await api('POST', `/messages/${m.accountId}/${enc(m.id)}/delete`)); renderMessages(false); toast('Mensaje eliminado') } catch (err) { toast(err.message, 6000) }
+			return
+		}
+		case 'pf-photo': return $('#pf-file')?.click()
+		case 'pf-save': {
+			const id = Number(val)
+			const btn = el; btn.disabled = true
+			try { renderProfile(id, await api('PUT', `/accounts/${id}/profile`, { name: $('#pf-name').value, status: $('#pf-status').value })); toast('Perfil actualizado ✅') }
+			catch (err) { toast(err.message, 6000) } finally { btn.disabled = false }
+			return
+		}
+		case 'pf-photo-del': {
+			const id = Number(val)
+			if (!confirm('¿Quitar la foto de perfil de este número?')) return
+			try { renderProfile(id, await api('DELETE', `/accounts/${id}/profile/photo`)); toast('Foto quitada') } catch (err) { toast(err.message, 6000) }
+			return
+		}
 		case 'chat-menu': {
 			const c = conv(S.active)
 			return actionSheet(c ? convName(c) : '', [
@@ -2053,7 +2211,7 @@ document.addEventListener('keydown', e => {
 	}
 })
 
-window.addEventListener('hashchange', () => { if ($('#sheet.action')) closeSheet(); render() })
+window.addEventListener('hashchange', () => { if ($('#sheet')) closeSheet(); render() })
 
 document.addEventListener('visibilitychange', () => {
 	// iOS suspende la conexión en segundo plano: al volver se resincroniza

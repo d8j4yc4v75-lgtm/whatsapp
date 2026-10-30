@@ -473,3 +473,28 @@ a.item:active, label.item:active { background: var(--fill); }
 .review.medio { background: color-mix(in srgb, #ffcc00 18%, var(--card)); }
 .review.bajo { background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
 details summary { cursor: pointer; }
+
+/* Menú de cada mensaje (mantener presionado) */
+.msg { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; transition: transform 0.15s; }
+.msg.pressed { transform: scale(0.97); }
+.msg .text.deleted { display: flex; align-items: center; gap: 6px; font-style: italic; color: var(--meta); }
+.msg .text.deleted .ic { width: 16px; height: 16px; }
+.msg .meta .edited { margin-right: 3px; }
+.msg.me .text::after { width: 66px; }
+.msg:has(.edited) .text::after { width: 104px; }
+.msg.me:has(.edited) .text::after { width: 122px; }
+
+/* Perfil de WhatsApp */
+.profile-head { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 16px 12px; }
+.profile-photo {
+	width: 112px; height: 112px; border-radius: 50%; border: 0; padding: 0; position: relative; overflow: hidden;
+	background: var(--avatar-bg); color: var(--avatar-fg); display: grid; place-items: center;
+}
+.profile-photo .ph { width: 100%; height: 100%; }
+.profile-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.profile-photo .cam {
+	position: absolute; left: 0; right: 0; bottom: 0; height: 30px; display: grid; place-items: center;
+	background: rgba(0, 0, 0, 0.35); color: #fff;
+}
+.profile-photo .cam .ic { width: 18px; height: 18px; }
+.profile-head .link { background: none; border: 0; color: var(--accent-strong); font-size: 16px; font-weight: 500; }

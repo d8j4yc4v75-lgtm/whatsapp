@@ -79,7 +79,8 @@ export const stmt = {
 	setMedia: db.prepare('UPDATE messages SET media_path = ? WHERE account_id = ? AND id = ?'),
 	setStatus: db.prepare('UPDATE messages SET status = MAX(status, ?) WHERE account_id = ? AND id = ?'),
 	forceStatus: db.prepare('UPDATE messages SET status = ? WHERE account_id = ? AND id = ?'),
-	setText: db.prepare('UPDATE messages SET text = ? WHERE account_id = ? AND id = ?'),
+	setText: db.prepare('UPDATE messages SET text = ?, edited = 1 WHERE account_id = ? AND id = ?'),
+	setDeleted: db.prepare('UPDATE messages SET deleted = 1, text = NULL WHERE account_id = ? AND id = ?'),
 	getMessage: db.prepare('SELECT * FROM messages WHERE account_id = ? AND id = ?'),
 	upsertContact: db.prepare(`
 		INSERT INTO contacts (jid, name, notify) VALUES (@jid, @name, @notify)
@@ -154,6 +155,7 @@ function describe(content) {
 
 export function preview(row) {
 	if (!row) return ''
+	if (row.deleted) return '🚫 Mensaje eliminado'
 	const icons = { image: '📷 Foto', video: '🎥 Video', audio: '🎤 Audio', document: '📄 Documento', sticker: '🏷️ Sticker' }
 	if (row.text) return row.text
 	return icons[row.type] || row.file_name || ''
@@ -367,6 +369,82 @@ export class Session {
 		} catch {}
 	}
 
+	applyRevoke(id) {
+		stmt.setDeleted.run(this.accountId, id)
+		const row = stmt.getMessage.get(this.accountId, id)
+		if (row) this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(row) })
+	}
+
+	// ---- Editar / eliminar para todos (solo mensajes propios) ----
+	ownMessage(id) {
+		const row = stmt.getMessage.get(this.accountId, id)
+		if (!row || !row.from_me) throw new Error('Solo puedes cambiar tus propios mensajes')
+		if (row.deleted) throw new Error('Ese mensaje ya se eliminó')
+		return row
+	}
+	msgKey(row) { return { remoteJid: row.remote_jid, id: row.id, fromMe: true, participant: row.participant || undefined } }
+
+	/** WhatsApp permite editar un mensaje de texto durante 15 minutos después de enviarlo */
+	async editMessage(id, text) {
+		const sock = this.requireSocket()
+		const row = this.ownMessage(id)
+		if (row.type !== 'text') throw new Error('Solo se pueden editar mensajes de texto')
+		if (Date.now() - row.ts > 15 * 60000) throw new Error('WhatsApp solo deja editar durante los primeros 15 minutos')
+		const t = String(text || '').trim()
+		if (!t) throw new Error('Escribe el mensaje')
+		await sock.sendMessage(row.remote_jid, { text: t, edit: this.msgKey(row) })
+		stmt.setText.run(t, this.accountId, id)
+		const out = this.manager.formatMessage(stmt.getMessage.get(this.accountId, id))
+		this.manager.emit('event', { type: 'message', data: out })
+		return out
+	}
+
+	/** "Eliminar para todos": WhatsApp lo permite durante unos 2 días */
+	async deleteForEveryone(id) {
+		const sock = this.requireSocket()
+		const row = this.ownMessage(id)
+		if (Date.now() - row.ts > 2 * 864e5) throw new Error('WhatsApp solo deja eliminar para todos durante unos 2 días')
+		await sock.sendMessage(row.remote_jid, { delete: this.msgKey(row) })
+		stmt.setDeleted.run(this.accountId, id)
+		const out = this.manager.formatMessage(stmt.getMessage.get(this.accountId, id))
+		this.manager.emit('event', { type: 'message', data: out })
+		return out
+	}
+
+	// ---- Perfil de WhatsApp de este número ----
+	async getProfile() {
+		const sock = this.requireSocket()
+		const me = jidNormalizedUser(sock.user.id)
+		const [picture, status] = await Promise.all([
+			sock.profilePictureUrl(me, 'image').catch(() => null),
+			sock.fetchStatus(me).then(list => { const st = list?.[0]?.status; return typeof st === 'string' ? st : st?.status ?? null }).catch(() => null)
+		])
+		return { phone: me.split('@')[0], name: sock.user?.name || sock.authState?.creds?.me?.name || '', status: status || '', picture }
+	}
+	async setProfileName(name) {
+		const n = String(name || '').trim()
+		if (!n) throw new Error('Escribe un nombre')
+		if (n.length > 25) throw new Error('El nombre puede tener máximo 25 caracteres')
+		const sock = this.requireSocket()
+		await sock.updateProfileName(n)
+		if (sock.user) sock.user.name = n
+	}
+	async setProfileStatus(text) {
+		const t = String(text ?? '').trim()
+		if (t.length > 139) throw new Error('La info puede tener máximo 139 caracteres')
+		await this.requireSocket().updateProfileStatus(t)
+	}
+	/** La foto ya llega recortada en cuadro y en JPEG desde la app */
+	async setProfilePhoto(jpeg) {
+		if (!Buffer.isBuffer(jpeg) || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new Error('La foto debe ser JPG')
+		const sock = this.requireSocket()
+		await sock.query({ tag: 'iq', attrs: { to: 's.whatsapp.net', type: 'set', xmlns: 'w:profile:picture' }, content: [{ tag: 'picture', attrs: { type: 'image' }, content: jpeg }] })
+	}
+	async removeProfilePhoto() {
+		const sock = this.requireSocket()
+		await sock.removeProfilePicture(jidNormalizedUser(sock.user.id))
+	}
+
 	applyEdit(id, content) {
 		const d = describe(normalizeMessageContent(content))
 		if (!d?.text) return
@@ -385,6 +463,8 @@ export class Session {
 
 		const proto = content.protocolMessage
 		if (proto?.editedMessage && proto.key?.id) return this.applyEdit(proto.key.id, proto.editedMessage)
+		// "Eliminar para todos" (de tu celular o del cliente)
+		if (proto && (proto.type === 0 || proto.type === 'REVOKE') && proto.key?.id) return this.applyRevoke(proto.key.id)
 		if (proto) return
 
 		const d = describe(content)
@@ -681,7 +761,9 @@ export class SessionManager extends EventEmitter {
 			fileName: r.file_name,
 			hasMedia: Boolean(r.raw || r.media_path),
 			error: r.error || null,
-			status: r.status
+			status: r.status,
+			edited: Boolean(r.edited),
+			deleted: Boolean(r.deleted)
 		}
 	}
 
