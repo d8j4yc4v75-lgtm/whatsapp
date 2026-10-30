@@ -36,13 +36,32 @@ for (const sql of [
 	'ALTER TABLE campaigns ADD COLUMN target_numbers INTEGER',
 	'ALTER TABLE accounts ADD COLUMN reserve INTEGER NOT NULL DEFAULT 0',
 	// Urgente: ignora los topes diarios/por hora sugeridos (recordatorios obligatorios)
-	'ALTER TABLE campaigns ADD COLUMN forced INTEGER NOT NULL DEFAULT 0'
+	'ALTER TABLE campaigns ADD COLUMN forced INTEGER NOT NULL DEFAULT 0',
+	// Brincar a quien ya tiene chat con alguno de tus números
+	'ALTER TABLE campaigns ADD COLUMN skip_chats INTEGER NOT NULL DEFAULT 0'
 ]) {
 	try { db.exec(sql) } catch {}
 }
 
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_items_phone ON campaign_items (phone, sent_at)') } catch {}
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_chats_jid ON chats (jid)') } catch {}
+
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_items_message ON campaign_items (message_id)') } catch {}
+
+/**
+ * ¿Alguno de tus números ya tiene chat con este cliente? Cuenta si el cliente te escribió alguna vez
+ * o si tú le escribiste a mano. Los mensajes que salieron de envíos masivos no cuentan
+ * (si no, cada recordatorio brincaría a todos los que recibieron el anterior).
+ */
+const chatStmt = db.prepare(`
+	SELECT 1 FROM messages m WHERE m.jid IN (?, ?, ?)
+	AND (m.from_me = 0 OR NOT EXISTS (SELECT 1 FROM campaign_items ci WHERE ci.message_id = m.id)) LIMIT 1`)
+export function hasChat(phone) {
+	const digits = String(phone || '').replace(/\D/g, '')
+	const d = digits.slice(-10)
+	return Boolean(chatStmt.get(`${digits}@s.whatsapp.net`, `521${d}@s.whatsapp.net`, `52${d}@s.whatsapp.net`))
+}
+const CHAT_SKIP = 'Ya tiene chat con uno de tus números'
 
 const fill = (text, params) => String(text || '').replace(/\{\{(\d+)\}\}/g, (m, n) => params[Number(n) - 1] ?? '')
 const clamp = (v, min, max, def) => Math.min(max, Math.max(min, Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : def))
@@ -65,7 +84,7 @@ export class CampaignRunner {
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
 	}
 
-	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, forced, rows }) {
+	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, forced, skipChats, rows }) {
 		const safe = kind === 'safe'
 		if (!Array.isArray(rows) || !rows.length) throw new Error('La lista está vacía')
 		if (rows.length > 20000) throw new Error('Máximo 20,000 contactos por envío')
@@ -83,7 +102,8 @@ export class CampaignRunner {
 			if (seen.has(phone)) continue
 			seen.add(phone)
 			const bare = phone.replace(/^521/, '52')
-			items.push({ phone, params: (r.params || []).map(p => String(p ?? '').trim()), skipped: optouts.has(phone) || optouts.has(bare) || optouts.has('521' + bare.slice(2)) })
+			const optout = optouts.has(phone) || optouts.has(bare) || optouts.has('521' + bare.slice(2))
+			items.push({ phone, params: (r.params || []).map(p => String(p ?? '').trim()), skipped: optout, chat: !optout && Boolean(skipChats) && hasChat(phone) })
 		}
 		if (!items.length) throw new Error('Ningún número de la lista es válido')
 		const minD = clamp(minDelay, 30, 3600, 120)
@@ -113,11 +133,12 @@ export class CampaignRunner {
 			)
 			const ins = db.prepare('INSERT INTO campaign_items (campaign_id, phone, params, status, error) VALUES (?, ?, ?, ?, ?)')
 			for (const it of items) {
-				ins.run(lastInsertRowid, it.phone, JSON.stringify(it.params), it.skipped ? 'skipped' : 'pending', it.skipped ? 'Pidió no recibir mensajes (BAJA)' : null)
+				ins.run(lastInsertRowid, it.phone, JSON.stringify(it.params), it.skipped || it.chat ? 'skipped' : 'pending', it.skipped ? 'Pidió no recibir mensajes (BAJA)' : it.chat ? CHAT_SKIP : null)
 			}
 			return Number(lastInsertRowid)
 		})()
 		if (forced) db.prepare('UPDATE campaigns SET forced = 1 WHERE id = ?').run(id)
+		if (skipChats) db.prepare('UPDATE campaigns SET skip_chats = 1 WHERE id = ?').run(id)
 		this.emit(id)
 		return { campaign: this.get(id), invalid }
 	}
@@ -129,6 +150,7 @@ export class CampaignRunner {
 		const read = db.prepare(`
 			SELECT COUNT(*) AS n FROM campaign_items i JOIN messages m ON m.id = i.message_id
 			WHERE i.campaign_id = ? AND m.status >= 4`).get(id).n
+		const withChat = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE campaign_id = ? AND status = 'skipped' AND error = ?").get(id, CHAT_SKIP).n
 		const replied = db.prepare(`
 			SELECT COUNT(*) AS n FROM campaign_items i
 			WHERE i.campaign_id = ? AND i.status = 'sent' AND EXISTS (
@@ -147,6 +169,7 @@ export class CampaignRunner {
 			dailyPerNumber: c.daily_per_number,
 			autoRamp: c.auto_ramp !== 0,
 			forced: Boolean(c.forced),
+			skipChats: Boolean(c.skip_chats),
 			hourlyPerNumber: c.hourly_per_number,
 			minDelay: c.min_delay,
 			maxDelay: c.max_delay,
@@ -155,7 +178,7 @@ export class CampaignRunner {
 			status: c.status,
 			note: c.note,
 			createdAt: c.created_at,
-			counts: { pending: counts.pending || 0, sent: counts.sent || 0, failed: counts.failed || 0, skipped: counts.skipped || 0, read, replied }
+			counts: { pending: counts.pending || 0, sent: counts.sent || 0, failed: counts.failed || 0, skipped: counts.skipped || 0, withChat, read, replied }
 		}
 	}
 
@@ -166,6 +189,10 @@ export class CampaignRunner {
 	items(id, status) {
 		return db.prepare(`SELECT phone, params, status, error, sent_at FROM campaign_items WHERE campaign_id = ? ${status ? 'AND status = ?' : ''} ORDER BY id LIMIT 2000`)
 			.all(...(status ? [id, status] : [id])).map(r => ({ ...r, params: JSON.parse(r.params) }))
+	}
+
+	skipForChat(item) {
+		db.prepare("UPDATE campaign_items SET status = 'skipped', error = ? WHERE id = ? AND status = 'pending'").run(CHAT_SKIP, item.id)
 	}
 
 	/** Activa o quita el modo urgente de un envío ya creado */
@@ -230,6 +257,7 @@ export class CampaignRunner {
 		if (this.sentLast24h(c.account_id) >= limit) return this.setNote(c, 'limit')
 		const item = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 1").get(c.id)
 		if (!item) return this.setStatus(c.id, 'done')
+		if (c.skip_chats && hasChat(item.phone)) { this.skipForChat(item); return this.emit(c.id) }
 		db.prepare('UPDATE campaigns SET last_sent_at = ?, note = NULL WHERE id = ?').run(Date.now(), c.id)
 		try {
 			const { id, jid } = await session.sendTemplate(item.phone, { name: c.template, language: c.language, params: JSON.parse(item.params) })
@@ -375,6 +403,7 @@ export class CampaignRunner {
 		const since = Date.now() - 864e5
 		let neutral = null
 		for (const it of cands) {
+			if (c.skip_chats && hasChat(it.phone)) { this.skipForChat(it); continue }
 			if (!c.forced && recent.get(it.phone, since)) continue
 			const digits = String(it.phone).replace(/\D/g, '')
 			const d = digits.slice(-10)
