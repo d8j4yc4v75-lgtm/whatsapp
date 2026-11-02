@@ -499,7 +499,7 @@ function openChat(id, push = true){
   chatEl.classList.add('open'); listEl.classList.add('under'); shade.classList.add('on');
   chatEl.setAttribute('aria-hidden', 'false');
   layoutChat(); requestAnimationFrame(scrollBottom);
-  if (push) history.pushState({ chat: id }, '');
+  if (push) try { history.pushState({ chat: id }, ''); } catch(e){}
 }
 function closeChat(){
   if (!current) return;
@@ -512,7 +512,7 @@ function closeChat(){
 }
 function goBack(){ if (history.state && history.state.chat) history.back(); else closeChat(); }
 window.addEventListener('popstate', e => { if (current && !(e.state && e.state.chat === current)) closeChat(); });
-history.replaceState(null, '');
+try { history.replaceState(null, ''); } catch(e){}
 
 $('#rows').addEventListener('click', e => { const r = e.target.closest('.row'); if (r) openChat(r.dataset.id); });
 $('#backBtn').addEventListener('click', goBack);
