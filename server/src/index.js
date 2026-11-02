@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { hasFfmpeg, toM4a, toMp4, toOpus } from './ffmpeg.js'
 import { CloudSession, validSignature, webhookVerifyToken } from './cloud.js'
 import { CampaignRunner } from './campaigns.js'
-import { WarmupManager } from './warmup.js'
+import { WarmupManager, library as warmupLibrary } from './warmup.js'
 import { smartEnabled, setSmartEnabled } from './smart.js'
 import { setupExtras } from './extras.js'
 import { diskInfo, startMaintenance } from './maintenance.js'
@@ -297,6 +297,19 @@ app.put('/api/settings/smart', route(req => { setSmartEnabled(req.body.enabled !
 app.get('/api/warmup', route(() => warmup.status()))
 app.post('/api/warmup', route(req => { warmup.save(req.body || {}); return warmup.status() }))
 app.post('/api/warmup/now', route(() => { warmup.kick(); return warmup.status() }))
+app.post('/api/warmup/unflag/:id', route(req => { warmup.unflag(Number(req.params.id)); return warmup.status() }))
+app.get('/api/warmup/scripts', route(() => ({ text: warmup.customText(), count: warmup.custom.length })))
+app.put('/api/warmup/scripts', route(req => warmup.saveCustom(req.body?.text)))
+app.post('/api/warmup/media', upload.single('file'), route(async req => {
+	await warmupLibrary.add(req.file?.buffer, req.file?.mimetype, req.file?.originalname)
+	return warmup.status()
+}))
+app.delete('/api/warmup/media/:name', route(req => { warmupLibrary.remove(req.params.name); return warmup.status() }))
+app.get('/api/warmup/media/:name', (req, res) => {
+	const file = warmupLibrary.file(req.params.name)
+	if (!file) return res.sendStatus(404)
+	res.sendFile(file)
+})
 
 app.get('/api/campaigns', route(() => campaigns.list()))
 

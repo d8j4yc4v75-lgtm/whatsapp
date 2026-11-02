@@ -97,6 +97,7 @@ export const stmt = {
 
 // JIDs de tus propios números (con su @lid si se conoce), en caché un minuto
 let own = { at: 0, set: new Set() }
+export function resetOwnCache() { own.at = 0 }
 export function isOwnJid(jid) {
 	if (Date.now() - own.at > 60000) {
 		const set = new Set()
@@ -106,6 +107,9 @@ export function isOwnJid(jid) {
 				set.add(pn)
 				for (const { lid } of db.prepare('SELECT lid FROM lid_map WHERE pn = ?').all(pn)) set.add(lid)
 			}
+			// Grupos que creó el calentamiento entre tus números
+			const g = db.prepare("SELECT value FROM app_settings WHERE key = 'warmup_groups'").get()
+			for (const x of JSON.parse(g?.value || '[]')) if (x?.jid) set.add(x.jid)
 		} catch {}
 		own = { at: Date.now(), set }
 	}
@@ -495,7 +499,7 @@ export class Session {
 		const sender = fromMe ? null : isGroup ? canonicalJid(key.participant, key.participantAlt) : jid
 		const ts = toMs(m.messageTimestamp)
 		// Chat entre tus propios números (calentamiento): sin notificación, sin asistente y archivado
-		const internal = !isGroup && isOwnJid(jid)
+		const internal = isOwnJid(jid)
 
 		if (!fromMe && !isGroup && m.pushName) stmt.upsertContact.run({ jid, name: null, notify: m.pushName })
 		if (isGroup && live) this.groupName(jid)
@@ -666,6 +670,31 @@ export class Session {
 			if (this.sock && this.status === 'connected') this.sock.sendPresenceUpdate('unavailable').catch(() => {})
 		}, ms)
 	}
+
+	// ---- Para el calentamiento: estados y grupo entre tus números ----
+	async postStatus(content, jids, opts = {}) {
+		const sock = this.requireSocket()
+		const sent = await sock.sendMessage('status@broadcast', content, { ...opts, statusJidList: jids, broadcast: true })
+		return { id: sent?.key?.id, from: jidNormalizedUser(sock.user.id) }
+	}
+	async viewStatus(posterJid, id) {
+		if (!this.sock || this.status !== 'connected') return
+		await this.sock.readMessages([{ remoteJid: 'status@broadcast', id, participant: posterJid, fromMe: false }]).catch(() => {})
+	}
+	async createGroup(subject, jids) {
+		const g = await this.requireSocket().groupCreate(subject, jids)
+		return g?.id
+	}
+	async addToGroup(gid, jids) {
+		await this.requireSocket().groupParticipantsUpdate(gid, jids, 'add')
+	}
+	async recording(jid, ms) {
+		if (!this.sock || this.status !== 'connected') return
+		try { await this.sock.sendPresenceUpdate('recording', jid) } catch {}
+		await new Promise(r => setTimeout(r, ms))
+		try { await this.sock.sendPresenceUpdate('paused', jid) } catch {}
+	}
+	myJid() { return this.sock?.user?.id ? jidNormalizedUser(this.sock.user.id) : null }
 
 	// Reacciona (emoji) al último mensaje recibido en una conversación (para el calentamiento)
 	async reactLast(jid, emoji) {
