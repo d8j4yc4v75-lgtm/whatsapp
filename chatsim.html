@@ -1,0 +1,185 @@
+<title>ChatSim</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: lista de chats a pantalla completa en móvil; chat abierto la reemplaza. */
+:root{--bg:#efeae2;--side:#ffffff;--head:#f0f2f5;--out:#d9fdd3;--in:#ffffff;--text:#111b21;--muted:#667781;--accent:#00a884;--tick:#53bdeb;--border:#e3e7e9;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b141a;--side:#111b21;--head:#202c33;--out:#005c4b;--in:#202c33;--text:#e9edef;--muted:#8696a0;--border:#222d34;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0b141a;--side:#111b21;--head:#202c33;--out:#005c4b;--in:#202c33;--text:#e9edef;--muted:#8696a0;--border:#222d34;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;overflow:hidden}
+.app{display:flex;height:100%;max-width:1400px;margin:auto}
+.sidebar{width:340px;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0}
+.bar{background:var(--head);padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;align-items:center;gap:12px;min-height:60px}
+.brand{font-weight:700;font-size:1.25rem;color:var(--accent);flex:1}
+button{background:none;border:0;color:var(--muted);font:inherit;font-size:1.3rem;cursor:pointer;padding:6px}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.search{margin:8px 12px;padding:9px 12px;border-radius:8px;border:0;background:var(--head);color:var(--text);font:inherit}
+.newbox{display:flex;gap:8px;margin:0 12px 8px}
+.newbox input{flex:1;min-width:0;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--side);color:var(--text);font:inherit}
+.newbox button{color:var(--accent);font-size:1rem;font-weight:600}
+.chat-list{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1}
+.chat-list li{display:flex;gap:12px;padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);align-items:center}
+.chat-list li.active,.chat-list li:hover{background:var(--head)}
+.meta{flex:1;min-width:0}
+.last{color:var(--muted);font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.avatar{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;flex-shrink:0}
+.note{font-size:.75rem;color:var(--muted);text-align:center;padding:8px}
+.chat{flex:1;display:flex;flex-direction:column;min-width:0}
+.name{font-weight:600}
+.status{font-size:.8rem;color:var(--muted)}
+.right{margin-left:auto;display:flex;align-items:center;gap:6px}
+.confirm{font-size:.9rem;color:var(--text)}
+.confirm button{font-size:.9rem;font-weight:600}
+.confirm .yes{color:#e5484d}
+.back{display:none;color:var(--accent)}
+.messages{flex:1;overflow-y:auto;padding:16px max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:4px}
+.msg{max-width:65%;padding:6px 8px 4px 10px;border-radius:8px;box-shadow:0 1px .5px rgba(0,0,0,.13);overflow-wrap:anywhere}
+.msg.out{align-self:flex-end;background:var(--out)}
+.msg.in{align-self:flex-start;background:var(--in)}
+.time{font-size:.7rem;color:var(--muted);float:right;margin:6px 0 0 10px;font-variant-numeric:tabular-nums}
+.tick{margin-left:3px;letter-spacing:-3px}
+.tick.read{color:var(--tick)}
+.composer{display:flex;gap:8px;background:var(--head);padding-block:8px;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+.composer input{flex:1;min-width:0;padding:10px 14px;border-radius:20px;border:0;background:var(--side);color:var(--text);font:inherit;font-size:16px}
+.composer button{color:var(--accent)}
+@media (max-width:700px){
+  .sidebar{width:100%;border:0}
+  .chat{display:none}
+  .app.open .sidebar{display:none}
+  .app.open .chat{display:flex}
+  .back{display:block}
+  .msg{max-width:85%}
+}
+</style>
+
+<div class="app" id="app">
+  <aside class="sidebar">
+    <header class="bar">
+      <span class="brand">ChatSim</span>
+      <button id="newChat" aria-label="Nuevo chat">＋</button>
+    </header>
+    <input id="search" class="search" placeholder="Buscar chat" aria-label="Buscar chat">
+    <form id="newBox" class="newbox" hidden>
+      <input id="newName" placeholder="Nombre del contacto" aria-label="Nombre del contacto">
+      <button type="submit">Crear</button>
+    </form>
+    <ul id="chatList" class="chat-list"></ul>
+    <p class="note">Simulador: ningún mensaje sale de este dispositivo.</p>
+  </aside>
+  <main class="chat">
+    <header class="bar">
+      <button id="back" class="back" aria-label="Volver">‹</button>
+      <div class="avatar" id="headAvatar"></div>
+      <div class="meta">
+        <div id="headName" class="name"></div>
+        <div id="headStatus" class="status"></div>
+      </div>
+      <div class="right">
+        <span id="confirmBox" class="confirm" hidden>¿Vaciar? <button id="yes" class="yes">Sí</button><button id="no">No</button></span>
+        <button id="clearChat" aria-label="Vaciar chat">🗑</button>
+      </div>
+    </header>
+    <section id="messages" class="messages"></section>
+    <form id="composer" class="composer">
+      <input id="input" autocomplete="off" placeholder="Mensaje" aria-label="Mensaje">
+      <button type="submit" aria-label="Enviar">➤</button>
+    </form>
+  </main>
+</div>
+
+<script>
+const KEY='chatsim-v1';
+const colors=['#25a18e','#e76f51','#6a4c93','#1982c4','#d62839','#5c9e2a'];
+const replies=['¡Genial!','Jaja 😂','Ok, lo veo luego','¿En serio?','Perfecto 👍','Te llamo más tarde','Claro que sí','Mmm, déjame pensarlo'];
+const defaults=()=>[
+  {id:1,name:'Ana',msgs:[{t:'Hola, ¿cómo estás?',me:false,ts:Date.now()-3600e3}]},
+  {id:2,name:'Carlos',msgs:[]},
+  {id:3,name:'Familia',msgs:[]}
+];
+const $=id=>document.getElementById(id);
+let chats=load(),current=null;
+
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||defaults()}catch{return defaults()}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(chats))}catch{}}
+const fmt=ts=>new Date(ts).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ticks=st=>st===0?'🕓':st===1?'✓':`<span class="tick${st===3?' read':''}">✓✓</span>`;
+const isMobile=()=>window.innerWidth<=700;
+
+function avatar(el,c){el.textContent=c.name[0].toUpperCase();el.style.background=colors[c.id%colors.length]}
+
+function renderList(){
+  const q=$('search').value.toLowerCase();
+  $('chatList').innerHTML='';
+  chats.filter(c=>c.name.toLowerCase().includes(q)).forEach(c=>{
+    const li=document.createElement('li');
+    if(current&&c.id===current.id&&!isMobile())li.className='active';
+    const last=c.msgs[c.msgs.length-1];
+    li.innerHTML=`<div class="avatar"></div><div class="meta"><div>${esc(c.name)}</div><div class="last">${last?esc(last.t):''}</div></div>`;
+    avatar(li.querySelector('.avatar'),c);
+    li.onclick=()=>open(c.id);
+    $('chatList').appendChild(li);
+  });
+}
+
+function renderMsgs(){
+  const box=$('messages');
+  box.innerHTML=current.msgs.map(m=>`<div class="msg ${m.me?'out':'in'}">${esc(m.t)}<span class="time">${fmt(m.ts)}${m.me?' '+ticks(m.st):''}</span></div>`).join('');
+  box.scrollTop=box.scrollHeight;
+}
+
+function open(id){
+  current=chats.find(c=>c.id===id);
+  $('headName').textContent=current.name;
+  $('headStatus').textContent='en línea';
+  avatar($('headAvatar'),current);
+  $('app').classList.add('open');
+  $('confirmBox').hidden=true;
+  renderMsgs();renderList();
+}
+
+// Simula pendiente → enviado → entregado → leído y una respuesta. Nada sale del navegador.
+function simulate(chat,msg){
+  const step=(st,ms)=>setTimeout(()=>{msg.st=st;save();if(current===chat)renderMsgs()},ms);
+  step(1,500);step(2,1200);step(3,2500);
+  setTimeout(()=>{if(current===chat)$('headStatus').textContent='escribiendo...'},3000);
+  setTimeout(()=>{
+    chat.msgs.push({t:replies[Math.floor(Math.random()*replies.length)],me:false,ts:Date.now()});
+    save();
+    if(current===chat){$('headStatus').textContent='en línea';renderMsgs()}
+    renderList();
+  },4500+Math.random()*1500);
+}
+
+$('composer').onsubmit=e=>{
+  e.preventDefault();
+  const t=$('input').value.trim();
+  if(!t||!current)return;
+  const msg={t,me:true,ts:Date.now(),st:0};
+  current.msgs.push(msg);
+  $('input').value='';
+  save();renderMsgs();renderList();
+  simulate(current,msg);
+};
+
+$('newChat').onclick=()=>{$('newBox').hidden=!$('newBox').hidden;if(!$('newBox').hidden)$('newName').focus()};
+$('newBox').onsubmit=e=>{
+  e.preventDefault();
+  const name=$('newName').value.trim();
+  if(!name)return;
+  const c={id:Date.now(),name,msgs:[]};
+  chats.unshift(c);save();
+  $('newName').value='';$('newBox').hidden=true;
+  open(c.id);
+};
+
+$('clearChat').onclick=()=>{if(current)$('confirmBox').hidden=false};
+$('no').onclick=()=>{$('confirmBox').hidden=true};
+$('yes').onclick=()=>{current.msgs=[];save();renderMsgs();renderList();$('confirmBox').hidden=true};
+$('back').onclick=()=>{$('app').classList.remove('open');renderList()};
+$('search').oninput=renderList;
+
+renderList();
+if(!isMobile())open(chats[0].id);
+</script>
