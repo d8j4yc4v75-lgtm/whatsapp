@@ -1,4 +1,4 @@
-// Servidor puente: vincula tu WhatsApp con Baileys (solo conexión, no envía mensajes).
+// Servidor puente: vincula tu WhatsApp con Baileys. No envía mensajes: solo verifica números y obtiene fotos de perfil.
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
 const TOKEN = process.env.WA_TOKEN || '';
 const AUTH_DIR = process.env.AUTH_DIR || path.join(__dirname, 'auth');
+const DEFAULT_CC = (process.env.DEFAULT_CC || '52').replace(/\D/g, '');
 const logger = pino({ level: process.env.LOG_LEVEL || 'warn' });
 
 /* ---------- eventos de estado (SSE) ---------- */
@@ -57,6 +58,39 @@ async function logout() {
   setStatus({ status: 'disconnected', qr: null, me: null, error: null });
 }
 
+/* ---------- verificación de números (sin enviar nada) ---------- */
+function toDigits(n) {
+  const d = String(n).replace(/[^\d+]/g, '');
+  if (d.startsWith('+')) return d.slice(1);
+  if (d.startsWith('00')) return d.slice(2);
+  return d.length <= 10 ? DEFAULT_CC + d : d;
+}
+async function photoOf(jid) {
+  try {
+    const url = await sock.profilePictureUrl(jid, 'image');
+    if (!url) return null;
+    const r = await fetch(url); if (!r.ok) return null;
+    return `data:${r.headers.get('content-type') || 'image/jpeg'};base64,${Buffer.from(await r.arrayBuffer()).toString('base64')}`;
+  } catch { return null; } // sin foto o privacidad restringida
+}
+const cache = new Map();
+let chain = Promise.resolve();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function lookup(number) {
+  const digits = toDigits(number), hit = cache.get(digits);
+  if (hit && Date.now() - hit.t < 36e5) return Promise.resolve(hit.v);
+  const job = chain.then(async () => {
+    if (!sock || wa.status !== 'open') throw new Error('WhatsApp no está conectado');
+    const [r] = await sock.onWhatsApp(digits);
+    const v = r?.exists ? { exists: true, photo: await photoOf(r.jid) } : { exists: false, photo: null };
+    cache.set(digits, { t: Date.now(), v });
+    await sleep(400 + Math.random() * 500); // pausa para no saturar
+    return v;
+  });
+  chain = job.catch(() => {});
+  return job;
+}
+
 /* ---------- HTTP ---------- */
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -75,6 +109,11 @@ app.use('/api', (req, res, next) => {
 app.get('/api/status', (req, res) => res.json(wa));
 app.post('/api/connect', (req, res) => { connect().catch(e => setStatus({ status: 'disconnected', error: e.message })); res.json(wa); });
 app.post('/api/logout', async (req, res) => { await logout(); res.json(wa); });
+app.get('/api/lookup', async (req, res) => {
+  if (!req.query.number) return res.status(400).json({ error: 'Falta número' });
+  try { res.json(await lookup(req.query.number)); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
 app.get('/api/events', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();

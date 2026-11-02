@@ -68,6 +68,7 @@ svg{display:block}
 .rbody{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:center;padding-right:16px;box-shadow:0 .5px 0 var(--sep) inset;box-shadow:none;border-bottom:.5px solid var(--sep)}
 .row:last-child .rbody{border-bottom:0}
 .rtop{display:flex;align-items:baseline;gap:8px}
+.nowa{flex:none;font-size:12px;font-weight:600;color:var(--red);background:var(--fill);border-radius:8px;padding:2px 7px}
 .rname{flex:1;font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rtime{font-size:15px;color:var(--label2);flex:none}
 .rtime.un{color:var(--blue)}
@@ -317,7 +318,7 @@ svg{display:block}
       <div class="wa-qr" id="waQr" hidden><img id="waQrImg" alt="Código QR"></div>
       <div class="foot" id="waQrHelp" hidden>En tu teléfono: WhatsApp → Ajustes → Dispositivos vinculados → Vincular un dispositivo, y escanea el código.</div>
       <button class="big-btn" id="waConnect" type="button">Conectar mi WhatsApp</button>
-      <div class="foot">Solo se vincula tu cuenta. La app no envía mensajes: todo sigue simulado.</div>
+      <div class="foot">La app no envía mensajes: todo sigue simulado. Con la cuenta conectada, al simular un envío se verifica si el número tiene WhatsApp (si no, queda con una palomita y la etiqueta “Sin WhatsApp”) y se pone su foto de perfil si es visible.</div>
       <div class="lbl">Servidor</div>
       <div class="group">
         <input id="waUrl" type="url" inputmode="url" placeholder="URL del servidor (vacío = esta página)" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -433,7 +434,7 @@ $('#photoInput').addEventListener('change', e => {
     const k = Math.min(img.width, img.height), sx = (img.width - k) / 2, sy = (img.height - k) / 2;
     cv.getContext('2d').drawImage(img, sx, sy, k, k, 0, 0, S, S); URL.revokeObjectURL(url);
     const c = getChat(id); if (!c) return;
-    c.photo = cv.toDataURL('image/jpeg', .82); save(); renderList(); if (id === current) renderChat(true); toast('Foto actualizada');
+    c.photo = cv.toDataURL('image/jpeg', .82); c.photoBy = 'user'; save(); renderList(); if (id === current) renderChat(true); toast('Foto actualizada');
   };
   img.onerror = () => { URL.revokeObjectURL(url); toast('No se pudo leer la imagen'); };
   img.src = url;
@@ -458,7 +459,7 @@ function renderList(){
     return `<button class="row" type="button" data-id="${c.id}">
       <div class="${avCls(c)}" style="${avStyle(c)}">${esc(initial(c))}</div>
       <div class="rbody">
-        <div class="rtop"><div class="rname">${esc(title(c))}</div><div class="rtime${c.unread ? ' un' : ''}">${listTime(m?.ts)}</div></div>
+        <div class="rtop"><div class="rname">${esc(title(c))}</div>${c.wa === false ? '<span class="nowa">Sin WhatsApp</span>' : ''}<div class="rtime${c.unread ? ' un' : ''}">${listTime(m?.ts)}</div></div>
         <div class="rbot">${prev}${c.unread ? `<div class="badge">${c.unread}</div>` : ''}</div>
       </div></button>`;
   }).join('');
@@ -473,7 +474,7 @@ function renderChat(keepScroll){
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
   $('#cAv').className = avCls(c) + ' sm'; $('#cAv').style.cssText = avStyle(c); $('#cAv').textContent = initial(c);
   $('#cName').textContent = title(c);
-  $('#cStatus').textContent = c.name ? c.number + ' · en línea' : 'en línea';
+  $('#cStatus').textContent = (c.name ? c.number + ' · ' : '') + (c.wa === false ? 'sin WhatsApp' : 'en línea');
   let html = '', prevDay = null;
   const ms = c.messages;
   if (!ms.length) html = '<div class="chatempty">🔒 Simulación local. Los mensajes no salen de este navegador.</div>';
@@ -518,13 +519,14 @@ function sendTo(c, text, ts = Date.now()){
   let k = c.messages.length; while (k > 0 && c.messages[k-1].ts > ts) k--;
   c.messages.splice(k, 0, m); save();
   if (!old) advance(c.id, m.id);
+  WA.check(c, m);
   return m;
 }
 // reanudar estados pendientes tras recargar
 state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && m.status < (m.final ?? 3)) advance(c.id, m.id); }));
 
-/* ---------- conexión WhatsApp (servidor Baileys, solo vincular) ---------- */
-(() => {
+/* ---------- conexión WhatsApp (servidor Baileys: vincular, verificar números y fotos; nunca envía) ---------- */
+const WA = (() => {
   const CK = KEY + '.wa';
   let cfg = {}; try { cfg = JSON.parse(localStorage.getItem(CK) || '{}') || {}; } catch(e){}
   let st = { status: 'offline' }, es = null, retry = 0;
@@ -565,6 +567,28 @@ state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && m.status < (m.f
   $('#waUrl').addEventListener('change', onCfg); $('#waToken').addEventListener('change', onCfg);
   if (cfg.used) listen();
   else if (base()) api('status').then(() => { cfg.used = true; saveCfg(); listen(); }).catch(() => render());
+
+  // verificación al simular un envío
+  const pending = new Map(); // chatId -> ids de mensajes a ajustar
+  const capOne = m => { m.final = 1; if (m.status > 1) m.status = 1; };
+  function resize(src){ return new Promise(ok => { const img = new Image(); img.onload = () => {
+    const S = 192, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const k = Math.min(img.width, img.height); cv.getContext('2d').drawImage(img, (img.width - k) / 2, (img.height - k) / 2, k, k, 0, 0, S, S);
+    ok(cv.toDataURL('image/jpeg', .82)); }; img.onerror = () => ok(null); img.src = src; }); }
+  async function check(c, m){
+    if (c.wa === false){ capOne(m); save(); return; }
+    if (c.wa === true || st.status !== 'open') return;
+    if (pending.has(c.id)){ pending.get(c.id).push(m.id); return; }
+    pending.set(c.id, [m.id]);
+    let r; try { r = await api('lookup?number=' + encodeURIComponent(c.number)); } catch(e){ pending.delete(c.id); return; }
+    const ids = pending.get(c.id); pending.delete(c.id);
+    const ch = getChat(c.id); if (!ch) return;
+    ch.wa = r.exists;
+    if (!r.exists) ch.messages.forEach(x => { if (ids.includes(x.id)){ capOne(x); updateStatus(ch, x); } });
+    else if (r.photo && ch.photoBy !== 'user' && ch.photoBy !== 'none'){ const ph = await resize(r.photo); if (ph){ ch.photo = ph; ch.photoBy = 'wa'; } }
+    save(); queueList(); if (ch.id === current) queueChat();
+  }
+  return { check };
 })();
 
 /* ---------- envíos programados ---------- */
@@ -835,7 +859,7 @@ $('#menuBtn').addEventListener('click', () => {
 });
 $('#actCancel').addEventListener('click', hideActions);
 $('#actPhoto').addEventListener('click', () => { hideActions(); setTimeout(pickPhoto, 50); });
-$('#actNoPhoto').addEventListener('click', () => { const c = getChat(current); if (c){ delete c.photo; save(); renderChat(true); renderList(); } hideActions(); toast('Foto quitada'); });
+$('#actNoPhoto').addEventListener('click', () => { const c = getChat(current); if (c){ delete c.photo; c.photoBy = 'none'; save(); renderChat(true); renderList(); } hideActions(); toast('Foto quitada'); });
 $('#actClear').addEventListener('click', () => { const c = getChat(current); if (c){ c.messages = []; save(); renderChat(); renderList(); } hideActions(); toast('Chat vaciado'); });
 $('#actDelete').addEventListener('click', () => {
   const id = current; hideActions(); goBack();

@@ -22,8 +22,8 @@ WA_TOKEN=una-clave npm start   # http://localhost:3000
 1. Abre la app y toca **Ajustes** (barra inferior) → **Conectar mi WhatsApp**.
 2. Escanea el QR desde WhatsApp → Dispositivos vinculados → Vincular un dispositivo.
 
-Solo vincula la cuenta: la app no envía mensajes, todo sigue simulado.
+La app no envía mensajes: todo sigue simulado. Con la cuenta conectada, cada envío simulado verifica si el número tiene WhatsApp (si no, el mensaje se queda en una palomita y el chat muestra “Sin WhatsApp”) y pone la foto de perfil del contacto si su privacidad lo permite. Una foto elegida a mano no se reemplaza.
 
 Si la app se abre desde GitHub Pages, escribe en Ajustes la URL del servidor (debe ser `https`) y el token.
 
-Variables: `PORT` (3000), `WA_TOKEN` (protege la API), `AUTH_DIR` (carpeta de la sesión, `server/auth`).
+Variables: `PORT` (3000), `WA_TOKEN` (protege la API), `DEFAULT_CC` (lada para números de 10 dígitos, `52`), `AUTH_DIR` (carpeta de la sesión, `server/auth`).
