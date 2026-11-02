@@ -68,7 +68,6 @@ svg{display:block}
 .rbody{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:center;padding-right:16px;box-shadow:0 .5px 0 var(--sep) inset;box-shadow:none;border-bottom:.5px solid var(--sep)}
 .row:last-child .rbody{border-bottom:0}
 .rtop{display:flex;align-items:baseline;gap:8px}
-.nowa{flex:none;font-size:12px;font-weight:600;color:var(--red);background:var(--fill);border-radius:8px;padding:2px 7px}
 .rname{flex:1;font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rtime{font-size:15px;color:var(--label2);flex:none}
 .rtime.un{color:var(--blue)}
@@ -318,7 +317,7 @@ svg{display:block}
       <div class="wa-qr" id="waQr" hidden><img id="waQrImg" alt="Código QR"></div>
       <div class="foot" id="waQrHelp" hidden>En tu teléfono: WhatsApp → Ajustes → Dispositivos vinculados → Vincular un dispositivo, y escanea el código.</div>
       <button class="big-btn" id="waConnect" type="button">Conectar mi WhatsApp</button>
-      <div class="foot">La app no envía mensajes: todo sigue simulado. Con la cuenta conectada, al simular un envío se verifica si el número tiene WhatsApp (si no, queda con una palomita y la etiqueta “Sin WhatsApp”) y se pone su foto de perfil si es visible.</div>
+      <div class="foot">La app no envía mensajes: todo sigue simulado. Con la cuenta conectada, al simular un envío se verifica si el número tiene WhatsApp (si no, se omite) y se pone su foto de perfil si es visible.</div>
       <div class="lbl">Servidor</div>
       <div class="group">
         <input id="waUrl" type="url" inputmode="url" placeholder="URL del servidor (vacío = esta página)" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -459,7 +458,7 @@ function renderList(){
     return `<button class="row" type="button" data-id="${c.id}">
       <div class="${avCls(c)}" style="${avStyle(c)}">${esc(initial(c))}</div>
       <div class="rbody">
-        <div class="rtop"><div class="rname">${esc(title(c))}</div>${c.wa === false ? '<span class="nowa">Sin WhatsApp</span>' : ''}<div class="rtime${c.unread ? ' un' : ''}">${listTime(m?.ts)}</div></div>
+        <div class="rtop"><div class="rname">${esc(title(c))}</div><div class="rtime${c.unread ? ' un' : ''}">${listTime(m?.ts)}</div></div>
         <div class="rbot">${prev}${c.unread ? `<div class="badge">${c.unread}</div>` : ''}</div>
       </div></button>`;
   }).join('');
@@ -474,7 +473,7 @@ function renderChat(keepScroll){
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
   $('#cAv').className = avCls(c) + ' sm'; $('#cAv').style.cssText = avStyle(c); $('#cAv').textContent = initial(c);
   $('#cName').textContent = title(c);
-  $('#cStatus').textContent = (c.name ? c.number + ' · ' : '') + (c.wa === false ? 'sin WhatsApp' : 'en línea');
+  $('#cStatus').textContent = c.name ? c.number + ' · en línea' : 'en línea';
   let html = '', prevDay = null;
   const ms = c.messages;
   if (!ms.length) html = '<div class="chatempty">🔒 Simulación local. Los mensajes no salen de este navegador.</div>';
@@ -514,12 +513,21 @@ function advance(chatId, msgId){
 // Estado final al azar: casi siempre dos palomitas; leído y una palomita, poco frecuentes
 function randomFinal(){ const r = Math.random(); return r < .10 ? 1 : r < .85 ? 2 : 3; }
 function sendTo(c, text, ts = Date.now()){
+  // con WhatsApp conectado se verifica antes: los números sin WhatsApp se omiten
+  WA.check(c).then(ok => { const ch = getChat(c.id); if (!ch) return;
+    if (ok === false){
+      if (!ch.messages.length){ state.chats = state.chats.filter(x => x !== ch); if (current === ch.id) goBack(); }
+      save(); queueList(); toast(`Omitido: ${title(ch)} no tiene WhatsApp`); return;
+    }
+    doSend(ch, text, ts); queueList(); if (ch.id === current) queueChat();
+  });
+}
+function doSend(c, text, ts){
   const old = Date.now() - ts > 20000, final = randomFinal();
   const m = { id: uid(), text, mine: true, ts, final, status: old ? final : 0 };
   let k = c.messages.length; while (k > 0 && c.messages[k-1].ts > ts) k--;
   c.messages.splice(k, 0, m); save();
   if (!old) advance(c.id, m.id);
-  WA.check(c, m);
   return m;
 }
 // reanudar estados pendientes tras recargar
@@ -568,25 +576,24 @@ const WA = (() => {
   if (cfg.used) listen();
   else if (base()) api('status').then(() => { cfg.used = true; saveCfg(); listen(); }).catch(() => render());
 
-  // verificación al simular un envío
-  const pending = new Map(); // chatId -> ids de mensajes a ajustar
-  const capOne = m => { m.final = 1; if (m.status > 1) m.status = 1; };
+  // verificación al simular un envío: true / false / null (no se pudo verificar)
+  const pending = new Map(); // chatId -> promesa
   function resize(src){ return new Promise(ok => { const img = new Image(); img.onload = () => {
     const S = 192, cv = document.createElement('canvas'); cv.width = cv.height = S;
     const k = Math.min(img.width, img.height); cv.getContext('2d').drawImage(img, (img.width - k) / 2, (img.height - k) / 2, k, k, 0, 0, S, S);
     ok(cv.toDataURL('image/jpeg', .82)); }; img.onerror = () => ok(null); img.src = src; }); }
-  async function check(c, m){
-    if (c.wa === false){ capOne(m); save(); return; }
-    if (c.wa === true || st.status !== 'open') return;
-    if (pending.has(c.id)){ pending.get(c.id).push(m.id); return; }
-    pending.set(c.id, [m.id]);
-    let r; try { r = await api('lookup?number=' + encodeURIComponent(c.number)); } catch(e){ pending.delete(c.id); return; }
-    const ids = pending.get(c.id); pending.delete(c.id);
-    const ch = getChat(c.id); if (!ch) return;
-    ch.wa = r.exists;
-    if (!r.exists) ch.messages.forEach(x => { if (ids.includes(x.id)){ capOne(x); updateStatus(ch, x); } });
-    else if (r.photo && ch.photoBy !== 'user' && ch.photoBy !== 'none'){ const ph = await resize(r.photo); if (ph){ ch.photo = ph; ch.photoBy = 'wa'; } }
-    save(); queueList(); if (ch.id === current) queueChat();
+  function check(c){
+    if (c.wa === true || c.wa === false) return Promise.resolve(c.wa);
+    if (st.status !== 'open') return Promise.resolve(null);
+    if (pending.has(c.id)) return pending.get(c.id);
+    const p = api('lookup?number=' + encodeURIComponent(c.number)).then(async r => {
+      const ch = getChat(c.id); if (!ch) return r.exists;
+      ch.wa = !!r.exists;
+      if (r.exists){
+        if (r.photo && ch.photoBy !== 'user' && ch.photoBy !== 'none'){ const ph = await resize(r.photo); if (ph){ ch.photo = ph; ch.photoBy = 'wa'; save(); } } }
+      return r.exists;
+    }).catch(() => null).finally(() => pending.delete(c.id));
+    pending.set(c.id, p); return p;
   }
   return { check };
 })();
