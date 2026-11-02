@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnóstico</title>
+<style>
+body{margin:0;padding:16px;font:14px -apple-system,sans-serif;background:#fff;color:#000}
+pre{white-space:pre-wrap;word-break:break-word;background:#f2f2f7;padding:10px;border-radius:8px;font-size:12px}
+iframe{width:100%;height:420px;border:2px solid #007aff;border-radius:8px}
+</style>
+</head>
+<body>
+<b>Diagnóstico de la app</b>
+<p>Espera 5 segundos y toma captura de toda esta pantalla.</p>
+<pre id="out">Cargando…</pre>
+<iframe id="f" src="index.html"></iframe>
+<script>
+var out = document.getElementById('out'), lines = [], f = document.getElementById('f');
+function log(s){ lines.push(s); out.textContent = lines.join('\n'); }
+log('Navegador: ' + navigator.userAgent);
+log('Pantalla: ' + innerWidth + 'x' + innerHeight + ' · oscuro: ' + matchMedia('(prefers-color-scheme: dark)').matches);
+try { var n = 0; for (var k in localStorage) if (localStorage.hasOwnProperty(k)) n += (localStorage[k] || '').length; log('Datos guardados: ' + Math.round(n / 1024) + ' KB'); } catch(e){ log('localStorage: ' + e.message); }
+var t0 = Date.now();
+f.addEventListener('load', function(){
+  log('Página cargada en ' + (Date.now() - t0) + ' ms');
+  try { f.contentWindow.addEventListener('error', function(e){ log('ERROR: ' + e.message + ' (línea ' + e.lineno + ')'); }); } catch(e){ log('No se pudo vigilar: ' + e.message); }
+  setTimeout(function(){
+    try {
+      var d = f.contentDocument, w = f.contentWindow;
+      if (!d){ log('Sin documento (la página se cerró)'); return; }
+      var q = function(s){ return d.querySelector(s); }, cs = function(s){ var el = q(s); if (!el) return 'no existe'; var c = w.getComputedStyle(el), r = el.getBoundingClientRect(); return 'vis=' + c.visibility + ' op=' + c.opacity + ' disp=' + c.display + ' tr=' + c.transform + ' rect=' + Math.round(r.left) + ',' + Math.round(r.top) + ',' + Math.round(r.width) + 'x' + Math.round(r.height) + ' bg=' + c.backgroundColor; };
+      log('Error en pantalla: ' + (q('#fatal') ? q('#fatal').textContent : 'ninguno'));
+      log('Chats en la lista: ' + d.querySelectorAll('#rows .row').length);
+      log('#app: ' + cs('#app'));
+      log('#list: ' + cs('#list'));
+      log('#chat: ' + cs('#chat'));
+      log('#shade: ' + cs('#shade'));
+      log('#backdrop: ' + cs('#backdrop'));
+      log('.sheet.on: ' + d.querySelectorAll('.sheet.on').length + ' · .actions.on: ' + d.querySelectorAll('.actions.on').length);
+      log('body: ' + cs('body'));
+    } catch(e){ log('Fallo al revisar: ' + e.message); }
+  }, 3000);
+});
+window.addEventListener('error', function(e){ log('ERROR diag: ' + e.message); });
+setTimeout(function(){ if (lines.join('').indexOf('Página cargada') < 0) log('La página no terminó de cargar en 8 s'); }, 8000);
+</script>
+</body>
+</html>
