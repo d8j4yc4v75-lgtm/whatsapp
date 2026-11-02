@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Chats">
+<meta name="theme-color" content="#f9f9f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<title>Simulador de Chats</title>
+<style>
+:root{
+  --bg:#fff; --bg2:#f2f2f7; --bg3:#fff; --label:#000; --label2:rgba(60,60,67,.6); --label3:rgba(60,60,67,.3);
+  --sep:rgba(60,60,67,.29); --blue:#007aff; --red:#ff3b30; --green:#34c759;
+  --bar:rgba(249,249,249,.86); --fill:rgba(118,118,128,.12); --in:#e9e9eb; --inText:#000;
+  --chatbg:#fff; --sheet:#f2f2f7; --dim:rgba(0,0,0,.35);
+  --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px);
+  --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px);
+  --ease:cubic-bezier(.32,.72,0,1);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#000; --bg2:#000; --bg3:#1c1c1e; --label:#fff; --label2:rgba(235,235,245,.6); --label3:rgba(235,235,245,.3);
+    --sep:rgba(84,84,88,.6); --blue:#0a84ff; --red:#ff453a; --green:#30d158;
+    --bar:rgba(22,22,24,.86); --fill:rgba(118,118,128,.24); --in:#262628; --inText:#fff;
+    --chatbg:#000; --sheet:#1c1c1e; --dim:rgba(0,0,0,.6);
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--label);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;overscroll-behavior:none}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input,textarea{font:inherit;color:var(--label)}
+svg{display:block}
+#app{position:fixed;inset:0;overflow:hidden;overflow:clip}
+.screen{position:absolute;inset:0;background:var(--bg);will-change:transform;transition:transform .45s var(--ease)}
+.blur{background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+
+/* ---------- LISTA ---------- */
+#list .nav{position:absolute;top:0;left:0;right:0;z-index:5;padding:var(--st) calc(8px + var(--sr)) 0 calc(8px + var(--sl));
+  background:transparent;transition:background .2s}
+#list .nav.scrolled{background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);box-shadow:0 .5px 0 var(--sep)}
+.navrow{height:44px;display:flex;align-items:center;justify-content:space-between;position:relative}
+.navtitle{position:absolute;left:50%;transform:translateX(-50%);font-weight:600;font-size:17px;opacity:0;transition:opacity .2s;white-space:nowrap}
+#list .nav.scrolled .navtitle{opacity:1}
+.tbtn{color:var(--blue);font-size:17px;padding:8px;display:flex;align-items:center;gap:4px}
+.tbtn:active{opacity:.4}
+.scroll{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain}
+#listScroll{padding:calc(44px + var(--st)) var(--sr) calc(84px + var(--sb)) var(--sl)}
+.big{font-size:34px;font-weight:700;letter-spacing:.37px;margin:2px 16px 8px}
+.search{margin:0 16px 10px;height:36px;border-radius:10px;background:var(--fill);display:flex;align-items:center;padding:0 8px;gap:6px;color:var(--label2)}
+.search input{flex:1;border:0;outline:0;background:transparent;font-size:17px;min-width:0;height:100%}
+.search input::placeholder{color:var(--label2)}
+.search .clear{display:none;color:var(--label3)}
+.search.has .clear{display:block}
+.rows{background:var(--bg)}
+.row{display:flex;align-items:center;gap:12px;padding:0 0 0 16px;height:76px;width:100%;text-align:left}
+.row:active{background:var(--fill)}
+.av{flex:none;width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:21px;
+  background-image:linear-gradient(180deg,rgba(255,255,255,.18),rgba(0,0,0,.08))}
+.av.sm{width:36px;height:36px;font-size:15px}
+.rbody{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:center;padding-right:16px;box-shadow:0 .5px 0 var(--sep) inset;box-shadow:none;border-bottom:.5px solid var(--sep)}
+.row:last-child .rbody{border-bottom:0}
+.rtop{display:flex;align-items:baseline;gap:8px}
+.rname{flex:1;font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtime{font-size:15px;color:var(--label2);flex:none}
+.rtime.un{color:var(--blue)}
+.rbot{display:flex;align-items:center;gap:6px;margin-top:2px}
+.rprev{flex:1;font-size:15px;color:var(--label2);line-height:20px;max-height:40px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;display:flex;align-items:center;gap:3px}
+.rprev span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rprev.typing{color:var(--green)}
+.badge{flex:none;min-width:20px;height:20px;border-radius:10px;background:var(--blue);color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 6px}
+.empty{color:var(--label2);text-align:center;padding:60px 32px;font-size:15px;line-height:1.4}
+.tabbar{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;padding:0 var(--sr) var(--sb) var(--sl);box-shadow:0 -.5px 0 var(--sep)}
+.tab{flex:1;height:50px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;font-weight:500;color:var(--label3);pointer-events:none}
+.tab.on{color:var(--blue);pointer-events:auto}
+
+/* ---------- CHAT ---------- */
+#chat{transform:translateX(100%);background:var(--chatbg);z-index:10;visibility:hidden;transition:transform .45s var(--ease),visibility 0s .45s}
+#chat.open{transform:translateX(0);visibility:visible;box-shadow:-8px 0 24px rgba(0,0,0,.12);transition:transform .45s var(--ease)}
+#list.under{transform:translateX(-28%)}
+#shade{position:absolute;inset:0;background:rgba(0,0,0,.12);opacity:0;pointer-events:none;transition:opacity .45s var(--ease);z-index:9}
+#shade.on{opacity:1}
+#chat .nav{position:absolute;top:0;left:0;right:0;z-index:5;padding:var(--st) calc(8px + var(--sr)) 0 calc(4px + var(--sl));box-shadow:0 .5px 0 var(--sep)}
+#chat .navrow{justify-content:flex-start;gap:6px}
+.back{display:flex;align-items:center;color:var(--blue);font-size:17px;padding:8px 4px;min-width:30px}
+.back:active,.ibtn:active{opacity:.4}
+.who{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+.who .t{min-width:0}
+.who .n{font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who .s{font-size:12px;color:var(--label2);white-space:nowrap}
+.who .s.typing{color:var(--green)}
+.ibtn{color:var(--blue);padding:8px}
+#msgs{padding:calc(52px + var(--st)) calc(10px + var(--sr)) 12px calc(10px + var(--sl))}
+.day{text-align:center;margin:14px 0 8px}
+.day span{display:inline-block;font-size:12px;font-weight:600;color:var(--label2);background:var(--fill);padding:4px 10px;border-radius:10px}
+.m{display:flex;margin-top:2px}
+.m.gap{margin-top:8px}
+.m.me{justify-content:flex-end}
+.b{position:relative;max-width:min(78%,520px);padding:7px 12px 7px;border-radius:18px;font-size:17px;line-height:22px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;background:var(--in);color:var(--inText)}
+.me .b{background:var(--blue);color:#fff}
+.m.tail .b::before,.m.tail .b::after{content:"";position:absolute;bottom:0;height:20px}
+.m.tail.me .b::before{right:-7px;width:20px;background:var(--blue);border-bottom-left-radius:16px 14px}
+.m.tail.me .b::after{right:-26px;width:26px;background:var(--chatbg);border-bottom-left-radius:10px}
+.m.tail.them .b::before{left:-7px;width:20px;background:var(--in);border-bottom-right-radius:16px 14px}
+.m.tail.them .b::after{left:-26px;width:26px;background:var(--chatbg);border-bottom-right-radius:10px}
+.meta{float:right;display:inline-flex;align-items:center;gap:3px;font-size:11px;line-height:1;margin:10px -4px -4px 10px;opacity:.75;position:relative;z-index:1}
+.me .meta{color:rgba(255,255,255,.85);opacity:1}
+.tick{width:16px;height:11px;color:rgba(255,255,255,.6)}
+.tick.read{color:#8ff5ff}
+.tick.clock{width:11px;height:11px}
+.typingb{display:inline-flex;gap:4px;padding:12px 14px}
+.typingb i{width:8px;height:8px;border-radius:50%;background:var(--label2);animation:dot 1.2s infinite}
+.typingb i:nth-child(2){animation-delay:.15s}.typingb i:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+.composer{position:absolute;left:0;right:0;bottom:0;z-index:5;padding:6px calc(10px + var(--sr)) calc(6px + var(--sb)) calc(10px + var(--sl));display:flex;align-items:flex-end;gap:8px;box-shadow:0 -.5px 0 var(--sep)}
+.composer textarea{flex:1;resize:none;border:.5px solid var(--sep);border-radius:18px;background:var(--bg3);padding:7px 14px;font-size:17px;line-height:22px;max-height:120px;outline:0;min-height:36px;height:36px}
+.send{flex:none;width:32px;height:32px;margin-bottom:2px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;transition:opacity .15s,transform .15s}
+.send:disabled{opacity:.35}
+.send:active{transform:scale(.9)}
+.chatempty{color:var(--label2);text-align:center;font-size:13px;margin:24px 20px;line-height:1.4}
+
+/* ---------- HOJAS / DIÁLOGOS ---------- */
+.backdrop{position:absolute;inset:0;background:var(--dim);opacity:0;pointer-events:none;transition:opacity .3s;z-index:50}
+.backdrop.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:51;background:var(--sheet);border-radius:12px 12px 0 0;transform:translateY(105%);transition:transform .4s var(--ease);
+  max-height:calc(100% - var(--st) - 12px);display:flex;flex-direction:column;padding-bottom:var(--sb);visibility:hidden;transition:transform .4s var(--ease),visibility 0s .4s}
+.sheet.on{transform:translateY(0);visibility:visible;transition:transform .4s var(--ease)}
+@media (min-width:600px){.sheet{left:50%;right:auto;width:560px;margin-left:-280px}}
+.sh-head{display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 8px;flex:none;position:relative}
+.sh-head .t{position:absolute;left:50%;transform:translateX(-50%);font-weight:600;font-size:17px}
+.sh-head .tbtn.b{font-weight:600}
+.tbtn:disabled{opacity:.35}
+.sh-body{overflow-y:auto;padding:0 16px 20px;-webkit-overflow-scrolling:touch}
+.lbl{font-size:13px;color:var(--label2);text-transform:uppercase;margin:16px 16px 6px}
+.lbl:first-child{margin-top:4px}
+.group{background:var(--bg3);border-radius:10px;overflow:hidden}
+.group input,.group textarea{display:block;width:100%;border:0;outline:0;background:transparent;font-size:17px;padding:11px 16px;resize:vertical}
+.group input+input{border-top:.5px solid var(--sep)}
+.group textarea{min-height:110px;line-height:22px}
+.foot{font-size:13px;color:var(--label2);margin:6px 16px 0;line-height:1.35}
+.chips{display:flex;gap:8px;margin:8px 0 0 16px;flex-wrap:wrap}
+.chip{font-size:14px;color:var(--blue);background:var(--fill);border-radius:14px;padding:5px 11px}
+.chip:active{opacity:.5}
+.big-btn{display:block;width:100%;margin-top:20px;height:50px;border-radius:12px;background:var(--blue);color:#fff;font-size:17px;font-weight:600}
+.big-btn:disabled{opacity:.4}
+.big-btn:active{opacity:.8}
+.preview{overflow:hidden;margin-top:8px;padding:12px;border-radius:10px;background:var(--chatbg)}
+.preview .b{max-width:90%}
+.actions{position:absolute;left:8px;right:8px;bottom:calc(8px + var(--sb));z-index:51;transform:translateY(calc(100% + 40px));visibility:hidden;transition:transform .4s var(--ease),visibility 0s .4s}
+.actions.on{transform:translateY(0);visibility:visible;transition:transform .4s var(--ease)}
+@media (min-width:600px){.actions{left:50%;right:auto;width:400px;margin-left:-200px}}
+.ag{background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(30px);backdrop-filter:saturate(180%) blur(30px);border-radius:14px;overflow:hidden}
+.ag .msg{padding:14px 16px;text-align:center;font-size:13px;color:var(--label2);border-bottom:.5px solid var(--sep);line-height:1.35}
+.ag button{display:block;width:100%;height:57px;font-size:20px;color:var(--blue)}
+.ag button+button{border-top:.5px solid var(--sep)}
+.ag button.d{color:var(--red)}
+.ag button:active{background:var(--fill)}
+.ag.c{margin-top:8px;background:var(--bg3)}
+.ag.c button{font-weight:600}
+.toast{position:absolute;left:50%;top:calc(var(--st) + 54px);transform:translate(-50%,-20px);opacity:0;z-index:60;pointer-events:none;
+  background:var(--bar);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);padding:10px 16px;border-radius:20px;font-size:14px;font-weight:500;
+  box-shadow:0 4px 20px rgba(0,0,0,.15);transition:opacity .25s,transform .25s;white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- LISTA -->
+  <section id="list" class="screen">
+    <div class="scroll" id="listScroll">
+      <h1 class="big">Chats</h1>
+      <label class="search" id="searchBox">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="7" r="5.2"/><path d="M11 11l3.5 3.5"/></svg>
+        <input id="search" type="search" placeholder="Buscar" autocomplete="off" enterkeyhint="search">
+        <button class="clear" id="searchClear" type="button" aria-label="Borrar búsqueda">
+          <svg width="17" height="17" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="currentColor"/><path d="M7 7l6 6M13 7l-6 6" stroke="var(--bg)" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </label>
+      <div class="rows" id="rows"></div>
+    </div>
+    <header class="nav" id="listNav">
+      <div class="navrow">
+        <button class="tbtn" id="bulkBtn" type="button">Difusión</button>
+        <div class="navtitle">Chats</div>
+        <button class="tbtn" id="newBtn" type="button" aria-label="Nuevo chat">
+          <svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6"/><path d="M19.5 2.8a2 2 0 0 1 2.8 2.8L13 14.9l-3.6.9.9-3.6z"/></svg>
+        </button>
+      </div>
+    </header>
+    <nav class="tabbar blur">
+      <div class="tab"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="14" cy="14" r="10" stroke-dasharray="5 2.6"/><circle cx="14" cy="14" r="5" fill="currentColor" stroke="none"/></svg>Estados</div>
+      <div class="tab"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L17 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 5 6a2 2 0 0 1 2-2z"/></svg>Llamadas</div>
+      <div class="tab on"><svg width="28" height="28" viewBox="0 0 28 28" fill="currentColor"><path d="M14 4C8 4 3.5 8 3.5 13c0 2.7 1.3 5.1 3.4 6.8-.2 1.6-1 3.1-2.2 4.2 2.5 0 4.6-.9 6.1-2.1 1 .3 2.1.4 3.2.4 6 0 10.5-4 10.5-9.3S20 4 14 4z"/></svg>Chats</div>
+      <div class="tab"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="14" cy="14" r="3.5"/><path d="M14 3v3M14 22v3M3 14h3M22 14h3M6.2 6.2l2.1 2.1M19.7 19.7l2.1 2.1M6.2 21.8l2.1-2.1M19.7 8.3l2.1-2.1"/></svg>Ajustes</div>
+    </nav>
+  </section>
+
+  <div id="shade"></div>
+
+  <!-- CONVERSACIÓN -->
+  <section id="chat" class="screen" aria-hidden="true">
+    <div class="scroll" id="chatScroll"><div id="msgs"></div></div>
+    <header class="nav blur">
+      <div class="navrow">
+        <button class="back" id="backBtn" type="button" aria-label="Volver">
+          <svg width="13" height="21" viewBox="0 0 13 21" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2L2.5 10.5 11 19"/></svg>
+          <span id="backCount" style="margin-left:6px"></span>
+        </button>
+        <div class="who">
+          <div class="av sm" id="cAv"></div>
+          <div class="t"><div class="n" id="cName"></div><div class="s" id="cStatus">en línea</div></div>
+        </div>
+        <button class="ibtn" id="menuBtn" type="button" aria-label="Vaciar chat">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg>
+        </button>
+      </div>
+    </header>
+    <form class="composer blur" id="composer" autocomplete="off">
+      <textarea id="input" rows="1" placeholder="Mensaje" enterkeyhint="send"></textarea>
+      <button class="send" id="sendBtn" type="submit" disabled aria-label="Enviar">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V2.5M3 7.5l5-5 5 5"/></svg>
+      </button>
+    </form>
+  </section>
+
+  <div class="backdrop" id="backdrop"></div>
+
+  <!-- NUEVO CHAT -->
+  <div class="sheet" id="newSheet" role="dialog" aria-label="Nuevo chat">
+    <div class="sh-head">
+      <button class="tbtn" type="button" data-close>Cancelar</button>
+      <div class="t">Nuevo chat</div>
+      <button class="tbtn b" type="button" id="newCreate" disabled>Crear</button>
+    </div>
+    <div class="sh-body">
+      <div class="lbl">Contacto</div>
+      <div class="group">
+        <input id="newNum" type="tel" inputmode="tel" placeholder="Número (ej. +52 55 1234 5678)">
+        <input id="newName" type="text" placeholder="Nombre (opcional)" autocapitalize="words">
+      </div>
+      <div class="foot">Solo se guarda en este navegador. No se contacta a nadie.</div>
+    </div>
+  </div>
+
+  <!-- DIFUSIÓN -->
+  <div class="sheet" id="bulkSheet" role="dialog" aria-label="Difusión simulada">
+    <div class="sh-head">
+      <button class="tbtn" type="button" data-close>Cancelar</button>
+      <div class="t">Difusión</div>
+      <span style="width:70px"></span>
+    </div>
+    <div class="sh-body">
+      <div class="lbl">Números</div>
+      <div class="group"><textarea id="bulkNums" placeholder="Uno por línea. Opcional: número, nombre&#10;+52 55 1111 2222, Ana&#10;+52 55 3333 4444, Luis&#10;5512345678"></textarea></div>
+      <div class="foot" id="bulkCount">0 números válidos</div>
+      <div class="lbl">Plantilla</div>
+      <div class="group"><textarea id="bulkTpl" placeholder="Hola {nombre}, te escribo para…"></textarea></div>
+      <div class="chips">
+        <button class="chip" type="button" data-ins="{nombre}">+ {nombre}</button>
+        <button class="chip" type="button" data-ins="{numero}">+ {numero}</button>
+        <button class="chip" type="button" data-ins="{fecha}">+ {fecha}</button>
+        <button class="chip" type="button" data-ins="{hora}">+ {hora}</button>
+      </div>
+      <div class="lbl">Vista previa</div>
+      <div class="preview" id="bulkPrev"></div>
+      <button class="big-btn" id="bulkGo" type="button" disabled>Simular envío</button>
+      <div class="foot">Los mensajes se simulan localmente: nada sale del navegador.</div>
+    </div>
+  </div>
+
+  <!-- CONFIRMACIÓN -->
+  <div class="actions" id="actions" role="alertdialog">
+    <div class="ag">
+      <div class="msg" id="actMsg"></div>
+      <button type="button" class="d" id="actClear">Vaciar chat</button>
+      <button type="button" class="d" id="actDelete">Eliminar chat</button>
+    </div>
+    <div class="ag c"><button type="button" id="actCancel">Cancelar</button></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const KEY = 'chatsim.v1';
+const COLORS = ['#ff9500','#ff2d55','#af52de','#5856d6','#007aff','#32ade6','#34c759','#30b0c7','#ff3b30','#a2845e','#5ac8fa','#ffcc00'];
+const REPLIES = ['¡Hola! 👋','Ok, perfecto','Gracias 🙏','¿En serio? 😮','Va, luego te confirmo','Jajaja 😂','Claro que sí','Ahorita no puedo, te marco más tarde','👍','Me parece bien','¿A qué hora?','Recibido ✅','¡Qué buena noticia!','Déjame checarlo','Sí, ahí nos vemos'];
+const rand = (a,b) => a + Math.random()*(b-a);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- estado ---------- */
+let state = load();
+const typing = new Set();
+let current = null;
+
+function seed(){
+  const now = Date.now(), d = 864e5;
+  const mk = (num, name, msgs) => ({ id: uid(), number: num, name, color: colorFor(num), unread: 0, messages: msgs.map(([t, mine, ago, st]) => ({ id: uid(), text: t, mine, ts: now - ago, status: mine ? (st ?? 3) : null })) });
+  return [
+    mk('+52 55 1234 5678', 'Ana', [['¿Vamos por café mañana?', false, d+36e5], ['¡Va! ¿A las 10?', true, d+35e5], ['Perfecto ☕', false, 18e5]]),
+    mk('+52 33 8765 4321', 'Carlos', [['Te mando el archivo en un rato', true, 3*d], ['Gracias, quedo pendiente', false, 3*d-6e5]])
+  ];
+}
+function load(){
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.chats)) return s; } catch(e){}
+  return { chats: seed() };
+}
+let saveT;
+function save(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} }, 150); }
+window.addEventListener('pagehide', () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} });
+
+function colorFor(s){ let h = 0; for (const c of String(s)) h = (h*31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; }
+const normNum = s => String(s).replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
+const getChat = id => state.chats.find(c => c.id === id);
+const findByNum = n => state.chats.find(c => normNum(c.number) === normNum(n));
+const title = c => c.name || c.number;
+const initial = c => { const t = (c.name || '').trim(); if (t) return t[0].toUpperCase(); const d = normNum(c.number).replace('+',''); return d.slice(-2) || '#'; };
+const last = c => c.messages[c.messages.length - 1];
+const lastTs = c => last(c)?.ts ?? c.created ?? 0;
+
+function getOrCreate(number, name){
+  let c = findByNum(number);
+  if (c){ if (name && !c.name) c.name = name; return c; }
+  c = { id: uid(), number: number.trim(), name: (name || '').trim(), color: colorFor(normNum(number)), unread: 0, messages: [], created: Date.now() };
+  state.chats.push(c);
+  return c;
+}
+
+/* ---------- fechas ---------- */
+const startOfDay = t => { const d = new Date(t); d.setHours(0,0,0,0); return d.getTime(); };
+const hhmm = t => new Date(t).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+function dayLabel(t){
+  const diff = Math.round((startOfDay(Date.now()) - startOfDay(t)) / 864e5);
+  if (diff === 0) return 'Hoy';
+  if (diff === 1) return 'Ayer';
+  const d = new Date(t), o = { weekday: 'long', day: 'numeric', month: 'long' };
+  if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+  const s = d.toLocaleDateString('es', o); return s[0].toUpperCase() + s.slice(1);
+}
+function listTime(t){
+  if (!t) return '';
+  const diff = Math.round((startOfDay(Date.now()) - startOfDay(t)) / 864e5);
+  if (diff === 0) return hhmm(t);
+  if (diff === 1) return 'Ayer';
+  if (diff < 7){ const s = new Date(t).toLocaleDateString('es', { weekday: 'long' }); return s[0].toUpperCase() + s.slice(1); }
+  return new Date(t).toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+/* ---------- iconos de estado ---------- */
+const ICON = {
+  0: '<svg class="tick clock" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="5"/><path d="M6 3v3l2 1.3"/></svg>',
+  1: '<svg class="tick" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5.8l2.6 2.7 6-6.5"/></svg>',
+  2: '<svg class="tick" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8l2.6 2.7 6-6.5M7.2 8.2l.4.3 6-6.5"/></svg>',
+  3: '<svg class="tick read" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8l2.6 2.7 6-6.5M7.2 8.2l.4.3 6-6.5"/></svg>'
+};
+const listIcon = st => ICON[st].replace('class="tick', 'style="color:' + (st === 3 ? 'var(--blue)' : 'var(--label2)') + ';flex:none" class="tick');
+
+/* ---------- render lista ---------- */
+let rafList = 0, rafChat = 0;
+const queueList = () => { if (!rafList) rafList = requestAnimationFrame(() => { rafList = 0; renderList(); }); };
+const queueChat = () => { if (!rafChat) rafChat = requestAnimationFrame(() => { rafChat = 0; renderChat(); }); };
+
+function renderList(){
+  const q = $('#search').value.trim().toLowerCase();
+  const qn = normNum(q);
+  const chats = [...state.chats].sort((a,b) => lastTs(b) - lastTs(a)).filter(c => !q ||
+    title(c).toLowerCase().includes(q) || (qn && normNum(c.number).includes(qn)) || c.messages.some(m => m.text.toLowerCase().includes(q)));
+  const rows = $('#rows');
+  if (!chats.length){
+    rows.innerHTML = `<div class="empty">${q ? 'Sin resultados' : 'Aún no hay chats.<br>Toca el lápiz para crear uno o “Difusión” para varios.'}</div>`;
+  } else rows.innerHTML = chats.map(c => {
+    const m = last(c), isT = typing.has(c.id);
+    const prev = isT ? '<div class="rprev typing"><span>escribiendo…</span></div>'
+      : m ? `<div class="rprev">${m.mine ? listIcon(m.status) : ''}<span>${esc(m.text.replace(/\s+/g,' '))}</span></div>` : '<div class="rprev"><span>Toca para escribir</span></div>';
+    return `<button class="row" type="button" data-id="${c.id}">
+      <div class="av" style="background-color:${c.color}">${esc(initial(c))}</div>
+      <div class="rbody">
+        <div class="rtop"><div class="rname">${esc(title(c))}</div><div class="rtime${c.unread ? ' un' : ''}">${listTime(m?.ts)}</div></div>
+        <div class="rbot">${prev}${c.unread ? `<div class="badge">${c.unread}</div>` : ''}</div>
+      </div></button>`;
+  }).join('');
+  const un = state.chats.reduce((s,c) => s + (c.id !== current ? c.unread : 0), 0);
+  $('#backCount').textContent = un ? un : '';
+}
+
+/* ---------- render conversación ---------- */
+function renderChat(keepScroll){
+  const c = getChat(current); if (!c) return;
+  const sc = $('#chatScroll');
+  const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
+  $('#cAv').style.backgroundColor = c.color; $('#cAv').textContent = initial(c);
+  $('#cName').textContent = title(c);
+  const st = $('#cStatus'), isT = typing.has(c.id);
+  st.textContent = isT ? 'escribiendo…' : (c.name ? c.number + ' · en línea' : 'en línea');
+  st.classList.toggle('typing', isT);
+  let html = '', prevDay = null;
+  const ms = c.messages;
+  if (!ms.length) html = '<div class="chatempty">🔒 Simulación local. Los mensajes no salen de este navegador.</div>';
+  ms.forEach((m, i) => {
+    const day = startOfDay(m.ts), p = ms[i-1], n = ms[i+1];
+    if (day !== prevDay){ html += `<div class="day"><span>${dayLabel(m.ts)}</span></div>`; prevDay = day; }
+    const sameP = p && p.mine === m.mine && startOfDay(p.ts) === day && m.ts - p.ts < 12e4;
+    const sameN = n && n.mine === m.mine && startOfDay(n.ts) === day && n.ts - m.ts < 12e4;
+    html += `<div class="m ${m.mine ? 'me' : 'them'}${sameN ? '' : ' tail'}${sameP ? '' : ' gap'}" data-id="${m.id}"><div class="b">${esc(m.text)}<span class="meta">${hhmm(m.ts)}${m.mine ? `<span class="st">${ICON[m.status]}</span>` : ''}</span></div></div>`;
+  });
+  if (isT) html += '<div class="m them tail gap"><div class="b typingb"><i></i><i></i><i></i></div></div>';
+  $('#msgs').innerHTML = html;
+  if (!keepScroll || atBottom) scrollBottom();
+}
+function scrollBottom(){ const sc = $('#chatScroll'); sc.scrollTop = sc.scrollHeight; }
+function updateStatus(c, m){
+  if (c.id === current){ const el = document.querySelector(`.m[data-id="${m.id}"] .st`); if (el) el.innerHTML = ICON[m.status]; }
+  if (last(c) === m) queueList();
+}
+
+/* layout: area de mensajes entre header y composer */
+function layoutChat(){
+  $('#msgs').style.paddingBottom = ($('#composer').offsetHeight + 12) + 'px';
+}
+
+/* ---------- simulación de estados ---------- */
+function advance(chatId, msgId, chance){
+  const c0 = getChat(chatId), m0 = c0 && c0.messages.find(x => x.id === msgId);
+  if (!m0 || m0.status >= 3) return;
+  const delay = [rand(500,1100), rand(700,1800), rand(1500,6000)][m0.status];
+  setTimeout(() => {
+    const c = getChat(chatId), m = c && c.messages.find(x => x.id === msgId);
+    if (!m || m.status >= 3) return;
+    m.status++; save(); updateStatus(c, m);
+    if (m.status < 3) advance(chatId, msgId, chance);
+    else if (last(c) === m || !c.messages.slice(c.messages.indexOf(m)+1).some(x => x.mine && x.status < 3)) maybeReply(c, chance);
+  }, delay);
+}
+function maybeReply(c, chance = .6){
+  if (typing.has(c.id) || Math.random() > chance) return;
+  setTimeout(() => {
+    if (!getChat(c.id)) return;
+    typing.add(c.id); queueList(); if (c.id === current) renderChat(true);
+    setTimeout(() => {
+      typing.delete(c.id);
+      const cc = getChat(c.id); if (!cc) return;
+      cc.messages.push({ id: uid(), text: REPLIES[Math.floor(Math.random()*REPLIES.length)], mine: false, ts: Date.now(), status: null });
+      if (cc.id !== current) cc.unread++;
+      save(); queueList(); if (cc.id === current) renderChat(true);
+    }, rand(1500, 4000));
+  }, rand(400, 2500));
+}
+function sendTo(c, text, chance){
+  const m = { id: uid(), text, mine: true, ts: Date.now(), status: 0 };
+  c.messages.push(m); save(); advance(c.id, m.id, chance);
+  return m;
+}
+// reanudar estados pendientes tras recargar
+state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && m.status < 3) advance(c.id, m.id, .3); }));
+
+/* ---------- navegación ---------- */
+const chatEl = $('#chat'), listEl = $('#list'), shade = $('#shade');
+function openChat(id, push = true){
+  const c = getChat(id); if (!c) return;
+  current = id; c.unread = 0; save();
+  $('#input').value = ''; autoGrow(); updateSend();
+  renderChat(); renderList();
+  chatEl.classList.add('open'); listEl.classList.add('under'); shade.classList.add('on');
+  chatEl.setAttribute('aria-hidden', 'false');
+  layoutChat(); requestAnimationFrame(scrollBottom);
+  if (push) history.pushState({ chat: id }, '');
+}
+function closeChat(){
+  if (!current) return;
+  current = null; $('#input').blur();
+  chatEl.style.transition = listEl.style.transition = shade.style.transition = '';
+  chatEl.style.transform = listEl.style.transform = shade.style.opacity = '';
+  chatEl.classList.remove('open'); listEl.classList.remove('under'); shade.classList.remove('on');
+  chatEl.setAttribute('aria-hidden', 'true');
+  renderList();
+}
+function goBack(){ if (history.state && history.state.chat) history.back(); else closeChat(); }
+window.addEventListener('popstate', e => { if (current && !(e.state && e.state.chat === current)) closeChat(); });
+history.replaceState(null, '');
+
+$('#rows').addEventListener('click', e => { const r = e.target.closest('.row'); if (r) openChat(r.dataset.id); });
+$('#backBtn').addEventListener('click', goBack);
+
+/* gesto: deslizar desde el borde izquierdo */
+(() => {
+  let sx = 0, sy = 0, st = 0, dx = 0, drag = false, decided = false;
+  const W = () => chatEl.offsetWidth;
+  chatEl.addEventListener('touchstart', e => {
+    if (!current || e.touches.length !== 1) return;
+    const t = e.touches[0]; if (t.clientX > 28) return;
+    sx = t.clientX; sy = t.clientY; st = performance.now(); dx = 0; drag = true; decided = false;
+  }, { passive: true });
+  chatEl.addEventListener('touchmove', e => {
+    if (!drag) return;
+    const t = e.touches[0], mx = t.clientX - sx, my = t.clientY - sy;
+    if (!decided){ if (Math.abs(mx) < 6 && Math.abs(my) < 6) return; decided = true; if (Math.abs(my) > Math.abs(mx)){ drag = false; return; }
+      chatEl.style.transition = listEl.style.transition = shade.style.transition = 'none'; }
+    e.preventDefault();
+    dx = Math.max(0, mx); const w = W(), p = dx / w;
+    chatEl.style.transform = `translateX(${dx}px)`;
+    listEl.style.transform = `translateX(${-28 * (1 - p)}%)`;
+    shade.style.opacity = String(1 - p);
+  }, { passive: false });
+  const end = () => {
+    if (!drag) return; drag = false; if (!decided) return;
+    const v = dx / Math.max(1, performance.now() - st);
+    if (dx > W() * .35 || (v > .45 && dx > 30)) goBack();
+    else { chatEl.style.transition = listEl.style.transition = shade.style.transition = '';
+      chatEl.style.transform = listEl.style.transform = shade.style.opacity = ''; }
+  };
+  chatEl.addEventListener('touchend', end); chatEl.addEventListener('touchcancel', end);
+})();
+
+/* ---------- composer ---------- */
+const input = $('#input');
+function autoGrow(){ input.style.height = '36px'; input.style.height = Math.min(input.scrollHeight + 1, 120) + 'px'; layoutChat(); }
+function updateSend(){ $('#sendBtn').disabled = !input.value.trim(); }
+input.addEventListener('input', () => { autoGrow(); updateSend(); });
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(pointer:coarse)').matches){ e.preventDefault(); $('#composer').requestSubmit(); } });
+$('#composer').addEventListener('submit', e => {
+  e.preventDefault();
+  const text = input.value.trim(); const c = getChat(current);
+  if (!text || !c) return;
+  sendTo(c, text, .6); input.value = ''; autoGrow(); updateSend();
+  renderChat(); renderList(); input.focus();
+});
+input.addEventListener('focus', () => setTimeout(scrollBottom, 300));
+window.addEventListener('resize', () => { if (current){ layoutChat(); } });
+if (window.visualViewport) visualViewport.addEventListener('resize', () => { if (current) { layoutChat(); scrollBottom(); } });
+
+/* ---------- búsqueda / título colapsable ---------- */
+$('#search').addEventListener('input', () => { $('#searchBox').classList.toggle('has', !!$('#search').value); renderList(); });
+$('#searchClear').addEventListener('click', e => { e.preventDefault(); $('#search').value = ''; $('#searchBox').classList.remove('has'); renderList(); });
+$('#listScroll').addEventListener('scroll', e => $('#listNav').classList.toggle('scrolled', e.target.scrollTop > 40), { passive: true });
+
+/* ---------- hojas ---------- */
+const backdrop = $('#backdrop'); let openSheet = null;
+function showSheet(el){ openSheet = el; backdrop.classList.add('on'); el.classList.add('on'); }
+function hideSheet(){ if (!openSheet) return; openSheet.classList.remove('on'); backdrop.classList.remove('on'); document.activeElement?.blur(); openSheet = null; }
+backdrop.addEventListener('click', hideSheet);
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', hideSheet));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideSheet(); });
+
+/* nuevo chat */
+const newNum = $('#newNum'), newName = $('#newName');
+const validNum = s => normNum(s).replace('+','').length >= 5;
+$('#newBtn').addEventListener('click', () => { newNum.value = newName.value = ''; $('#newCreate').disabled = true; showSheet($('#newSheet')); setTimeout(() => newNum.focus(), 350); });
+newNum.addEventListener('input', () => $('#newCreate').disabled = !validNum(newNum.value));
+function createNew(){
+  if (!validNum(newNum.value)) return;
+  const c = getOrCreate(newNum.value, newName.value); save(); hideSheet(); renderList();
+  setTimeout(() => openChat(c.id), 250);
+}
+$('#newCreate').addEventListener('click', createNew);
+[newNum, newName].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); createNew(); } }));
+
+/* difusión */
+const bulkNums = $('#bulkNums'), bulkTpl = $('#bulkTpl');
+try { bulkTpl.value = localStorage.getItem(KEY + '.tpl') || ''; bulkNums.value = localStorage.getItem(KEY + '.nums') || ''; } catch(e){}
+function parseNums(){
+  const seen = new Set(), out = [];
+  bulkNums.value.split(/\n/).forEach(line => {
+    const parts = line.split(/[,;\t]/); const num = (parts[0] || '').trim(); const name = parts.slice(1).join(' ').trim();
+    if (!validNum(num)) return; const k = normNum(num); if (seen.has(k)) return; seen.add(k); out.push({ num, name });
+  });
+  return out;
+}
+function fill(tpl, r){
+  const now = Date.now(), c = findByNum(r.num);
+  const nombre = r.name || c?.name || r.num;
+  return tpl.replace(/\{nombre\}/gi, nombre).replace(/\{n[uú]mero\}/gi, r.num)
+    .replace(/\{fecha\}/gi, new Date(now).toLocaleDateString('es')).replace(/\{hora\}/gi, hhmm(now));
+}
+function updateBulk(){
+  const list = parseNums(), tpl = bulkTpl.value.trim();
+  $('#bulkCount').textContent = `${list.length} número${list.length === 1 ? '' : 's'} válido${list.length === 1 ? '' : 's'}`;
+  $('#bulkGo').disabled = !list.length || !tpl;
+  $('#bulkGo').textContent = list.length ? `Simular envío a ${list.length}` : 'Simular envío';
+  $('#bulkPrev').innerHTML = tpl ? `<div class="m me tail"><div class="b">${esc(fill(tpl, list[0] || { num: '+52 55 0000 0000', name: 'Ana' }))}</div></div>` : '<div class="chatempty" style="margin:4px">Escribe una plantilla</div>';
+  try { localStorage.setItem(KEY + '.tpl', bulkTpl.value); localStorage.setItem(KEY + '.nums', bulkNums.value); } catch(e){}
+}
+bulkNums.addEventListener('input', updateBulk); bulkTpl.addEventListener('input', updateBulk);
+document.querySelectorAll('[data-ins]').forEach(b => b.addEventListener('click', () => {
+  const t = b.dataset.ins, s = bulkTpl.selectionStart ?? bulkTpl.value.length, e = bulkTpl.selectionEnd ?? s;
+  bulkTpl.value = bulkTpl.value.slice(0, s) + t + bulkTpl.value.slice(e); bulkTpl.focus(); bulkTpl.setSelectionRange(s + t.length, s + t.length); updateBulk();
+}));
+$('#bulkBtn').addEventListener('click', () => { updateBulk(); showSheet($('#bulkSheet')); });
+$('#bulkGo').addEventListener('click', () => {
+  const list = parseNums(), tpl = bulkTpl.value.trim(); if (!list.length || !tpl) return;
+  hideSheet(); toast(`Simulando envío a ${list.length} contacto${list.length === 1 ? '' : 's'}…`);
+  list.forEach((r, i) => setTimeout(() => {
+    const c = getOrCreate(r.num, r.name); sendTo(c, fill(tpl, r), .3); queueList(); if (c.id === current) queueChat();
+    if (i === list.length - 1) toast(`✓ ${list.length} mensaje${list.length === 1 ? '' : 's'} simulado${list.length === 1 ? '' : 's'}`);
+  }, 300 + i * rand(180, 420)));
+});
+
+/* confirmación vaciar / eliminar */
+const actions = $('#actions');
+function hideActions(){ actions.classList.remove('on'); backdrop.classList.remove('on'); backdrop.onclick = null; }
+$('#menuBtn').addEventListener('click', () => {
+  const c = getChat(current); if (!c) return;
+  $('#actMsg').textContent = `¿Vaciar o eliminar el chat con ${title(c)}? Esta acción no se puede deshacer.`;
+  $('#actClear').disabled = !c.messages.length; $('#actClear').style.opacity = c.messages.length ? '' : '.35';
+  backdrop.classList.add('on'); actions.classList.add('on');
+  backdrop.onclick = e => { e.stopImmediatePropagation(); hideActions(); };
+});
+$('#actCancel').addEventListener('click', hideActions);
+$('#actClear').addEventListener('click', () => { const c = getChat(current); if (c){ c.messages = []; typing.delete(c.id); save(); renderChat(); renderList(); } hideActions(); toast('Chat vaciado'); });
+$('#actDelete').addEventListener('click', () => {
+  const id = current; hideActions(); goBack();
+  state.chats = state.chats.filter(c => c.id !== id); typing.delete(id); save(); renderList(); toast('Chat eliminado');
+});
+
+/* toast */
+let toastT;
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2200); }
+
+// refrescar etiquetas de tiempo (Hoy/Ayer) cada minuto
+setInterval(() => { renderList(); }, 60000);
+
+renderList();
+})();
+</script>
+</body>
+</html>
