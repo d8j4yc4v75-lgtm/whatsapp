@@ -90,17 +90,17 @@ svg{display:block}
 .search svg{width:19px;height:19px}
 .chipbar{display:flex;gap:8px;overflow-x:auto;padding:0 16px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .chipbar::-webkit-scrollbar{display:none}
-.fchip{flex:none;height:32px;padding:0 13px;border-radius:16px;border:1px solid var(--chipBorder);color:var(--chipText);font-size:16px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.fchip{flex:none;height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--chipBorder);color:var(--chipText);font-size:18px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap}
 .fchip.on{background:var(--chipOnBg);border-color:var(--chipOnBorder);color:var(--chipOnText)}
 .fchip:active{opacity:.6}
-.search input{flex:1;border:0;outline:0;background:transparent;font-size:17px;min-width:0;height:100%}
+.search input{flex:1;border:0;outline:0;background:transparent;font-size:19px;min-width:0;height:100%}
 .search input::placeholder{color:var(--label2)}
 .search .clear{display:none;color:var(--label3)}
 .search.has .clear{display:block}
 .rows{background:var(--bg)}
-.row{display:flex;align-items:center;gap:12px;padding:0 16px;height:82px;width:100%;text-align:left}
+.row{display:flex;align-items:center;gap:12px;padding:0 16px;height:87px;width:100%;text-align:left}
 .row:active{background:var(--fill)}
-.av{flex:none;width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:21px;overflow:hidden}
+.av{flex:none;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:21px;overflow:hidden}
 .av svg{width:50%;height:50%}
 .av.photo svg{display:none}
 .av.photo{background-size:cover;background-position:center;color:transparent}
@@ -110,16 +110,16 @@ svg{display:block}
 .rbody{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:center;padding:0;border-bottom:.5px solid var(--sep)}
 .row:last-child .rbody{border-bottom:0}
 .rtop{display:flex;align-items:baseline;gap:8px;margin-top:-2px}
-.rname{flex:1;font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rtime{font-size:15px;color:var(--label2);flex:none}
+.rname{flex:1;font-weight:600;font-size:19.5px;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtime{font-size:17px;color:var(--label2);flex:none}
 .rtime.un{color:var(--accent)}
-.rbot{display:flex;align-items:flex-start;gap:8px;margin-top:2px;min-height:40px}
-.rprev{flex:1;min-width:0;font-size:15px;color:var(--label2);line-height:20px;max-height:40px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.rbot{display:flex;align-items:flex-start;gap:8px;margin-top:1px;min-height:44px}
+.rprev{flex:1;min-width:0;font-size:17px;color:var(--label2);line-height:22px;max-height:44px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
 .rprev .tick{display:inline-block;vertical-align:-1px;margin-right:4px;width:17px;height:12px}
 .badge{flex:none;margin-top:4px;min-width:22px;height:22px;border-radius:11px;background:var(--accent);color:var(--onaccent);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 6px}
 .empty{color:var(--label2);text-align:center;padding:60px 32px;font-size:15px;line-height:1.4}
 .tabbar{position:absolute;z-index:5;left:calc(20px + var(--sl));right:calc(20px + var(--sr));bottom:calc(var(--sb) + 8px);max-width:520px;margin:0 auto;height:64px;border-radius:32px;display:flex;align-items:center;padding:3px}
-.tab{position:relative;flex:1;min-width:0;height:58px;border-radius:29px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10px;letter-spacing:-.1px;font-weight:500;color:var(--label);pointer-events:none;white-space:nowrap}
+.tab{position:relative;flex:1;min-width:0;height:58px;border-radius:29px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;letter-spacing:-.1px;font-weight:500;color:var(--label);pointer-events:none;white-space:nowrap}
 .tab svg{width:26px;height:26px}
 .tab .tb{position:absolute;top:2px;left:calc(50% + 1px);min-width:22px;height:22px;z-index:1;padding:0 6px;border-radius:11px;background:var(--accent);color:var(--onaccent);font-size:12.5px;font-weight:600;display:flex;align-items:center;justify-content:center;border:0}
 .tab .tb:empty{display:none}
@@ -144,21 +144,21 @@ svg{display:block}
 .who{flex:1;min-width:0;display:flex;align-items:center;gap:10px;cursor:pointer}
 .who:active{opacity:.6}
 .who .t{min-width:0}
-.who .n{font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who .n{font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who .s{font-size:12px;color:var(--label2);white-space:nowrap}
 .who .s:empty{display:none}
 .ibtn{color:var(--label)}
 #msgs{position:relative;padding:calc(74px + var(--st)) calc(10px + var(--sr)) 12px calc(10px + var(--sl))}
 .day{text-align:center;margin:16px 0 10px}
-.day span{display:inline-block;font-size:15px;font-weight:500;color:var(--dayText);background:var(--dayBg);padding:5px 14px;border-radius:12px}
+.day span{display:inline-block;font-size:16px;font-weight:500;color:var(--dayText);background:var(--dayBg);padding:5px 14px;border-radius:12px}
 .info{margin:4px 14px 6px;padding:24px 16px 16px;border-radius:28px;background:var(--card);text-align:center}
 .info .av{margin:0 auto 26px}
-.info h2{margin:0;font-size:22px;font-weight:600}
+.info h2{margin:0;font-size:19.5px;font-weight:600}
 .info p{margin:10px 6px 0;color:var(--label2);font-size:17px;line-height:1.25}
 .info p b{font-weight:600;color:var(--label2);filter:brightness(1.2)}
 .info .sec{display:inline-flex;align-items:center;gap:6px;margin-top:18px;color:var(--accent);font-size:17px;font-weight:600}
 .info .ib{display:flex;gap:10px;margin-top:24px}
-.info .ib button{flex:1;height:48px;border-radius:24px;background:var(--fill);font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
+.info .ib button{flex:1;height:48px;border-radius:24px;background:var(--fill);font-size:19px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
 .info .ib button.blk{color:var(--red)}
 .info .ib button:active{opacity:.5}
 .m{display:flex;margin-top:2px}
@@ -166,9 +166,9 @@ svg{display:block}
 .m.me{justify-content:flex-end}
 .m.tail.me .b{border-bottom-right-radius:6px}
 .m.tail.them .b{border-bottom-left-radius:6px}
-.b{position:relative;max-width:min(80%,520px);padding:8px 14px;border-radius:20px;font-size:17px;line-height:22px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;background:var(--in);color:var(--inText)}
+.b{position:relative;max-width:min(80%,520px);padding:8px 14px;border-radius:20px;font-size:18px;line-height:24px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;background:var(--in);color:var(--inText)}
 .me .b{background:var(--out);color:var(--outText)}
-.meta{float:right;display:inline-flex;align-items:center;gap:3px;font-size:11px;line-height:1;margin:10px -4px -4px 10px;opacity:.75;position:relative;z-index:1}
+.meta{float:right;display:inline-flex;align-items:center;gap:3px;font-size:12px;line-height:1;margin:10px -4px -4px 10px;opacity:.75;position:relative;z-index:1}
 .me .meta{color:var(--outMeta);opacity:1}
 .tick{width:16px;height:11px;color:var(--outMeta)}
 .tick.read{color:var(--tickRead)}
@@ -479,7 +479,18 @@ function colorFor(s){ let h = 0; for (const c of String(s)) h = (h*31 + c.charCo
 const normNum = s => String(s).replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
 const getChat = id => state.chats.find(c => c.id === id);
 const findByNum = n => state.chats.find(c => normNum(c.number) === normNum(n));
-const title = c => c.number || c.name;
+function fmtNum(raw){
+  const r = String(raw || ''); let d = r.replace(/\D/g, '');
+  if (!/^\s*\+/.test(r) && d.length === 10) d = '52' + d;
+  if (d.length === 13 && d.startsWith('521')) d = '52' + d.slice(3);
+  if (d.length === 12 && d.startsWith('52')){
+    const n = d.slice(2);
+    return ['55','56','33','81'].includes(n.slice(0,2)) ? `+52 ${n.slice(0,2)} ${n.slice(2,6)} ${n.slice(6)}` : `+52 ${n.slice(0,3)} ${n.slice(3,6)} ${n.slice(6)}`;
+  }
+  if (d.length === 11 && d.startsWith('1')) return `+1 ${d.slice(1,4)} ${d.slice(4,7)} ${d.slice(7)}`;
+  return r.trim();
+}
+const title = c => c.number ? fmtNum(c.number) : c.name;
 const initial = c => { const t = (c.name || '').trim(); if (t) return t[0].toUpperCase(); const d = normNum(c.number).replace('+',''); return d.slice(-2) || '#'; };
 const last = c => c.messages[c.messages.length - 1];
 const lastTs = c => last(c)?.ts ?? c.created ?? 0;
