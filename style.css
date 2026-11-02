@@ -1,0 +1,40 @@
+:root{--bg:#eae6df;--side:#fff;--head:#f0f2f5;--out:#d9fdd3;--in:#fff;--text:#111b21;--muted:#667781;--accent:#00a884;--tick:#53bdeb;--border:#e9edef}
+@media (prefers-color-scheme:dark){:root{--bg:#0b141a;--side:#111b21;--head:#202c33;--out:#005c4b;--in:#202c33;--text:#e9edef;--muted:#8696a0;--border:#222d34}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh}
+.app{display:flex;height:100vh;max-width:1400px;margin:auto}
+.sidebar{width:340px;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.side-head,.chat-head{background:var(--head);padding:10px 16px;display:flex;align-items:center;gap:12px;min-height:60px}
+.brand{font-weight:700;font-size:1.2rem;color:var(--accent);flex:1}
+button{background:none;border:0;color:var(--muted);font-size:1.3rem;cursor:pointer}
+.search{margin:8px 12px;padding:8px 12px;border-radius:8px;border:0;background:var(--head);color:var(--text)}
+.chat-list{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1}
+.chat-list li{display:flex;gap:12px;padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);align-items:center}
+.chat-list li.active,.chat-list li:hover{background:var(--head)}
+.chat-list .meta{flex:1;min-width:0}
+.chat-list .last{color:var(--muted);font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.avatar{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;flex-shrink:0}
+.note{font-size:.75rem;color:var(--muted);text-align:center;padding:8px}
+.chat{flex:1;display:flex;flex-direction:column}
+.chat-head .name{font-weight:600}
+.status{font-size:.8rem;color:var(--muted)}
+.clear{margin-left:auto}
+.back{display:none}
+.messages{flex:1;overflow-y:auto;padding:16px 6%;display:flex;flex-direction:column;gap:4px}
+.msg{max-width:65%;padding:6px 8px 4px 10px;border-radius:8px;box-shadow:0 1px .5px rgba(0,0,0,.13);word-wrap:break-word}
+.msg.out{align-self:flex-end;background:var(--out)}
+.msg.in{align-self:flex-start;background:var(--in)}
+.msg .time{font-size:.7rem;color:var(--muted);float:right;margin:6px 0 0 10px}
+.tick{margin-left:3px;letter-spacing:-3px}
+.tick.read{color:var(--tick)}
+.composer{display:flex;gap:8px;padding:10px 16px;background:var(--head)}
+.composer input{flex:1;padding:10px 14px;border-radius:8px;border:0;background:var(--side);color:var(--text);font-size:1rem}
+.composer button{color:var(--accent)}
+@media (max-width:700px){
+  .sidebar{width:100%}
+  .chat{display:none}
+  .app.open .sidebar{display:none}
+  .app.open .chat{display:flex}
+  .back{display:block}
+  .msg{max-width:85%}
+}

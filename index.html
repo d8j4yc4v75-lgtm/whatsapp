@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChatSim</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <header class="side-head">
+      <span class="brand">ChatSim</span>
+      <button id="newChat" title="Nuevo chat">＋</button>
+    </header>
+    <input id="search" class="search" placeholder="Buscar chat">
+    <ul id="chatList" class="chat-list"></ul>
+    <p class="note">Simulador: ningún mensaje sale de este dispositivo.</p>
+  </aside>
+  <main class="chat" id="chat">
+    <header class="chat-head">
+      <button id="back" class="back">←</button>
+      <div class="avatar" id="headAvatar"></div>
+      <div>
+        <div id="headName" class="name"></div>
+        <div id="headStatus" class="status"></div>
+      </div>
+      <button id="clearChat" class="clear" title="Vaciar chat">🗑</button>
+    </header>
+    <section id="messages" class="messages"></section>
+    <form id="composer" class="composer">
+      <input id="input" autocomplete="off" placeholder="Escribe un mensaje">
+      <button type="submit">➤</button>
+    </form>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
