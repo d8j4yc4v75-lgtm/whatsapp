@@ -825,19 +825,35 @@ function splitRow(line, n){
   });
   return out;
 }
+// teléfono: solo dígitos y separadores, 8 a 15 dígitos (no montos como $3,005.36)
+const isPhone = s => /^\s*\+?[\d\s().-]+$/.test(String(s)) && /^\d{8,15}$/.test(String(s).replace(/\D/g, ''));
+const PHONE_KEYS = ['numero', 'celular', 'telefono', 'tel', 'movil', 'whatsapp', 'phone', 'cel', 'numero_celular', 'telefono_celular'];
+const clean = v => String(v ?? '').trim().replace(/\s+/g, ' ');
 function parseNums(){
-  const seen = new Set(), out = []; let header = null;
-  const lines = bulkNums.value.split(/\n/).filter(l => l.trim());
-  if (lines.length){ const f = splitRow(lines[0]); if (!validNum(f[0]) && /[a-záéíóúñ]/i.test(f[0])){ header = f.map(keyOf); lines.shift(); } }
+  const seen = new Set(), out = []; let header = null, numIdx = 0;
+  const lines = bulkNums.value.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length){
+    const f = splitRow(lines[0]);
+    if (!f.some(isPhone) && f.some(x => /[a-záéíóúñ]/i.test(x))){ header = f.map(keyOf); lines.shift(); }
+  }
+  if (header){
+    numIdx = header.findIndex(h => PHONE_KEYS.includes(h));
+    if (numIdx < 0 && lines.length) numIdx = splitRow(lines[0], header.length).findIndex(isPhone);
+    if (numIdx < 0) numIdx = 0;
+  } else if (lines.length){ const i = splitRow(lines[0]).findIndex(isPhone); numIdx = i < 0 ? 0 : i; }
   lines.forEach(line => {
-    const parts = splitRow(line, header && header.length); const num = parts[0] || '';
-    if (!validNum(num)) return; const k = normNum(num); if (seen.has(k)) return; seen.add(k);
+    const parts = splitRow(line, header && header.length);
+    let num = clean(parts[numIdx]);
+    if (!isPhone(num)){ const j = parts.findIndex(isPhone); if (j < 0) return; num = clean(parts[j]); }
+    const k = normNum(num); if (seen.has(k)) return; seen.add(k);
     const vars = {}; let name = '';
-    if (header){ header.forEach((h, idx) => { if (idx > 0 && h) vars[h] = parts[idx] ?? ''; }); name = vars.nombre || ''; }
-    else name = parts.slice(1).join(' ').trim();
+    if (header){
+      header.forEach((h, idx) => { if (idx === numIdx || !h) return; const v = clean(parts[idx]); if (!(h in vars) || (!vars[h] && v)) vars[h] = v; });
+      name = vars.nombre || '';
+    } else name = parts.filter((x, i) => i !== numIdx).map(clean).filter(Boolean).join(' ');
     out.push({ num, name, vars });
   });
-  out.header = header;
+  out.header = header ? ['numero', ...[...new Set(header.filter((h, i) => h && i !== numIdx))]] : null;
   return out;
 }
 function fill(tpl, r, ts = Date.now()){
