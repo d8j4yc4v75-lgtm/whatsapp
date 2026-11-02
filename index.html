@@ -181,7 +181,6 @@ svg{display:block}
   box-shadow:0 4px 20px rgba(0,0,0,.15);transition:opacity .25s,transform .25s;white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 .tab[role=button]{cursor:pointer;pointer-events:auto}
-.tick.err{width:14px;height:14px;color:#ffd0cc}
 .wa-st{display:flex;align-items:center;gap:8px}
 .wa-st i{width:9px;height:9px;border-radius:50%;background:var(--label3);flex:none}
 .wa-st i.open{background:var(--green)} .wa-st i.qr,.wa-st i.connecting{background:#ff9500}
@@ -267,7 +266,7 @@ svg{display:block}
         <input id="newNum" type="tel" inputmode="tel" placeholder="Número (ej. +52 55 1234 5678)">
         <input id="newName" type="text" placeholder="Nombre (opcional)" autocapitalize="words">
       </div>
-      <div class="foot" id="newNote">Solo se guarda en este navegador. No se contacta a nadie.</div>
+      <div class="foot">Solo se guarda en este navegador. No se contacta a nadie.</div>
     </div>
   </div>
 
@@ -300,7 +299,7 @@ svg{display:block}
       <div class="lbl">Vista previa</div>
       <div class="preview" id="bulkPrev"></div>
       <button class="big-btn" id="bulkGo" type="button" disabled>Simular envío</button>
-      <div class="foot" id="bulkNote">Los mensajes se simulan localmente: nada sale del navegador.</div>
+      <div class="foot">Los mensajes se simulan localmente: nada sale del navegador.</div>
     </div>
   </div>
 
@@ -318,9 +317,7 @@ svg{display:block}
       <div class="wa-qr" id="waQr" hidden><img id="waQrImg" alt="Código QR"></div>
       <div class="foot" id="waQrHelp" hidden>En tu teléfono: WhatsApp → Ajustes → Dispositivos vinculados → Vincular un dispositivo, y escanea el código.</div>
       <button class="big-btn" id="waConnect" type="button">Conectar mi WhatsApp</button>
-      <div class="lbl">Envío</div>
-      <div class="group"><div class="trow"><span>Enviar por mi WhatsApp</span><label class="sw"><input type="checkbox" id="waReal"><span></span></label></div></div>
-      <div class="foot">Activado: los mensajes, difusiones y programados salen de verdad por tu WhatsApp y las palomitas son reales. Desactivado: todo se simula.</div>
+      <div class="foot">Solo se vincula tu cuenta. La app no envía mensajes: todo sigue simulado.</div>
       <div class="lbl">Servidor</div>
       <div class="group">
         <input id="waUrl" type="url" inputmode="url" placeholder="URL del servidor (vacío = esta página)" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -420,8 +417,7 @@ const ICON = {
   2: '<svg class="tick" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8l2.6 2.7 6-6.5M7.2 8.2l.4.3 6-6.5"/></svg>',
   3: '<svg class="tick read" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8l2.6 2.7 6-6.5M7.2 8.2l.4.3 6-6.5"/></svg>'
 };
-ICON[-1] = '<svg class="tick err" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.5" fill="#ff3b30"/><path d="M7 3.5v4.2M7 9.6v.6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>';
-const listIcon = st => ICON[st].replace('class="tick', 'style="color:' + (st === -1 ? 'var(--red)' : st === 3 ? 'var(--blue)' : 'var(--label2)') + ';flex:none" class="tick');
+const listIcon = st => ICON[st].replace('class="tick', 'style="color:' + (st === 3 ? 'var(--blue)' : 'var(--label2)') + ';flex:none" class="tick');
 
 /* ---------- avatar / foto ---------- */
 const avCls = c => 'av' + (c.photo ? ' photo' : '');
@@ -477,10 +473,10 @@ function renderChat(keepScroll){
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
   $('#cAv').className = avCls(c) + ' sm'; $('#cAv').style.cssText = avStyle(c); $('#cAv').textContent = initial(c);
   $('#cName').textContent = title(c);
-  $('#cStatus').textContent = (c.name ? c.number + ' · ' : '') + (WA.real ? 'WhatsApp' : 'en línea');
+  $('#cStatus').textContent = c.name ? c.number + ' · en línea' : 'en línea';
   let html = '', prevDay = null;
   const ms = c.messages;
-  if (!ms.length) html = WA.real ? '<div class="chatempty">📲 Los mensajes se envían de verdad por tu WhatsApp.</div>' : '<div class="chatempty">🔒 Simulación local. Los mensajes no salen de este navegador.</div>';
+  if (!ms.length) html = '<div class="chatempty">🔒 Simulación local. Los mensajes no salen de este navegador.</div>';
   ms.forEach((m, i) => {
     const day = startOfDay(m.ts), p = ms[i-1], n = ms[i+1];
     if (day !== prevDay){ html += `<div class="day"><span>${dayLabel(m.ts)}</span></div>`; prevDay = day; }
@@ -505,7 +501,7 @@ function layoutChat(){
 /* ---------- simulación de estados ---------- */
 function advance(chatId, msgId){
   const c0 = getChat(chatId), m0 = c0 && c0.messages.find(x => x.id === msgId);
-  if (!m0 || m0.real || m0.status >= (m0.final ?? 3)) return;
+  if (!m0 || m0.status >= (m0.final ?? 3)) return;
   const delay = [rand(500,1100), rand(900,3000), rand(20000,180000)][m0.status];
   setTimeout(() => {
     const c = getChat(chatId), m = c && c.messages.find(x => x.id === msgId);
@@ -517,7 +513,6 @@ function advance(chatId, msgId){
 // Estado final al azar: casi siempre dos palomitas; leído y una palomita, poco frecuentes
 function randomFinal(){ const r = Math.random(); return r < .10 ? 1 : r < .85 ? 2 : 3; }
 function sendTo(c, text, ts = Date.now()){
-  if (WA.real) return WA.send(c, text);
   const old = Date.now() - ts > 20000, final = randomFinal();
   const m = { id: uid(), text, mine: true, ts, final, status: old ? final : 0 };
   let k = c.messages.length; while (k > 0 && c.messages[k-1].ts > ts) k--;
@@ -526,10 +521,10 @@ function sendTo(c, text, ts = Date.now()){
   return m;
 }
 // reanudar estados pendientes tras recargar
-state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && !m.real && m.status < (m.final ?? 3)) advance(c.id, m.id); }));
+state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && m.status < (m.final ?? 3)) advance(c.id, m.id); }));
 
-/* ---------- WhatsApp real (servidor Baileys) ---------- */
-const WA = (() => {
+/* ---------- conexión WhatsApp (servidor Baileys, solo vincular) ---------- */
+(() => {
   const CK = KEY + '.wa';
   let cfg = {}; try { cfg = JSON.parse(localStorage.getItem(CK) || '{}') || {}; } catch(e){}
   let st = { status: 'offline' }, es = null, retry = 0;
@@ -539,7 +534,6 @@ const WA = (() => {
     const r = await fetch(base() + '/api/' + p, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-WA-Token': cfg.token || '' }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Error ' + r.status); return j;
   };
-  const findWa = id => { for (const c of state.chats){ const m = c.messages.find(x => x.wa === id); if (m) return [c, m]; } return []; };
   const LABEL = { offline: 'Sin servidor', disconnected: 'Desconectado', connecting: 'Conectando…', qr: 'Escanea el código QR', open: 'Conectado' };
   function render(){
     $('#waDot').className = st.status;
@@ -549,52 +543,28 @@ const WA = (() => {
     const on = st.status === 'open' || st.status === 'qr' || st.status === 'connecting';
     $('#waConnect').textContent = st.status === 'open' ? 'Desconectar y cerrar sesión' : on ? 'Cancelar' : 'Conectar mi WhatsApp';
     $('#waConnect').classList.toggle('red', on);
-    $('#waReal').checked = !!cfg.real;
-    $('#waUrl').value !== (cfg.url || '') && document.activeElement !== $('#waUrl') && ($('#waUrl').value = cfg.url || '');
-    $('#waToken').value !== (cfg.token || '') && document.activeElement !== $('#waToken') && ($('#waToken').value = cfg.token || '');
+    if (document.activeElement !== $('#waUrl')) $('#waUrl').value = cfg.url || '';
+    if (document.activeElement !== $('#waToken')) $('#waToken').value = cfg.token || '';
   }
   function listen(){
     if (es) es.close(); es = null;
-    if (!base() || !cfg.used) { st = { status: 'offline' }; render(); return; }
-    es = new EventSource(base() + '/api/events?since=' + (cfg.since || 0) + '&token=' + encodeURIComponent(cfg.token || ''));
-    const seen = e => { if (e.lastEventId){ cfg.since = Number(e.lastEventId); saveCfg(); } };
-    es.addEventListener('status', e => { seen(e); retry = 0; st = JSON.parse(e.data); render(); });
-    es.addEventListener('ack', e => { seen(e); const d = JSON.parse(e.data), [c, m] = findWa(d.waId);
-      if (m && d.status > m.status){ m.status = d.status; save(); updateStatus(c, m); } });
-    es.addEventListener('message', e => { seen(e); const d = JSON.parse(e.data);
-      if (findWa(d.waId)[1]) return;
-      const c = getOrCreate(d.number, d.name), m = { id: uid(), wa: d.waId, text: d.text, mine: false, ts: d.ts, status: null };
-      let k = c.messages.length; while (k > 0 && c.messages[k-1].ts > m.ts) k--; c.messages.splice(k, 0, m);
-      if (c.id !== current) c.unread = (c.unread || 0) + 1; save(); queueList(); if (c.id === current) queueChat();
-    });
+    if (!base() || !cfg.used){ st = { status: 'offline' }; render(); return; }
+    es = new EventSource(base() + '/api/events?token=' + encodeURIComponent(cfg.token || ''));
+    es.addEventListener('status', e => { retry = 0; st = JSON.parse(e.data); render(); });
     es.onerror = () => { st = { status: 'offline', error: 'No se pudo contactar al servidor' }; render();
       if (es && es.readyState === 2){ es = null; setTimeout(listen, Math.min(30000, 2000 * 2 ** retry++)); } };
-  }
-  async function send(c, text){
-    const m = { id: uid(), text, mine: true, ts: Date.now(), status: 0, real: true };
-    c.messages.push(m); save();
-    try { const r = await api('send', { number: c.number, text }); m.wa = r.waId; if (m.status < 1) m.status = 1; }
-    catch(e){ m.status = -1; m.error = e.message; toast('⚠️ ' + title(c) + ': ' + e.message); }
-    save(); updateStatus(c, m); return m;
   }
   $('#waTab').addEventListener('click', () => { render(); showSheet($('#waSheet')); });
   $('#waConnect').addEventListener('click', async () => {
     cfg.used = true; saveCfg(); if (!es) listen();
-    try {
-      if (st.status === 'offline' || st.status === 'disconnected') st = await api('connect', {});
-      else st = await api('logout', {});
-    } catch(e){ st = { status: 'offline', error: e.message }; }
+    try { st = await api(st.status === 'offline' || st.status === 'disconnected' ? 'connect' : 'logout', {}); }
+    catch(e){ st = { status: 'offline', error: e.message }; }
     render();
   });
-  $('#waReal').addEventListener('change', e => {
-    if (e.target.checked && st.status !== 'open'){ e.target.checked = false; toast('Primero conecta tu WhatsApp'); return; }
-    cfg.real = e.target.checked; saveCfg(); toast(cfg.real ? '📲 Envío real activado' : '🔒 Modo simulación'); renderList(); if (current) renderChat(true);
-  });
-  const onCfg = () => { cfg.url = $('#waUrl').value.trim(); cfg.token = $('#waToken').value; cfg.since = 0; saveCfg(); listen(); };
+  const onCfg = () => { cfg.url = $('#waUrl').value.trim(); cfg.token = $('#waToken').value; saveCfg(); listen(); };
   $('#waUrl').addEventListener('change', onCfg); $('#waToken').addEventListener('change', onCfg);
   if (cfg.used) listen();
   else if (base()) api('status').then(() => { cfg.used = true; saveCfg(); listen(); }).catch(() => render());
-  return { get real(){ return !!cfg.real; }, send };
 })();
 
 /* ---------- envíos programados ---------- */
@@ -722,7 +692,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') hideSheet();
 /* nuevo chat */
 const newNum = $('#newNum'), newName = $('#newName');
 const validNum = s => normNum(s).replace('+','').length >= 5;
-$('#newBtn').addEventListener('click', () => { $('#newNote').textContent = WA.real ? 'Lo que escribas en este chat se enviará por tu WhatsApp.' : 'Solo se guarda en este navegador. No se contacta a nadie.'; newNum.value = newName.value = ''; $('#newCreate').disabled = true; showSheet($('#newSheet')); setTimeout(() => newNum.focus(), 350); });
+$('#newBtn').addEventListener('click', () => { newNum.value = newName.value = ''; $('#newCreate').disabled = true; showSheet($('#newSheet')); setTimeout(() => newNum.focus(), 350); });
 newNum.addEventListener('input', () => $('#newCreate').disabled = !validNum(newNum.value));
 function createNew(){
   if (!validNum(newNum.value)) return;
@@ -803,13 +773,11 @@ function updateBulk(){
   else {
     const now = Date.now(), n = list.length;
     const every = n ? Math.round((w.b - w.a) / n / 60000) : 0;
-    const state_ = WA.real ? (w.b <= now ? 'Ya pasó: se envían ahora por WhatsApp.' : w.a <= now ? 'Los de horas pasadas se envían ya; el resto a su hora (deja la página abierta o vuelve a abrirla).' : 'Se enviarán por WhatsApp a su hora (deja la página abierta o vuelve a abrirla).') : w.b <= now ? 'Ya pasó: se registran con esas horas.' : w.a <= now ? 'Los de horas pasadas se registran ya; el resto se envía a su hora (deja la página abierta o vuelve a abrirla).' : 'Se enviarán a su hora (deja la página abierta o vuelve a abrirla).';
+    const state_ = w.b <= now ? 'Ya pasó: se registran con esas horas.' : w.a <= now ? 'Los de horas pasadas se registran ya; el resto se envía a su hora (deja la página abierta o vuelve a abrirla).' : 'Se enviarán a su hora (deja la página abierta o vuelve a abrirla).';
     info.textContent = (n ? `≈ 1 cada ${every < 1 ? '<1' : every} min. ` : '') + state_;
   }
   $('#bulkGo').disabled = !list.length || !tpl || !!(w && w.err);
-  const verb = WA.real ? 'Enviar' : 'Simular envío';
-  $('#bulkGo').textContent = list.length ? (w && !w.err ? `Programar ${list.length} envíos` : `${verb} a ${list.length}`) : verb;
-  $('#bulkNote').textContent = WA.real ? 'Se envían por tu WhatsApp conectado, con pausas entre cada mensaje.' : 'Los mensajes se simulan localmente: nada sale del navegador.';
+  $('#bulkGo').textContent = list.length ? (w && !w.err ? `Programar ${list.length} envíos` : `Simular envío a ${list.length}`) : 'Simular envío';
   const pts = w && !w.err ? w.a : Date.now();
   $('#bulkPrev').innerHTML = tpl ? `<div class="m me tail"><div class="b">${esc(fill(tpl, list[0] || { num: '+52 55 0000 0000', name: 'Ana' }, pts))}</div></div>` : '<div class="chatempty" style="margin:4px">Escribe una plantilla</div>';
   try { localStorage.setItem(KEY + '.tpl', bulkTpl.value); localStorage.setItem(KEY + '.nums', bulkNums.value);
@@ -846,10 +814,6 @@ $('#bulkGo').addEventListener('click', () => {
     const pend = state.queue.length;
     toast(pend ? `⏱ ${list.length} envíos repartidos ${hhmm(w.a)}–${hhmm(w.b)}` : `✓ ${list.length} mensajes registrados`);
     return;
-  }
-  if (WA.real){
-    list.forEach(r => { const c = getOrCreate(r.num, r.name); sendTo(c, fill(tpl, r)); });
-    save(); renderList(); toast(`📲 Enviando ${list.length} mensaje${list.length === 1 ? '' : 's'}…`); return;
   }
   toast(`Simulando envío a ${list.length} contacto${list.length === 1 ? '' : 's'}…`);
   list.forEach((r, i) => setTimeout(() => {

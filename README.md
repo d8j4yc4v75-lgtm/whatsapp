@@ -21,8 +21,9 @@ WA_TOKEN=una-clave npm start   # http://localhost:3000
 
 1. Abre la app y toca **Ajustes** (barra inferior) → **Conectar mi WhatsApp**.
 2. Escanea el QR desde WhatsApp → Dispositivos vinculados → Vincular un dispositivo.
-3. Activa **Enviar por mi WhatsApp**: chats, difusiones y programados salen de verdad, las palomitas son reales y las respuestas entrantes aparecen en sus chats. Desactivado, todo sigue simulado.
+
+Solo vincula la cuenta: la app no envía mensajes, todo sigue simulado.
 
 Si la app se abre desde GitHub Pages, escribe en Ajustes la URL del servidor (debe ser `https`) y el token.
 
-Variables: `PORT` (3000), `WA_TOKEN` (protege la API; recomendado si el servidor es público), `DEFAULT_CC` (lada para números de 10 dígitos, `52`), `SEND_MIN_MS`/`SEND_MAX_MS` (pausa aleatoria entre envíos, 1500–4000), `AUTH_DIR` (carpeta de la sesión, `server/auth`; usa un volumen persistente al desplegar).
+Variables: `PORT` (3000), `WA_TOKEN` (protege la API), `AUTH_DIR` (carpeta de la sesión, `server/auth`).
