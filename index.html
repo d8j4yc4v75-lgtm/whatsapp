@@ -203,6 +203,7 @@ svg{display:block}
 .wa-st i{width:9px;height:9px;border-radius:50%;background:var(--label3);flex:none}
 .wa-st i.open{background:var(--green)} .wa-st i.qr,.wa-st i.connecting{background:#ff9500}
 .wa-qr{display:flex;justify-content:center;padding:16px;background:#fff;border-radius:10px;margin-top:8px}
+.wa-qr[hidden]{display:none}
 .wa-qr img{width:240px;height:240px;image-rendering:pixelated}
 .big-btn.red{background:var(--red)}
 </style>
@@ -594,6 +595,7 @@ const WA = (() => {
     es.addEventListener('status', e => { const first = st.status === 'offline'; retry = 0; st = JSON.parse(e.data); render(); if (first) pull(); });
     es.addEventListener('sync', e => { const d = JSON.parse(e.data); if (d.from !== ME && d.rev !== rev) pull(); });
     es.onerror = () => { st = { status: 'offline', error: 'No se pudo contactar al servidor' }; render();
+      api('status').catch(e => { if (/token/i.test(e.message)){ st = { status: 'offline', error: 'Clave (token) incorrecta: escríbela abajo en “Token”.' }; render(); } });
       if (es && es.readyState === 2){ es = null; setTimeout(listen, Math.min(30000, 2000 * 2 ** retry++)); } };
   }
   $('#waTab').addEventListener('click', () => { render(); showSheet($('#waSheet')); });
