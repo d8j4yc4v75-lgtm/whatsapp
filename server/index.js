@@ -16,8 +16,21 @@ const logger = pino({ level: process.env.LOG_LEVEL || 'warn' });
 
 /* ---------- eventos de estado (SSE) ---------- */
 const clients = new Set();
-const write = (res, data) => res.write(`event: status\ndata: ${JSON.stringify(data)}\n\n`);
-const emit = data => { for (const res of clients) write(res, data); };
+const write = (res, data, type = 'status') => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+const emit = (data, type) => { for (const res of clients) write(res, data, type); };
+
+/* ---------- chats compartidos entre dispositivos ---------- */
+const STATE_FILE = process.env.STATE_FILE || path.join(path.dirname(AUTH_DIR), 'state.json');
+let shared = { rev: 0, state: null };
+const loaded = fs.readFile(STATE_FILE, 'utf8').then(t => { shared = JSON.parse(t); }).catch(() => {});
+let writing = Promise.resolve();
+function saveShared() {
+  writing = writing.then(async () => {
+    await fs.mkdir(path.dirname(STATE_FILE), { recursive: true });
+    await fs.writeFile(STATE_FILE + '.tmp', JSON.stringify(shared));
+    await fs.rename(STATE_FILE + '.tmp', STATE_FILE);
+  }).catch(e => logger.error(e));
+}
 
 /* ---------- conexión WhatsApp ---------- */
 let sock = null;
@@ -93,11 +106,11 @@ function lookup(number) {
 
 /* ---------- HTTP ---------- */
 const app = express();
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '20mb' }));
 app.use((req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Headers', 'Content-Type, X-WA-Token');
-  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -113,6 +126,16 @@ app.get('/api/lookup', async (req, res) => {
   if (!req.query.number) return res.status(400).json({ error: 'Falta número' });
   try { res.json(await lookup(req.query.number)); }
   catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/state', async (req, res) => { await loaded; res.json(shared); });
+app.put('/api/state', async (req, res) => {
+  await loaded;
+  const { state, from } = req.body || {};
+  if (!state || !Array.isArray(state.chats)) return res.status(400).json({ error: 'Datos inválidos' });
+  shared = { rev: shared.rev + 1, state };
+  saveShared();
+  emit({ rev: shared.rev, from }, 'sync');
+  res.json({ rev: shared.rev });
 });
 app.get('/api/events', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });

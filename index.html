@@ -400,7 +400,8 @@ function fix(s){
   });
 }
 let saveT;
-function save(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} }, 150); }
+let onSave = null; // sincronización con el servidor (se asigna más abajo)
+function save(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} }, 150); if (onSave) onSave(); }
 window.addEventListener('pagehide', () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} });
 
 function colorFor(s){ let h = 0; for (const c of String(s)) h = (h*31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; }
@@ -590,7 +591,8 @@ const WA = (() => {
     if (es) es.close(); es = null;
     if (!base() || !cfg.used){ st = { status: 'offline' }; render(); return; }
     es = new EventSource(base() + '/api/events?token=' + encodeURIComponent(cfg.token || ''));
-    es.addEventListener('status', e => { retry = 0; st = JSON.parse(e.data); render(); });
+    es.addEventListener('status', e => { const first = st.status === 'offline'; retry = 0; st = JSON.parse(e.data); render(); if (first) pull(); });
+    es.addEventListener('sync', e => { const d = JSON.parse(e.data); if (d.from !== ME && d.rev !== rev) pull(); });
     es.onerror = () => { st = { status: 'offline', error: 'No se pudo contactar al servidor' }; render();
       if (es && es.readyState === 2){ es = null; setTimeout(listen, Math.min(30000, 2000 * 2 ** retry++)); } };
   }
@@ -625,6 +627,38 @@ const WA = (() => {
     }).catch(() => null).finally(() => pending.delete(c.id));
     pending.set(c.id, p); return p;
   }
+  // chats compartidos: lo que hagas en un dispositivo aparece en los demás conectados al mismo servidor
+  const ME = uid(), RK = KEY + '.rev';
+  let rev = Number(localStorage.getItem(RK)) || 0, dirty = localStorage.getItem(RK + '.dirty') === '1', applying = false, pushT = 0, pulling = false;
+  const setRev = r => { rev = r; try { localStorage.setItem(RK, String(r)); } catch(e){} };
+  const setDirty = d => { dirty = d; try { localStorage.setItem(RK + '.dirty', d ? '1' : ''); } catch(e){} };
+  async function pull(){
+    if (pulling) return; pulling = true;
+    try {
+      const r = await api('state');
+      if (!r.state || (dirty && r.rev === rev)) { if (!r.state || dirty) push(true); return; }
+      if (r.rev === rev) return;
+      applying = true;
+      const s = r.state; fix(s); if (!Array.isArray(s.queue)) s.queue = [];
+      state = s; setRev(r.rev); setDirty(false);
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+      if (current && !getChat(current)) closeChat();
+      renderList(); renderQueue(); if (current) renderChat(true);
+      applying = false;
+    } catch(e){ applying = false; } finally { pulling = false; }
+  }
+  function push(now){
+    clearTimeout(pushT);
+    pushT = setTimeout(async () => {
+      try {
+        const r = await fetch(base() + '/api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-WA-Token': cfg.token || '' }, body: JSON.stringify({ state, from: ME }) });
+        if (!r.ok) throw 0; setRev((await r.json()).rev); setDirty(false);
+      } catch(e){}
+    }, now ? 0 : 800);
+  }
+  onSave = () => { if (applying) return; setDirty(true); if (cfg.used && base() && st.status !== 'offline') push(); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && cfg.used && base()) pull(); });
+
   return { check };
 })();
 

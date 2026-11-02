@@ -24,6 +24,8 @@ WA_TOKEN=una-clave npm start   # http://localhost:3000
 
 La app no envía mensajes: todo sigue simulado. Con la cuenta conectada, cada envío simulado verifica si el número tiene WhatsApp (si no, lo omite) y pone la foto de perfil del contacto si su privacidad lo permite. Una foto elegida a mano no se reemplaza.
 
+Los chats, difusiones y programados se guardan también en el servidor: todos los dispositivos que abran la app con el mismo servidor ven lo mismo y se actualizan al momento.
+
 Si la app se abre desde GitHub Pages, escribe en Ajustes la URL del servidor (debe ser `https`) y el token.
 
 Variables: `PORT` (3000), `WA_TOKEN` (protege la API), `DEFAULT_CC` (lada para números de 10 dígitos, `52`), `AUTH_DIR` (carpeta de la sesión, `server/auth`).
