@@ -91,7 +91,25 @@ export const stmt = {
 	setLid: db.prepare('INSERT OR REPLACE INTO lid_map (lid, pn) VALUES (?, ?)'),
 	getLid: db.prepare('SELECT pn FROM lid_map WHERE lid = ?'),
 	setAccount: db.prepare('UPDATE accounts SET status = ?, phone = COALESCE(?, phone) WHERE id = ?'),
-	getAccount: db.prepare('SELECT * FROM accounts WHERE id = ?')
+	getAccount: db.prepare('SELECT * FROM accounts WHERE id = ?'),
+	archiveChat: db.prepare('UPDATE chats SET archived = 1, unread = 0 WHERE account_id = ? AND jid = ? AND archived = 0')
+}
+
+// JIDs de tus propios números (con su @lid si se conoce), en caché un minuto
+let own = { at: 0, set: new Set() }
+export function isOwnJid(jid) {
+	if (Date.now() - own.at > 60000) {
+		const set = new Set()
+		try {
+			for (const { phone } of db.prepare("SELECT phone FROM accounts WHERE phone IS NOT NULL AND phone != ''").all()) {
+				const pn = `${String(phone).replace(/\D/g, '')}@s.whatsapp.net`
+				set.add(pn)
+				for (const { lid } of db.prepare('SELECT lid FROM lid_map WHERE pn = ?').all(pn)) set.add(lid)
+			}
+		} catch {}
+		own = { at: Date.now(), set }
+	}
+	return own.set.has(jid)
 }
 
 function rememberLid(lid, pn) {
@@ -476,6 +494,8 @@ export class Session {
 		const fromMe = Boolean(key.fromMe)
 		const sender = fromMe ? null : isGroup ? canonicalJid(key.participant, key.participantAlt) : jid
 		const ts = toMs(m.messageTimestamp)
+		// Chat entre tus propios números (calentamiento): sin notificación, sin asistente y archivado
+		const internal = !isGroup && isOwnJid(jid)
 
 		if (!fromMe && !isGroup && m.pushName) stmt.upsertContact.run({ jid, name: null, notify: m.pushName })
 		if (isGroup && live) this.groupName(jid)
@@ -514,10 +534,11 @@ export class Session {
 			account_id: this.accountId,
 			jid,
 			name: null,
-			unread: inserted && live && !fromMe ? 1 : 0,
+			unread: inserted && live && !fromMe && !internal ? 1 : 0,
 			last_ts: ts
 		})
 		if (!inserted) return
+		if (internal) stmt.archiveChat.run(this.accountId, jid)
 		// Si contestaste (desde la app o el teléfono), el chat ya está leído
 		if (fromMe) stmt.setChatUnread.run(0, this.accountId, jid)
 
@@ -525,7 +546,7 @@ export class Session {
 		this.manager.emit('event', { type: 'message', data: formatted })
 		this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
 
-		if (live && !fromMe) {
+		if (live && !fromMe && !internal) {
 			// Fotos, audios y stickers se descargan al llegar; videos y documentos solo cuando se abren, para no llenar el disco
 			if (row.raw && ['image', 'audio', 'sticker'].includes(row.type)) this.downloadMedia(key.id).catch(() => {})
 			// Baja: el contacto pide no recibir más mensajes de los envíos masivos
@@ -592,11 +613,11 @@ export class Session {
 		return this.sock
 	}
 
-	async send(jid, content, localMedia) {
+	async send(jid, content, localMedia, opts) {
 		const sock = this.requireSocket()
 		let sent
 		try {
-			sent = await sock.sendMessage(jid, content)
+			sent = await sock.sendMessage(jid, content, opts)
 		} catch (e) {
 			note(this.accountId, 'send-error', e.message)
 			throw e

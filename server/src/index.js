@@ -296,6 +296,7 @@ app.put('/api/settings/smart', route(req => { setSmartEnabled(req.body.enabled !
 // ---- Calentamiento (tus números se escriben entre sí) ----
 app.get('/api/warmup', route(() => warmup.status()))
 app.post('/api/warmup', route(req => { warmup.save(req.body || {}); return warmup.status() }))
+app.post('/api/warmup/now', route(() => { warmup.kick(); return warmup.status() }))
 
 app.get('/api/campaigns', route(() => campaigns.list()))
 

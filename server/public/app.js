@@ -1886,7 +1886,7 @@ function renderSettings() {
 
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
-				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Los recién vinculados solo reciben sus primeras 24 h. Necesitas al menos <b>2 números conectados</b>.</p>
+				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
 
 				<div class="section">Días sin envíos masivos</div>
 			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
@@ -1936,12 +1936,24 @@ function renderWarmupBox(st) {
 	const state = st.eligible < 2 ? `<span class="pill warn">${st.eligible} conectado(s) · faltan números</span>`
 		: !st.enabled ? '<span class="pill">En pausa</span>'
 			: '<span class="pill ok">Funcionando</span>'
-	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}<small>${n.grace ? 'Recién vinculado: solo recibe las primeras 24 h' : n.target > 0 ? `${n.sentToday} de ${n.target} hoy · ${n.ageDays} día(s) vinculado` : 'Hoy no se usa (descanso o rechazos)'}</small></span>${n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`).join('')
+	const numState = n => n.grace ? 'Recién vinculado: solo recibe sus primeras 24 h'
+		: n.resting && n.target > 0 ? `En descanso de masivos: charla ligera · ${n.sentToday} de ${n.target} hoy`
+			: n.target > 0 ? `${n.sentToday} de ${n.target} hoy · recibió ${n.receivedToday} · ${n.ageDays} día(s)${n.campaignToday ? ` · ${n.campaignToday} masivos hoy` : ''}`
+				: 'Hoy no envía (rechazos o mensajes sin entregar); solo recibe'
+	const bar = (v, max) => `<div style="height:4px;border-radius:2px;background:var(--fill);margin-top:6px;overflow:hidden"><div style="height:100%;width:${Math.min(100, max ? Math.round(v / max * 100) : 0)}%;background:var(--accent)"></div></div>`
+	const nums = (st.numbers || []).map(n => `<div class="item"><span class="grow">${esc(n.name)}<small>${numState(n)}</small>${n.target > 0 ? bar(n.sentToday, n.target) : ''}</span>${n.inConvo ? '<span class="pill ok">💬 charlando</span>' : n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`).join('')
+	const wk = p.week || []
+	const wkMax = Math.max(1, ...wk)
+	const days = ['D', 'L', 'M', 'M', 'J', 'V', 'S']
+	const today = new Date().getDay()
+	const chart = wk.length ? `<div class="item" style="display:block"><span class="muted" style="font-size:13px">Mensajes de los últimos 7 días</span>
+		<div style="display:flex;align-items:flex-end;gap:6px;height:56px;margin-top:8px">${wk.map((v, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><span class="muted" style="font-size:10px">${v || ''}</span><div style="width:100%;max-width:26px;height:${Math.max(2, Math.round(v / wkMax * 34))}px;border-radius:3px;background:${i === 6 ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 40%, transparent)'}"></div><span class="muted" style="font-size:10px">${days[(today - 6 + i + 7) % 7]}</span></div>`).join('')}</div></div>` : ''
 	const manual = st.auto ? '' : `
 		<div class="item"><span class="grow">Tope por número al día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" class="num"></div>
 		${st.allDay ? '' : `<div class="item"><span class="grow">Horario</span><input type="number" id="wu-start" min="0" max="23" value="${st.startHour}" class="num"><span class="muted">a</span><input type="number" id="wu-end" min="1" max="24" value="${st.endHour}" class="num"></div>`}
 		<div class="item"><span class="grow">Pausa entre charlas (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" class="num"><span class="muted">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" class="num"></div>
 		<button class="btn" data-act="warmup-save">Guardar</button>`
+	const act = { alta: 'Alta', media: 'Media', baja: 'Baja (noche)', fuera: 'Fuera de horario' }
 	box.innerHTML = `
 		<div class="item"><span class="grow">Calentamiento</span>${sw('warmup-toggle', st.enabled)}</div>
 		<div class="item"><span class="grow">Automático<small>Decide solo cuánto y cuándo según cada número</small></span>${sw('warmup-auto', st.auto)}</div>
@@ -1949,10 +1961,14 @@ function renderWarmupBox(st) {
 		${manual}
 		<div class="item"><span class="grow">Estado</span>${state}</div>
 		${st.enabled && st.eligible >= 2 ? `
-		<div class="item"><span class="grow">Actividad en este momento</span><span class="muted">${p.activity === 'alta' ? 'Alta' : p.activity === 'media' ? 'Media' : 'Baja (noche)'}</span></div>
-		<div class="item"><span class="grow">Mensajes planeados hoy</span><span class="muted">${p.totalPerDay || 0}</span></div>
-		<div class="item"><span class="grow">Próxima charla</span><span class="muted">${p.nextConvoIn == null ? '—' : p.nextConvoIn < 1 ? 'en un momento' : `en ~${p.nextConvoIn} min`}${p.activeConvos ? ` · ${p.activeConvos} en curso` : ''}</span></div>` : ''}
+		<div class="item"><span class="grow">Hoy<small>${p.sentToday || 0} de ${p.totalPerDay || 0} mensajes · queda ${p.dayLeft ?? 0}% de la actividad del día</small>${bar(p.sentToday || 0, p.totalPerDay || 0)}</span></div>
+		<div class="item"><span class="grow">Actividad en este momento</span><span class="muted">${act[p.activity] || '—'}</span></div>
+		<div class="item"><span class="grow">Próxima charla</span><span class="muted">${p.nextConvoIn == null ? '—' : p.nextConvoIn < 1 ? 'en un momento' : p.nextConvoIn >= 90 ? `en ~${Math.round(p.nextConvoIn / 60)} h` : `en ~${p.nextConvoIn} min`}${p.activeConvos ? ` · ${p.activeConvos} en curso` : ''}</span></div>
+		${chart}
+		<button class="btn" data-act="warmup-now">Iniciar una charla ahora</button>` : ''}
 		${nums ? `<div class="item sub-head"><span class="grow">Números</span></div>${nums}` : ''}`
+	clearTimeout(S.warmupTimer)
+	if (st.enabled) S.warmupTimer = setTimeout(() => { if ($('#warmup-box')) loadWarmup() }, 30000)
 }
 function warmupBody() {
 	const v = id => { const el = $(id); return el && el.value !== '' ? Number(el.value) : undefined }
@@ -2204,6 +2220,11 @@ document.addEventListener('click', async e => {
 		}
 		case 'warmup-auto': {
 			try { renderWarmupBox(await api('POST', '/warmup', { ...warmupBody(), enabled: S.warmup?.enabled, auto: !(S.warmup?.auto) })) }
+			catch (err) { toast(err.message) }
+			return
+		}
+		case 'warmup-now': {
+			try { renderWarmupBox(await api('POST', '/warmup/now')); toast('Empezando una charla…') }
 			catch (err) { toast(err.message) }
 			return
 		}
