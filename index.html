@@ -366,8 +366,20 @@ function seed(){
   ];
 }
 function load(){
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.chats)) return s; } catch(e){}
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.chats)){ fix(s); return s; } } catch(e){}
   return { chats: seed() };
+}
+// limpia datos de versiones anteriores (envío real) para que no rompan el arranque
+function fix(s){
+  s.chats = s.chats.filter(c => c && typeof c === 'object');
+  s.chats.forEach(c => {
+    if (!Array.isArray(c.messages)) c.messages = [];
+    c.messages = c.messages.filter(m => m && typeof m.text === 'string');
+    c.messages.forEach(m => {
+      if (m.mine && !(m.status >= 0 && m.status <= 3)) m.status = m.final = 1;
+      if (m.real){ delete m.real; delete m.error; delete m.wa; if (!(m.final >= 1)) m.final = 2; }
+    });
+  });
 }
 let saveT;
 function save(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} }, 150); }
@@ -417,7 +429,7 @@ const ICON = {
   2: '<svg class="tick" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8l2.6 2.7 6-6.5M7.2 8.2l.4.3 6-6.5"/></svg>',
   3: '<svg class="tick read" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8l2.6 2.7 6-6.5M7.2 8.2l.4.3 6-6.5"/></svg>'
 };
-const listIcon = st => ICON[st].replace('class="tick', 'style="color:' + (st === 3 ? 'var(--blue)' : 'var(--label2)') + ';flex:none" class="tick');
+const listIcon = st => (ICON[st] || ICON[1]).replace('class="tick', 'style="color:' + (st === 3 ? 'var(--blue)' : 'var(--label2)') + ';flex:none" class="tick');
 
 /* ---------- avatar / foto ---------- */
 const avCls = c => 'av' + (c.photo ? ' photo' : '');
@@ -482,14 +494,14 @@ function renderChat(keepScroll){
     if (day !== prevDay){ html += `<div class="day"><span>${dayLabel(m.ts)}</span></div>`; prevDay = day; }
     const sameP = p && p.mine === m.mine && startOfDay(p.ts) === day && m.ts - p.ts < 12e4;
     const sameN = n && n.mine === m.mine && startOfDay(n.ts) === day && n.ts - m.ts < 12e4;
-    html += `<div class="m ${m.mine ? 'me' : 'them'}${sameN ? '' : ' tail'}${sameP ? '' : ' gap'}" data-id="${m.id}"><div class="b">${esc(m.text)}<span class="meta">${hhmm(m.ts)}${m.mine ? `<span class="st">${ICON[m.status]}</span>` : ''}</span></div></div>`;
+    html += `<div class="m ${m.mine ? 'me' : 'them'}${sameN ? '' : ' tail'}${sameP ? '' : ' gap'}" data-id="${m.id}"><div class="b">${esc(m.text)}<span class="meta">${hhmm(m.ts)}${m.mine ? `<span class="st">${ICON[m.status] || ICON[1]}</span>` : ''}</span></div></div>`;
   });
   $('#msgs').innerHTML = html;
   if (!keepScroll || atBottom) scrollBottom();
 }
 function scrollBottom(){ const sc = $('#chatScroll'); sc.scrollTop = sc.scrollHeight; }
 function updateStatus(c, m){
-  if (c.id === current){ const el = document.querySelector(`.m[data-id="${m.id}"] .st`); if (el) el.innerHTML = ICON[m.status]; }
+  if (c.id === current){ const el = document.querySelector(`.m[data-id="${m.id}"] .st`); if (el) el.innerHTML = ICON[m.status] || ICON[1]; }
   if (last(c) === m) queueList();
 }
 
