@@ -408,7 +408,7 @@ function colorFor(s){ let h = 0; for (const c of String(s)) h = (h*31 + c.charCo
 const normNum = s => String(s).replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
 const getChat = id => state.chats.find(c => c.id === id);
 const findByNum = n => state.chats.find(c => normNum(c.number) === normNum(n));
-const title = c => c.name || c.number;
+const title = c => c.number || c.name;
 const initial = c => { const t = (c.name || '').trim(); if (t) return t[0].toUpperCase(); const d = normNum(c.number).replace('+',''); return d.slice(-2) || '#'; };
 const last = c => c.messages[c.messages.length - 1];
 const lastTs = c => last(c)?.ts ?? c.created ?? 0;
@@ -504,7 +504,7 @@ function renderChat(keepScroll){
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
   $('#cAv').className = avCls(c) + ' sm'; $('#cAv').style.cssText = avStyle(c); $('#cAv').textContent = initial(c);
   $('#cName').textContent = title(c);
-  $('#cStatus').textContent = c.name ? c.number + ' · en línea' : 'en línea';
+  $('#cStatus').textContent = c.name ? c.name + ' · en línea' : 'en línea';
   let html = '', prevDay = null;
   const ms = c.messages;
   if (!ms.length) html = '<div class="chatempty">🔒 Simulación local. Los mensajes no salen de este navegador.</div>';
@@ -801,12 +801,33 @@ $('#newCreate').addEventListener('click', createNew);
 const bulkNums = $('#bulkNums'), bulkTpl = $('#bulkTpl');
 try { bulkTpl.value = localStorage.getItem(KEY + '.tpl') || ''; bulkNums.value = localStorage.getItem(KEY + '.nums') || ''; } catch(e){}
 const keyOf = k => String(k).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '_');
+// separa una fila: tabulador (pegado de Excel) > punto y coma > coma con comillas;
+// une montos partidos por la coma de miles ($756,119.19)
+function splitRow(line, n){
+  if (line.includes('\t')) return line.split('\t').map(x => x.trim().replace(/^"(.*)"$/, '$1'));
+  if (line.includes(';')) return line.split(';').map(x => x.trim().replace(/^"(.*)"$/, '$1'));
+  const raw = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++){
+    const ch = line[i];
+    if (ch === '"'){ if (q && line[i+1] === '"'){ cur += '"'; i++; } else q = !q; }
+    else if (ch === ',' && !q){ raw.push({ v: cur, quoted: false }); cur = ''; }
+    else cur += ch;
+  }
+  raw.push({ v: cur });
+  const out = []; let extra = n ? raw.length - n : Infinity;
+  raw.forEach((p, i) => {
+    const v = p.v.trim(), prev = out[out.length - 1];
+    if (extra > 0 && i > 1 && prev !== undefined && /^\d{3}(\.\d+)?$/.test(v) && /^-?\$?\s*\d{1,3}(,\d{3})*$/.test(prev)){ out[out.length - 1] = prev + ',' + v; extra--; }
+    else out.push(v);
+  });
+  return out;
+}
 function parseNums(){
   const seen = new Set(), out = []; let header = null;
   const lines = bulkNums.value.split(/\n/).filter(l => l.trim());
-  if (lines.length){ const f = lines[0].split(/[,;\t]/); if (!validNum(f[0]) && /[a-záéíóúñ]/i.test(f[0])){ header = f.map(keyOf); lines.shift(); } }
+  if (lines.length){ const f = splitRow(lines[0]); if (!validNum(f[0]) && /[a-záéíóúñ]/i.test(f[0])){ header = f.map(keyOf); lines.shift(); } }
   lines.forEach(line => {
-    const parts = line.split(/[,;\t]/).map(x => x.trim()); const num = parts[0] || '';
+    const parts = splitRow(line, header && header.length); const num = parts[0] || '';
     if (!validNum(num)) return; const k = normNum(num); if (seen.has(k)) return; seen.add(k);
     const vars = {}; let name = '';
     if (header){ header.forEach((h, idx) => { if (idx > 0 && h) vars[h] = parts[idx] ?? ''; }); name = vars.nombre || ''; }
@@ -886,7 +907,7 @@ function editQueue(){
   const q = [...state.queue].sort((a, b) => a.ts - b.ts); if (!q.length) return;
   const keys = [...new Set(q.flatMap(x => Object.keys(x.vars || {})))].filter(k => k !== 'nombre');
   const head = ['numero', 'nombre', ...keys];
-  bulkNums.value = head.join(', ') + '\n' + q.map(x => [x.num, x.name || (x.vars || {}).nombre || '', ...keys.map(k => (x.vars || {})[k] ?? '')].join(', ')).join('\n');
+  bulkNums.value = head.join('\t') + '\n' + q.map(x => [x.num, x.name || (x.vars || {}).nombre || '', ...keys.map(k => (x.vars || {})[k] ?? '')].join('\t')).join('\n');
   bulkTpl.value = q[0].tpl || q[0].text;
   const first = new Date(Math.max(q[0].ts, Date.now() + 60000)), last = new Date(q[q.length - 1].ts);
   const hm2 = d => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
