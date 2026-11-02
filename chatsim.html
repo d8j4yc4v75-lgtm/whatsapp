@@ -1,96 +1,177 @@
 <title>ChatSim</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
-/* Layout: lista de chats a pantalla completa en móvil; chat abierto la reemplaza. */
-:root{--bg:#efeae2;--side:#ffffff;--head:#f0f2f5;--out:#d9fdd3;--in:#ffffff;--text:#111b21;--muted:#667781;--accent:#00a884;--tick:#53bdeb;--border:#e3e7e9;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b141a;--side:#111b21;--head:#202c33;--out:#005c4b;--in:#202c33;--text:#e9edef;--muted:#8696a0;--border:#222d34;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0b141a;--side:#111b21;--head:#202c33;--out:#005c4b;--in:#202c33;--text:#e9edef;--muted:#8696a0;--border:#222d34;color-scheme:dark}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;overflow:hidden}
-.app{display:flex;height:100%;max-width:1400px;margin:auto}
-.sidebar{width:340px;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0}
-.bar{background:var(--head);padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;align-items:center;gap:12px;min-height:60px}
-.brand{font-weight:700;font-size:1.25rem;color:var(--accent);flex:1}
-button{background:none;border:0;color:var(--muted);font:inherit;font-size:1.3rem;cursor:pointer;padding:6px}
-button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.search{margin:8px 12px;padding:9px 12px;border-radius:8px;border:0;background:var(--head);color:var(--text);font:inherit}
-.newbox{display:flex;gap:8px;margin:0 12px 8px}
-.newbox input{flex:1;min-width:0;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--side);color:var(--text);font:inherit}
-.newbox button{color:var(--accent);font-size:1rem;font-weight:600}
-.chat-list{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1}
-.chat-list li{display:flex;gap:12px;padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);align-items:center}
-.chat-list li.active,.chat-list li:hover{background:var(--head)}
-.meta{flex:1;min-width:0}
-.last{color:var(--muted);font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.avatar{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;flex-shrink:0}
-.note{font-size:.75rem;color:var(--muted);text-align:center;padding:8px}
-.chat{flex:1;display:flex;flex-direction:column;min-width:0}
-.name{font-weight:600}
-.status{font-size:.8rem;color:var(--muted)}
-.right{margin-left:auto;display:flex;align-items:center;gap:6px}
-.confirm{font-size:.9rem;color:var(--text)}
-.confirm button{font-size:.9rem;font-weight:600}
-.confirm .yes{color:#e5484d}
-.back{display:none;color:var(--accent)}
-.messages{flex:1;overflow-y:auto;padding:16px max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:4px}
-.msg{max-width:65%;padding:6px 8px 4px 10px;border-radius:8px;box-shadow:0 1px .5px rgba(0,0,0,.13);overflow-wrap:anywhere}
-.msg.out{align-self:flex-end;background:var(--out)}
-.msg.in{align-self:flex-start;background:var(--in)}
-.time{font-size:.7rem;color:var(--muted);float:right;margin:6px 0 0 10px;font-variant-numeric:tabular-nums}
-.tick{margin-left:3px;letter-spacing:-3px}
-.tick.read{color:var(--tick)}
-.composer{display:flex;gap:8px;background:var(--head);padding-block:8px;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
-.composer input{flex:1;min-width:0;padding:10px 14px;border-radius:20px;border:0;background:var(--side);color:var(--text);font:inherit;font-size:16px}
-.composer button{color:var(--accent)}
-@media (max-width:700px){
-  .sidebar{width:100%;border:0}
-  .chat{display:none}
-  .app.open .sidebar{display:none}
-  .app.open .chat{display:flex}
-  .back{display:block}
-  .msg{max-width:85%}
+/* Layout: navegación tipo iOS — pantalla de lista con título grande y barra de pestañas; el chat entra deslizándose desde la derecha. */
+:root{
+  --bg:#f2f2f7;--surface:#ffffff;--bar:rgba(249,249,249,.86);--sep:rgba(60,60,67,.18);
+  --text:#000000;--muted:#8a8a8e;--accent:#007aff;--out:#007aff;--outText:#ffffff;--in:#e9e9eb;--inText:#000000;
+  --fill:rgba(118,118,128,.12);--wall:#eef0f4;--badge:#ff9500;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
 }
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#000000;--surface:#1c1c1e;--bar:rgba(22,22,24,.86);--sep:rgba(84,84,88,.6);
+  --text:#ffffff;--muted:#8d8d93;--accent:#0a84ff;--out:#0a84ff;--outText:#ffffff;--in:#26252a;--inText:#ffffff;
+  --fill:rgba(118,118,128,.24);--wall:#000000;--badge:#ff9f0a;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#000000;--surface:#1c1c1e;--bar:rgba(22,22,24,.86);--sep:rgba(84,84,88,.6);
+  --text:#ffffff;--muted:#8d8d93;--accent:#0a84ff;--out:#0a84ff;--outText:#ffffff;--in:#26252a;--inText:#ffffff;
+  --fill:rgba(118,118,128,.24);--wall:#000000;--badge:#ff9f0a;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{background:none;border:0;font:inherit;color:var(--accent);cursor:pointer;padding:0}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg{display:block}
+.gut{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+.stage{position:relative;height:100%;max-width:520px;margin:auto;overflow:hidden;background:var(--bg)}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+#chatScreen{transform:translateX(100%);background:var(--wall);box-shadow:-8px 0 24px rgba(0,0,0,.08)}
+.stage.open #chatScreen{transform:none}
+.stage.open #listScreen{transform:translateX(-28%)}
+@media (prefers-reduced-motion:reduce){.screen{transition:none}}
+
+/* Barra superior translúcida */
+.nav{position:relative;z-index:2;background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:.5px solid var(--sep)}
+.navrow{display:flex;align-items:center;justify-content:space-between;height:44px}
+.navrow .txt{font-size:17px}
+.sim{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--badge);border:1px solid currentColor;border-radius:6px;padding:2px 6px}
+
+/* Lista */
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.big{font-size:34px;font-weight:700;letter-spacing:.01em;margin:2px 0 8px;text-wrap:balance}
+.search{display:flex;align-items:center;gap:6px;background:var(--fill);border-radius:10px;height:36px;padding:0 8px;margin-bottom:10px;color:var(--muted)}
+.search input{flex:1;min-width:0;border:0;background:none;color:var(--text);font:inherit;font-size:17px;outline:none}
+.newbox{display:flex;gap:8px;margin-bottom:10px}
+.newbox input{flex:1;min-width:0;height:36px;border-radius:10px;border:0;background:var(--fill);color:var(--text);font:inherit;padding:0 10px}
+.newbox button{font-weight:600}
+.list{list-style:none;margin:0;padding:0;background:var(--bg)}
+.row{display:flex;align-items:center;gap:12px;padding-left:max(16px,env(safe-area-inset-left,0px));cursor:pointer}
+.row:active{background:var(--fill)}
+.row .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:10px max(16px,env(safe-area-inset-right,0px)) 10px 0;border-bottom:.5px solid var(--sep)}
+.row:last-child .body{border-bottom:0}
+.line1{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.cname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctime{font-size:15px;color:var(--muted);flex-shrink:0;font-variant-numeric:tabular-nums}
+.preview{font-size:15px;color:var(--muted);display:flex;align-items:center;gap:3px;min-width:0}
+.preview span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.av{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:600;font-size:21px;flex-shrink:0}
+.av.sm{width:36px;height:36px;font-size:15px}
+.foot{font-size:13px;color:var(--muted);text-align:center;padding:18px 16px 24px}
+
+/* Barra de pestañas */
+.tabs{display:flex;justify-content:space-around;background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--sep);padding-top:6px;padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;font-weight:500;color:var(--muted);min-width:64px}
+.tab.on{color:var(--accent)}
+
+/* Chat */
+.chatnav{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;height:52px}
+.backbtn{display:flex;align-items:center;gap:2px;font-size:17px;margin-left:-8px}
+.who{display:flex;align-items:center;gap:10px;min-width:0}
+.who .n{font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who .s{font-size:12px;color:var(--muted)}
+.who>div:last-child{min-width:0}
+.icons{display:flex;gap:18px;align-items:center}
+.confirm{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-block:8px;font-size:15px;background:var(--surface);border-bottom:.5px solid var(--sep)}
+.confirm .yes{color:#ff3b30;font-weight:600}
+.msgs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:2px;padding-block:12px}
+.day{align-self:center;font-size:12px;font-weight:500;color:var(--muted);margin:8px 0}
+.b{position:relative;max-width:78%;padding:7px 12px 6px;border-radius:18px;line-height:1.3;overflow-wrap:anywhere}
+.b.out{align-self:flex-end;background:var(--out);color:var(--outText)}
+.b.in{align-self:flex-start;background:var(--in);color:var(--inText)}
+.b.tail.out{border-bottom-right-radius:5px}
+.b.tail.in{border-bottom-left-radius:5px}
+.b.gap{margin-top:8px}
+.stamp{display:inline-flex;align-items:center;gap:3px;float:right;margin:7px 0 -2px 10px;font-size:11px;opacity:.75;font-variant-numeric:tabular-nums}
+.ck{display:inline-flex}
+.ck.read{color:#a7f3ff;opacity:1}
+.b.in .stamp{color:var(--muted);opacity:1}
+.typing{align-self:flex-start;background:var(--in);border-radius:18px;padding:12px 14px;display:flex;gap:4px;margin-top:8px}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,60%,100%{opacity:.3}30%{opacity:1}}
+.compose{display:flex;align-items:flex-end;gap:10px;background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--sep);padding-top:8px;padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}
+.compose input{flex:1;min-width:0;height:36px;border-radius:18px;border:.5px solid var(--sep);background:var(--surface);color:var(--text);font:inherit;font-size:17px;padding:0 14px}
+.send{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;flex-shrink:0;margin-bottom:2px;transition:transform .15s}
+.send:disabled{background:var(--fill);color:var(--muted)}
+.plus{margin-bottom:6px}
 </style>
 
-<div class="app" id="app">
-  <aside class="sidebar">
-    <header class="bar">
-      <span class="brand">ChatSim</span>
-      <button id="newChat" aria-label="Nuevo chat">＋</button>
-    </header>
-    <input id="search" class="search" placeholder="Buscar chat" aria-label="Buscar chat">
-    <form id="newBox" class="newbox" hidden>
-      <input id="newName" placeholder="Nombre del contacto" aria-label="Nombre del contacto">
-      <button type="submit">Crear</button>
-    </form>
-    <ul id="chatList" class="chat-list"></ul>
-    <p class="note">Simulador: ningún mensaje sale de este dispositivo.</p>
-  </aside>
-  <main class="chat">
-    <header class="bar">
-      <button id="back" class="back" aria-label="Volver">‹</button>
-      <div class="avatar" id="headAvatar"></div>
-      <div class="meta">
-        <div id="headName" class="name"></div>
-        <div id="headStatus" class="status"></div>
+<div class="stage" id="stage">
+  <!-- Lista de chats -->
+  <section class="screen" id="listScreen">
+    <div class="nav gut" style="border-bottom:0;background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none">
+      <div class="navrow">
+        <button class="txt" id="editBtn">Editar</button>
+        <span class="sim">Simulación</span>
+        <button id="newChat" aria-label="Nuevo chat">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </button>
       </div>
-      <div class="right">
-        <span id="confirmBox" class="confirm" hidden>¿Vaciar? <button id="yes" class="yes">Sí</button><button id="no">No</button></span>
-        <button id="clearChat" aria-label="Vaciar chat">🗑</button>
+    </div>
+    <div class="scroll">
+      <div class="gut">
+        <h1 class="big">Chats</h1>
+        <label class="search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="search" placeholder="Buscar" aria-label="Buscar chat">
+        </label>
+        <form id="newBox" class="newbox" hidden>
+          <input id="newName" placeholder="Nombre del contacto" aria-label="Nombre del contacto">
+          <button type="submit">Crear</button>
+        </form>
       </div>
-    </header>
-    <section id="messages" class="messages"></section>
-    <form id="composer" class="composer">
+      <ul class="list" id="chatList"></ul>
+      <p class="foot">ChatSim · los mensajes no salen de este dispositivo.</p>
+    </div>
+    <nav class="tabs">
+      <button class="tab"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>Estados</button>
+      <button class="tab"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1Z"/></svg>Llamadas</button>
+      <button class="tab on"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c5 0 9 3.6 9 8s-4 8-9 8c-1.2 0-2.4-.2-3.4-.6L4 20l1.3-3.6C3.9 15 3 13.1 3 11c0-4.4 4-8 9-8Z"/></svg>Chats</button>
+      <button class="tab"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>Ajustes</button>
+    </nav>
+  </section>
+
+  <!-- Conversación -->
+  <section class="screen" id="chatScreen" aria-hidden="true">
+    <div class="nav gut">
+      <div class="chatnav">
+        <button class="backbtn" id="back" aria-label="Volver a Chats">
+          <svg width="13" height="22" viewBox="0 0 13 22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2 2 11l9 9"/></svg>
+          <span id="backCount"></span>
+        </button>
+        <div class="who">
+          <div class="av sm" id="headAv"></div>
+          <div><div class="n" id="headName"></div><div class="s" id="headStatus"></div></div>
+        </div>
+        <div class="icons">
+          <span class="sim">Sim</span>
+          <button id="clearChat" aria-label="Vaciar chat">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="confirm gut" id="confirmBox" hidden>
+      <span>¿Vaciar este chat?</span>
+      <span style="display:flex;gap:18px"><button id="no">Cancelar</button><button class="yes" id="yes">Vaciar</button></span>
+    </div>
+    <div class="msgs gut" id="msgs"></div>
+    <form class="compose gut" id="composer">
+      <button type="button" class="plus" aria-label="Adjuntar">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
       <input id="input" autocomplete="off" placeholder="Mensaje" aria-label="Mensaje">
-      <button type="submit" aria-label="Enviar">➤</button>
+      <button type="submit" class="send" id="sendBtn" aria-label="Enviar" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
     </form>
-  </main>
+  </section>
 </div>
 
 <script>
 const KEY='chatsim-v1';
-const colors=['#25a18e','#e76f51','#6a4c93','#1982c4','#d62839','#5c9e2a'];
+const colors=['#5ac8fa','#ff9500','#af52de','#34c759','#ff2d55','#5856d6'];
 const replies=['¡Genial!','Jaja 😂','Ok, lo veo luego','¿En serio?','Perfecto 👍','Te llamo más tarde','Claro que sí','Mmm, déjame pensarlo'];
 const defaults=()=>[
   {id:1,name:'Ana',msgs:[{t:'Hola, ¿cómo estás?',me:false,ts:Date.now()-3600e3}]},
@@ -98,69 +179,105 @@ const defaults=()=>[
   {id:3,name:'Familia',msgs:[]}
 ];
 const $=id=>document.getElementById(id);
-let chats=load(),current=null;
+let chats=load(),current=null,typingFor=null;
 
 function load(){try{return JSON.parse(localStorage.getItem(KEY))||defaults()}catch{return defaults()}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(chats))}catch{}}
-const fmt=ts=>new Date(ts).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+const hm=ts=>new Date(ts).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+const sameDay=(a,b)=>new Date(a).toDateString()===new Date(b).toDateString();
+function listTime(ts){
+  if(sameDay(ts,Date.now()))return hm(ts);
+  if(sameDay(ts,Date.now()-864e5))return 'Ayer';
+  return new Date(ts).toLocaleDateString('es',{day:'2-digit',month:'2-digit',year:'2-digit'});
+}
+function dayLabel(ts){
+  if(sameDay(ts,Date.now()))return 'Hoy';
+  if(sameDay(ts,Date.now()-864e5))return 'Ayer';
+  return new Date(ts).toLocaleDateString('es',{weekday:'long',day:'numeric',month:'long'});
+}
 const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const ticks=st=>st===0?'🕓':st===1?'✓':`<span class="tick${st===3?' read':''}">✓✓</span>`;
-const isMobile=()=>window.innerWidth<=700;
+const one='<svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m1 5.5 3 3L11 1.5"/></svg>';
+const two='<svg width="17" height="10" viewBox="0 0 17 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m1 5.5 3 3L11 1.5"/><path d="m8 7.5 1 1L16 1.5"/></svg>';
+const clock='<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="6" r="5"/><path d="M6 3v3l2 1" stroke-linecap="round"/></svg>';
+const ticks=st=>st===0?`<span class="ck">${clock}</span>`:st===1?`<span class="ck">${one}</span>`:`<span class="ck${st===3?' read':''}">${two}</span>`;
 
 function avatar(el,c){el.textContent=c.name[0].toUpperCase();el.style.background=colors[c.id%colors.length]}
 
 function renderList(){
   const q=$('search').value.toLowerCase();
+  const sorted=[...chats].sort((a,b)=>(b.msgs.at(-1)?.ts||b.id)-(a.msgs.at(-1)?.ts||a.id));
   $('chatList').innerHTML='';
-  chats.filter(c=>c.name.toLowerCase().includes(q)).forEach(c=>{
+  sorted.filter(c=>c.name.toLowerCase().includes(q)).forEach(c=>{
+    const last=c.msgs.at(-1);
     const li=document.createElement('li');
-    if(current&&c.id===current.id&&!isMobile())li.className='active';
-    const last=c.msgs[c.msgs.length-1];
-    li.innerHTML=`<div class="avatar"></div><div class="meta"><div>${esc(c.name)}</div><div class="last">${last?esc(last.t):''}</div></div>`;
-    avatar(li.querySelector('.avatar'),c);
+    li.className='row';
+    li.innerHTML=`<div class="av"></div><div class="body"><div class="line1"><span class="cname">${esc(c.name)}</span><span class="ctime">${last?listTime(last.ts):''}</span></div><div class="preview">${last&&last.me?ticks(last.st):''}<span>${last?esc(last.t):'Toca para escribir'}</span></div></div>`;
+    li.querySelector('.ck')&&(li.querySelector('.ck').style.color=last.st===3?'var(--accent)':'var(--muted)');
+    avatar(li.querySelector('.av'),c);
     li.onclick=()=>open(c.id);
     $('chatList').appendChild(li);
   });
 }
 
 function renderMsgs(){
-  const box=$('messages');
-  box.innerHTML=current.msgs.map(m=>`<div class="msg ${m.me?'out':'in'}">${esc(m.t)}<span class="time">${fmt(m.ts)}${m.me?' '+ticks(m.st):''}</span></div>`).join('');
+  const box=$('msgs');let html='',prev=null;
+  current.msgs.forEach((m,i)=>{
+    const next=current.msgs[i+1];
+    if(!prev||!sameDay(prev.ts,m.ts))html+=`<div class="day">${dayLabel(m.ts)}</div>`;
+    const tail=!next||next.me!==m.me;
+    const gap=prev&&prev.me!==m.me;
+    html+=`<div class="b ${m.me?'out':'in'}${tail?' tail':''}${gap?' gap':''}">${esc(m.t)}<span class="stamp">${hm(m.ts)}${m.me?ticks(m.st):''}</span></div>`;
+    prev=m;
+  });
+  if(typingFor===current)html+='<div class="typing"><i></i><i></i><i></i></div>';
+  box.innerHTML=html;
   box.scrollTop=box.scrollHeight;
 }
 
 function open(id){
   current=chats.find(c=>c.id===id);
   $('headName').textContent=current.name;
-  $('headStatus').textContent='en línea';
-  avatar($('headAvatar'),current);
-  $('app').classList.add('open');
+  $('headStatus').textContent=typingFor===current?'escribiendo…':'en línea';
+  avatar($('headAv'),current);
   $('confirmBox').hidden=true;
-  renderMsgs();renderList();
+  $('stage').classList.add('open');
+  $('chatScreen').setAttribute('aria-hidden','false');
+  renderMsgs();
+}
+
+function close(){
+  $('stage').classList.remove('open');
+  $('chatScreen').setAttribute('aria-hidden','true');
+  $('input').blur();
+  current=null;
+  renderList();
 }
 
 // Simula pendiente → enviado → entregado → leído y una respuesta. Nada sale del navegador.
 function simulate(chat,msg){
-  const step=(st,ms)=>setTimeout(()=>{msg.st=st;save();if(current===chat)renderMsgs()},ms);
+  const step=(st,ms)=>setTimeout(()=>{msg.st=st;save();if(current===chat)renderMsgs();else renderList()},ms);
   step(1,500);step(2,1200);step(3,2500);
-  setTimeout(()=>{if(current===chat)$('headStatus').textContent='escribiendo...'},3000);
+  setTimeout(()=>{typingFor=chat;if(current===chat){$('headStatus').textContent='escribiendo…';renderMsgs()}},3000);
   setTimeout(()=>{
+    typingFor=null;
     chat.msgs.push({t:replies[Math.floor(Math.random()*replies.length)],me:false,ts:Date.now()});
     save();
     if(current===chat){$('headStatus').textContent='en línea';renderMsgs()}
     renderList();
-  },4500+Math.random()*1500);
+  },4800+Math.random()*1500);
 }
 
+$('input').oninput=()=>{$('sendBtn').disabled=!$('input').value.trim()};
 $('composer').onsubmit=e=>{
   e.preventDefault();
   const t=$('input').value.trim();
   if(!t||!current)return;
   const msg={t,me:true,ts:Date.now(),st:0};
   current.msgs.push(msg);
-  $('input').value='';
+  $('input').value='';$('sendBtn').disabled=true;
   save();renderMsgs();renderList();
   simulate(current,msg);
+  $('input').focus();
 };
 
 $('newChat').onclick=()=>{$('newBox').hidden=!$('newBox').hidden;if(!$('newBox').hidden)$('newName').focus()};
@@ -171,15 +288,19 @@ $('newBox').onsubmit=e=>{
   const c={id:Date.now(),name,msgs:[]};
   chats.unshift(c);save();
   $('newName').value='';$('newBox').hidden=true;
-  open(c.id);
+  renderList();open(c.id);
 };
 
-$('clearChat').onclick=()=>{if(current)$('confirmBox').hidden=false};
+$('clearChat').onclick=()=>{$('confirmBox').hidden=false};
 $('no').onclick=()=>{$('confirmBox').hidden=true};
 $('yes').onclick=()=>{current.msgs=[];save();renderMsgs();renderList();$('confirmBox').hidden=true};
-$('back').onclick=()=>{$('app').classList.remove('open');renderList()};
+$('back').onclick=close;
 $('search').oninput=renderList;
 
+// Deslizar desde el borde izquierdo para volver, como en iPhone.
+let sx=null;
+$('chatScreen').addEventListener('touchstart',e=>{const x=e.touches[0].clientX;sx=x<30?x:null},{passive:true});
+$('chatScreen').addEventListener('touchend',e=>{if(sx!==null&&e.changedTouches[0].clientX-sx>80)close();sx=null},{passive:true});
+
 renderList();
-if(!isMobile())open(chats[0].id);
 </script>
