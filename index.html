@@ -128,6 +128,8 @@ svg{display:block}
 .tab.on{background:var(--tabOn);padding:0 20px 7px;pointer-events:auto}
 .tab .me{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;background:linear-gradient(160deg,#cfe8a6,#1f8f4a);color:#fff}
 .tab .me svg{height:18px;margin-top:4px}
+.tab .me.photo{background-size:cover;background-position:center}
+.tab .me.photo svg{display:none}
 
 /* ---------- CHAT ---------- */
 #chat{transform:translateX(100%);background:var(--wall);z-index:10;visibility:hidden;transition:transform .45s var(--ease),visibility 0s .45s}
@@ -290,7 +292,7 @@ svg{display:block}
         <button class="gbtn glass" id="bulkBtn" type="button" aria-label="Difusión"><svg width="24" height="24" viewBox="0 0 22 22" fill="currentColor"><circle cx="4" cy="11" r="2.1"/><circle cx="11" cy="11" r="2.1"/><circle cx="18" cy="11" r="2.1"/></svg></button>
         <div class="navtitle">Chats</div>
         <div class="navend">
-          <button class="gbtn glass" id="camBtn" type="button" aria-label="Cámara">
+          <button class="gbtn glass" id="camBtn" type="button" aria-label="Foto de Tú">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M9 4h6l1.6 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.4z"/><circle cx="12" cy="13" r="4.2" fill="var(--glass)"/><circle cx="12" cy="13" r="3"/></svg>
           </button>
           <button class="gbtn acc" id="newBtn" type="button" aria-label="Nuevo chat">
@@ -304,7 +306,7 @@ svg{display:block}
       <div class="tab"><i class="tb" id="callsTab"></i><svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M7.2 3.8l2.9-.4 2.3 5.3-2.3 1.9c1.4 3 3.9 5.6 6.9 7l1.9-2.3 5.3 2.3-.4 2.9c-.2 1.5-1.5 2.6-3 2.5C12 22.3 5.7 16 5 7.4 4.6 5.6 5.7 4 7.2 3.8z"/></svg>Llamadas</div>
       <div class="tab"><svg viewBox="0 0 34 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="17" cy="9" r="3.6"/><circle cx="7.5" cy="11" r="2.8"/><circle cx="26.5" cy="11" r="2.8"/><path d="M10 22.5a7 7 0 0 1 14 0zM2 21.5a5.5 5.5 0 0 1 7.6-5.1M32 21.5a5.5 5.5 0 0 0-7.6-5.1"/></svg>Comunidades</div>
       <div class="tab on"><i class="tb" id="unreadTab"></i><svg viewBox="0 0 34 28" fill="currentColor"><path d="M22.5 6.5c5 0 9 3.3 9 7.5 0 2.2-1.1 4.2-2.9 5.6.2 1.5 1 2.9 2 3.9-2.4 0-4.4-.9-5.8-2-.9.2-1.8.3-2.7.3-.6 0-1.1 0-1.7-.1 3.3-1.6 5.5-4.6 5.5-8 0-2.9-1.5-5.5-4-7.2z" opacity=".55"/><path d="M13 4.5c-6.1 0-11 4.1-11 9.1 0 2.7 1.4 5.1 3.7 6.8-.2 1.7-1 3.3-2.3 4.4 2.7 0 5-.9 6.6-2.2 1 .3 2 .4 3 .4 6.1 0 11-4.1 11-9.2S19.1 4.5 13 4.5z" opacity=".9"/></svg>Chats</div>
-      <div class="tab" id="waTab" role="button" tabindex="0"><span class="me"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4.6"/><path d="M2.8 23a9.2 8 0 0 1 18.4 0z"/></svg></span>Tú</div>
+      <div class="tab" id="waTab" role="button" tabindex="0"><span class="me" id="meAv"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4.6"/><path d="M2.8 23a9.2 8 0 0 1 18.4 0z"/></svg></span>Tú</div>
     </nav>
   </section>
 
@@ -434,6 +436,7 @@ svg{display:block}
 
   <div class="toast" id="toast"></div>
   <input type="file" id="photoInput" accept="image/*" hidden>
+  <input type="file" id="mePhotoInput" accept="image/*" hidden>
 </div>
 
 <script>
@@ -898,7 +901,27 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') hideSheet();
 /* nuevo chat */
 const newNum = $('#newNum'), newName = $('#newName');
 const validNum = s => normNum(s).replace('+','').length >= 5;
-$('#camBtn').addEventListener('click', () => toast('Cámara no disponible en el simulador'));
+/* foto de "Tú" (barra inferior) */
+const ME_KEY = KEY + '.me';
+function renderMe(){
+  let ph = null; try { ph = localStorage.getItem(ME_KEY); } catch(e){}
+  const el = $('#meAv'); el.classList.toggle('photo', !!ph); el.style.backgroundImage = ph ? `url('${ph}')` : '';
+}
+$('#camBtn').addEventListener('click', () => $('#mePhotoInput').click());
+$('#mePhotoInput').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return;
+  const url = URL.createObjectURL(f), img = new Image();
+  img.onload = () => {
+    const S = 160, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const k = Math.min(img.width, img.height), sx = (img.width - k) / 2, sy = (img.height - k) / 2;
+    cv.getContext('2d').drawImage(img, sx, sy, k, k, 0, 0, S, S); URL.revokeObjectURL(url);
+    try { localStorage.setItem(ME_KEY, cv.toDataURL('image/jpeg', .85)); toast('Foto de Tú actualizada'); } catch(err){ toast('No se pudo guardar la foto'); }
+    renderMe();
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast('No se pudo leer la imagen'); };
+  img.src = url;
+});
+renderMe();
 $('#newBtn').addEventListener('click', () => { newNum.value = newName.value = ''; $('#newCreate').disabled = true; showSheet($('#newSheet')); setTimeout(() => newNum.focus(), 350); });
 newNum.addEventListener('input', () => $('#newCreate').disabled = !validNum(newNum.value));
 function createNew(){
