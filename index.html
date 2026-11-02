@@ -470,25 +470,27 @@ function layoutChat(){
 /* ---------- simulación de estados ---------- */
 function advance(chatId, msgId){
   const c0 = getChat(chatId), m0 = c0 && c0.messages.find(x => x.id === msgId);
-  if (!m0 || m0.status >= 3) return;
-  const delay = [rand(500,1100), rand(700,1800), rand(1500,6000)][m0.status];
+  if (!m0 || m0.status >= (m0.final ?? 3)) return;
+  const delay = [rand(500,1100), rand(900,3000), rand(20000,180000)][m0.status];
   setTimeout(() => {
     const c = getChat(chatId), m = c && c.messages.find(x => x.id === msgId);
-    if (!m || m.status >= 3) return;
+    if (!m || m.status >= (m.final ?? 3)) return;
     m.status++; save(); updateStatus(c, m);
     advance(chatId, msgId);
   }, delay);
 }
+// Estado final al azar: casi siempre dos palomitas; leído y una palomita, poco frecuentes
+function randomFinal(){ const r = Math.random(); return r < .10 ? 1 : r < .85 ? 2 : 3; }
 function sendTo(c, text, ts = Date.now()){
-  const old = Date.now() - ts > 20000;
-  const m = { id: uid(), text, mine: true, ts, status: old ? 3 : 0 };
+  const old = Date.now() - ts > 20000, final = randomFinal();
+  const m = { id: uid(), text, mine: true, ts, final, status: old ? final : 0 };
   let k = c.messages.length; while (k > 0 && c.messages[k-1].ts > ts) k--;
   c.messages.splice(k, 0, m); save();
   if (!old) advance(c.id, m.id);
   return m;
 }
 // reanudar estados pendientes tras recargar
-state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && m.status < 3) advance(c.id, m.id); }));
+state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && m.status < (m.final ?? 3)) advance(c.id, m.id); }));
 
 /* ---------- envíos programados ---------- */
 if (!Array.isArray(state.queue)) state.queue = [];
