@@ -672,9 +672,14 @@ export class Session {
 	}
 
 	// ---- Para el calentamiento: estados y grupo entre tus números ----
+	// Estado visible SOLO para tus números vinculados: la lista de quién lo recibe se arma aquí y solo admite
+	// números que son cuentas de esta app. Ningún contacto o cliente recibe el estado (ni puede verlo).
 	async postStatus(content, jids, opts = {}) {
 		const sock = this.requireSocket()
-		const sent = await sock.sendMessage('status@broadcast', content, { ...opts, statusJidList: jids, broadcast: true })
+		const me = jidNormalizedUser(sock.user.id)
+		const list = [...new Set((jids || []).map(j => jidNormalizedUser(j)))].filter(j => j && j !== me && isPnUser(j) && isOwnJid(j))
+		if (!list.length || list.length !== new Set(jids).size) throw new Error('Estado cancelado: solo se publica para tus números vinculados')
+		const sent = await sock.sendMessage('status@broadcast', content, { ...opts, statusJidList: list, broadcast: true })
 		return { id: sent?.key?.id, from: jidNormalizedUser(sock.user.id) }
 	}
 	async viewStatus(posterJid, id) {

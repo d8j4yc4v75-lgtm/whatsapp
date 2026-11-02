@@ -619,7 +619,8 @@ export class WarmupManager {
 			now - (this.stories[a.id] || 0) > (1.6 + hash01(a.id, this.day) * 2.4) * DAY && !this.busyReal(a.id))
 		const a = pick(due)
 		if (!a) return
-		const viewers = snap.list.filter(x => x.id !== a.id)
+		// Solo lo ven tus otros números vinculados (nunca contactos ni clientes)
+		const viewers = snap.list.filter(x => x.id !== a.id && digits(x.phone) && digits(x.phone) !== digits(a.phone) && isOwnJid(jidOf(x.phone)))
 		if (!viewers.length) return
 		const session = this.manager.sessions.get(a.id)
 		const jids = viewers.map(x => jidOf(x.phone))

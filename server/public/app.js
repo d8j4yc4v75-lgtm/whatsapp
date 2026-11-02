@@ -1982,7 +1982,7 @@ function renderWarmupBox(st) {
 		<div class="item"><span class="grow">Las 24 horas<small>De noche casi no habla, como una persona</small></span>${sw('warmup-allday', st.allDay)}</div>
 		${manual}
 		<div class="item"><span class="grow">Fotos, audios, ubicación y contactos<small>Mensajes variados, no solo texto</small></span>${sw('warmup-media-t', st.media)}</div>
-		<div class="item"><span class="grow">Estados<small>Cada número publica un estado cada 2–4 días y los demás lo ven</small></span>${sw('warmup-stories', st.stories)}</div>
+		<div class="item"><span class="grow">Estados<small>Cada número publica un estado cada 2–4 días. Solo lo ven tus números vinculados, nunca tus contactos ni clientes</small></span>${sw('warmup-stories', st.stories)}</div>
 		<div class="item"><span class="grow">Grupo entre tus números<small>${st.group ? `«${esc(st.group.subject)}» · ${st.group.members} números` : 'Se crea solo cuando hay 3 números con 2+ días'}</small></span>${sw('warmup-groups', st.groups)}</div>
 		<div class="item"><span class="grow">Estado</span>${state}</div>
 		${st.enabled && st.eligible >= 2 ? `
