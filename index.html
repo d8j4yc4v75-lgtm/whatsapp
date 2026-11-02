@@ -66,6 +66,7 @@ svg{display:block}
 .navtitle{position:absolute;left:50%;transform:translateX(-50%);font-weight:600;font-size:17px;opacity:0;transition:opacity .2s;white-space:nowrap}
 #list .nav.scrolled .navtitle{opacity:1}
 .tbtn{color:var(--blue);font-size:17px;padding:8px;display:flex;align-items:center;gap:4px}
+.tbtn.more{width:36px;height:36px;padding:0;justify-content:center;border-radius:50%;background:var(--fill);color:var(--label)}
 .tbtn:active{opacity:.4}
 .scroll{position:absolute;inset:0;overflow-y:auto;overscroll-behavior-y:contain}
 #listScroll{padding:calc(44px + var(--st)) var(--sr) calc(84px + var(--sb)) var(--sl)}
@@ -227,7 +228,7 @@ svg{display:block}
     </div>
     <header class="nav" id="listNav">
       <div class="navrow">
-        <button class="tbtn" id="bulkBtn" type="button">Difusión</button>
+        <button class="tbtn more" id="bulkBtn" type="button" aria-label="Difusión"><svg width="22" height="22" viewBox="0 0 22 22" fill="currentColor"><circle cx="4" cy="11" r="2"/><circle cx="11" cy="11" r="2"/><circle cx="18" cy="11" r="2"/></svg></button>
         <div class="navtitle">Chats</div>
         <button class="tbtn" id="newBtn" type="button" aria-label="Nuevo chat">
           <svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6"/><path d="M19.5 2.8a2 2 0 0 1 2.8 2.8L13 14.9l-3.6.9.9-3.6z"/></svg>
@@ -483,7 +484,7 @@ function renderList(){
     title(c).toLowerCase().includes(q) || (qn && normNum(c.number).includes(qn)) || c.messages.some(m => m.text.toLowerCase().includes(q)));
   const rows = $('#rows');
   if (!chats.length){
-    rows.innerHTML = `<div class="empty">${q ? 'Sin resultados' : 'Aún no hay chats.<br>Toca el lápiz para crear uno o “Difusión” para varios.'}</div>`;
+    rows.innerHTML = `<div class="empty">${q ? 'Sin resultados' : 'Aún no hay chats.<br>Toca el lápiz para crear uno o los tres puntos para varios.'}</div>`;
   } else rows.innerHTML = chats.map(c => {
     const m = last(c);
     const prev = m ? `<div class="rprev">${m.mine ? listIcon(m.status) : ''}<span>${esc(m.text.replace(/\s+/g,' '))}</span></div>` : '<div class="rprev"><span>Toca para escribir</span></div>';
