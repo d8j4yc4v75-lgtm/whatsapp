@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+/* Color de marca: cámbialo aquí y se actualiza toda la app. */
+@theme inline {
+  --color-brand-50: #eef6ff;
+  --color-brand-100: #d9eaff;
+  --color-brand-500: #2f7cf6;
+  --color-brand-600: #1f63e0;
+  --color-brand-700: #1a4fb5;
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: #f8fafc;
+  color: #0f172a;
+}
