@@ -72,7 +72,6 @@ svg{display:block}
 .rbot{display:flex;align-items:center;gap:6px;margin-top:2px}
 .rprev{flex:1;font-size:15px;color:var(--label2);line-height:20px;max-height:40px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;display:flex;align-items:center;gap:3px}
 .rprev span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rprev.typing{color:var(--green)}
 .badge{flex:none;min-width:20px;height:20px;border-radius:10px;background:var(--blue);color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 6px}
 .empty{color:var(--label2);text-align:center;padding:60px 32px;font-size:15px;line-height:1.4}
 .tabbar{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;padding:0 var(--sr) var(--sb) var(--sl);box-shadow:0 -.5px 0 var(--sep)}
@@ -93,7 +92,6 @@ svg{display:block}
 .who .t{min-width:0}
 .who .n{font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who .s{font-size:12px;color:var(--label2);white-space:nowrap}
-.who .s.typing{color:var(--green)}
 .ibtn{color:var(--blue);padding:8px}
 #msgs{padding:calc(52px + var(--st)) calc(10px + var(--sr)) 12px calc(10px + var(--sl))}
 .day{text-align:center;margin:14px 0 8px}
@@ -113,10 +111,6 @@ svg{display:block}
 .tick{width:16px;height:11px;color:rgba(255,255,255,.6)}
 .tick.read{color:#8ff5ff}
 .tick.clock{width:11px;height:11px}
-.typingb{display:inline-flex;gap:4px;padding:12px 14px}
-.typingb i{width:8px;height:8px;border-radius:50%;background:var(--label2);animation:dot 1.2s infinite}
-.typingb i:nth-child(2){animation-delay:.15s}.typingb i:nth-child(3){animation-delay:.3s}
-@keyframes dot{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
 .composer{position:absolute;left:0;right:0;bottom:0;z-index:5;padding:6px calc(10px + var(--sr)) calc(6px + var(--sb)) calc(10px + var(--sl));display:flex;align-items:flex-end;gap:8px;box-shadow:0 -.5px 0 var(--sep)}
 .composer textarea{flex:1;resize:none;border:.5px solid var(--sep);border-radius:18px;background:var(--bg3);padding:7px 14px;font-size:17px;line-height:22px;max-height:120px;outline:0;min-height:36px;height:36px}
 .send{flex:none;width:32px;height:32px;margin-bottom:2px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;transition:opacity .15s,transform .15s}
@@ -149,6 +143,21 @@ svg{display:block}
 .big-btn{display:block;width:100%;margin-top:20px;height:50px;border-radius:12px;background:var(--blue);color:#fff;font-size:17px;font-weight:600}
 .big-btn:disabled{opacity:.4}
 .big-btn:active{opacity:.8}
+.trow{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 16px;font-size:17px}
+.trow+.trow{border-top:.5px solid var(--sep)}
+.trow input{width:auto;padding:0;text-align:right;color:var(--blue);background:transparent;border:0;outline:0;font-size:17px;-webkit-appearance:none;appearance:none;min-height:30px}
+.sw{position:relative;width:51px;height:31px;flex:none}
+.sw input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
+.sw span{position:absolute;inset:0;border-radius:16px;background:var(--fill);transition:background .2s}
+.sw span::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 3px 8px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.16);transition:transform .25s var(--ease)}
+.sw input:checked+span{background:var(--green)}
+.sw input:checked+span::after{transform:translateX(20px)}
+#schedRows.off{display:none}
+.foot.err{color:var(--red)}
+.qbar{margin:0 16px 10px;padding:10px 12px;border-radius:10px;background:var(--fill);display:flex;align-items:center;gap:10px;font-size:15px}
+.qbar .tx{flex:1;min-width:0;line-height:1.3}
+.qbar .tx small{display:block;color:var(--label2);font-size:13px}
+.qbar button{color:var(--red);font-size:15px;padding:4px}
 .preview{overflow:hidden;margin-top:8px;padding:12px;border-radius:10px;background:var(--chatbg)}
 .preview .b{max-width:90%}
 .actions{position:absolute;left:8px;right:8px;bottom:calc(8px + var(--sb));z-index:51;transform:translateY(calc(100% + 40px));visibility:hidden;transition:transform .4s var(--ease),visibility 0s .4s}
@@ -182,6 +191,7 @@ svg{display:block}
           <svg width="17" height="17" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="currentColor"/><path d="M7 7l6 6M13 7l-6 6" stroke="var(--bg)" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>
       </label>
+      <div id="qbar"></div>
       <div class="rows" id="rows"></div>
     </div>
     <header class="nav" id="listNav">
@@ -267,6 +277,16 @@ svg{display:block}
         <button class="chip" type="button" data-ins="{fecha}">+ {fecha}</button>
         <button class="chip" type="button" data-ins="{hora}">+ {hora}</button>
       </div>
+      <div class="lbl">Horario</div>
+      <div class="group">
+        <div class="trow"><span>Repartir en horario</span><label class="sw"><input type="checkbox" id="schedOn" checked><span></span></label></div>
+        <div id="schedRows">
+          <div class="trow"><span>Día</span><input type="date" id="schedDay"></div>
+          <div class="trow"><span>Desde</span><input type="time" id="schedFrom" value="10:00"></div>
+          <div class="trow"><span>Hasta</span><input type="time" id="schedTo" value="15:00"></div>
+        </div>
+      </div>
+      <div class="foot" id="schedInfo"></div>
       <div class="lbl">Vista previa</div>
       <div class="preview" id="bulkPrev"></div>
       <button class="big-btn" id="bulkGo" type="button" disabled>Simular envío</button>
@@ -293,14 +313,12 @@ svg{display:block}
 const $ = s => document.querySelector(s);
 const KEY = 'chatsim.v1';
 const COLORS = ['#ff9500','#ff2d55','#af52de','#5856d6','#007aff','#32ade6','#34c759','#30b0c7','#ff3b30','#a2845e','#5ac8fa','#ffcc00'];
-const REPLIES = ['¡Hola! 👋','Ok, perfecto','Gracias 🙏','¿En serio? 😮','Va, luego te confirmo','Jajaja 😂','Claro que sí','Ahorita no puedo, te marco más tarde','👍','Me parece bien','¿A qué hora?','Recibido ✅','¡Qué buena noticia!','Déjame checarlo','Sí, ahí nos vemos'];
 const rand = (a,b) => a + Math.random()*(b-a);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ---------- estado ---------- */
 let state = load();
-const typing = new Set();
 let current = null;
 
 function seed(){
@@ -379,9 +397,8 @@ function renderList(){
   if (!chats.length){
     rows.innerHTML = `<div class="empty">${q ? 'Sin resultados' : 'Aún no hay chats.<br>Toca el lápiz para crear uno o “Difusión” para varios.'}</div>`;
   } else rows.innerHTML = chats.map(c => {
-    const m = last(c), isT = typing.has(c.id);
-    const prev = isT ? '<div class="rprev typing"><span>escribiendo…</span></div>'
-      : m ? `<div class="rprev">${m.mine ? listIcon(m.status) : ''}<span>${esc(m.text.replace(/\s+/g,' '))}</span></div>` : '<div class="rprev"><span>Toca para escribir</span></div>';
+    const m = last(c);
+    const prev = m ? `<div class="rprev">${m.mine ? listIcon(m.status) : ''}<span>${esc(m.text.replace(/\s+/g,' '))}</span></div>` : '<div class="rprev"><span>Toca para escribir</span></div>';
     return `<button class="row" type="button" data-id="${c.id}">
       <div class="av" style="background-color:${c.color}">${esc(initial(c))}</div>
       <div class="rbody">
@@ -400,9 +417,7 @@ function renderChat(keepScroll){
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
   $('#cAv').style.backgroundColor = c.color; $('#cAv').textContent = initial(c);
   $('#cName').textContent = title(c);
-  const st = $('#cStatus'), isT = typing.has(c.id);
-  st.textContent = isT ? 'escribiendo…' : (c.name ? c.number + ' · en línea' : 'en línea');
-  st.classList.toggle('typing', isT);
+  $('#cStatus').textContent = c.name ? c.number + ' · en línea' : 'en línea';
   let html = '', prevDay = null;
   const ms = c.messages;
   if (!ms.length) html = '<div class="chatempty">🔒 Simulación local. Los mensajes no salen de este navegador.</div>';
@@ -413,7 +428,6 @@ function renderChat(keepScroll){
     const sameN = n && n.mine === m.mine && startOfDay(n.ts) === day && n.ts - m.ts < 12e4;
     html += `<div class="m ${m.mine ? 'me' : 'them'}${sameN ? '' : ' tail'}${sameP ? '' : ' gap'}" data-id="${m.id}"><div class="b">${esc(m.text)}<span class="meta">${hhmm(m.ts)}${m.mine ? `<span class="st">${ICON[m.status]}</span>` : ''}</span></div></div>`;
   });
-  if (isT) html += '<div class="m them tail gap"><div class="b typingb"><i></i><i></i><i></i></div></div>';
   $('#msgs').innerHTML = html;
   if (!keepScroll || atBottom) scrollBottom();
 }
@@ -429,7 +443,7 @@ function layoutChat(){
 }
 
 /* ---------- simulación de estados ---------- */
-function advance(chatId, msgId, chance){
+function advance(chatId, msgId){
   const c0 = getChat(chatId), m0 = c0 && c0.messages.find(x => x.id === msgId);
   if (!m0 || m0.status >= 3) return;
   const delay = [rand(500,1100), rand(700,1800), rand(1500,6000)][m0.status];
@@ -437,31 +451,43 @@ function advance(chatId, msgId, chance){
     const c = getChat(chatId), m = c && c.messages.find(x => x.id === msgId);
     if (!m || m.status >= 3) return;
     m.status++; save(); updateStatus(c, m);
-    if (m.status < 3) advance(chatId, msgId, chance);
-    else if (last(c) === m || !c.messages.slice(c.messages.indexOf(m)+1).some(x => x.mine && x.status < 3)) maybeReply(c, chance);
+    advance(chatId, msgId);
   }, delay);
 }
-function maybeReply(c, chance = .6){
-  if (typing.has(c.id) || Math.random() > chance) return;
-  setTimeout(() => {
-    if (!getChat(c.id)) return;
-    typing.add(c.id); queueList(); if (c.id === current) renderChat(true);
-    setTimeout(() => {
-      typing.delete(c.id);
-      const cc = getChat(c.id); if (!cc) return;
-      cc.messages.push({ id: uid(), text: REPLIES[Math.floor(Math.random()*REPLIES.length)], mine: false, ts: Date.now(), status: null });
-      if (cc.id !== current) cc.unread++;
-      save(); queueList(); if (cc.id === current) renderChat(true);
-    }, rand(1500, 4000));
-  }, rand(400, 2500));
-}
-function sendTo(c, text, chance){
-  const m = { id: uid(), text, mine: true, ts: Date.now(), status: 0 };
-  c.messages.push(m); save(); advance(c.id, m.id, chance);
+function sendTo(c, text, ts = Date.now()){
+  const old = Date.now() - ts > 20000;
+  const m = { id: uid(), text, mine: true, ts, status: old ? 3 : 0 };
+  let k = c.messages.length; while (k > 0 && c.messages[k-1].ts > ts) k--;
+  c.messages.splice(k, 0, m); save();
+  if (!old) advance(c.id, m.id);
   return m;
 }
 // reanudar estados pendientes tras recargar
-state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && m.status < 3) advance(c.id, m.id, .3); }));
+state.chats.forEach(c => c.messages.forEach(m => { if (m.mine && m.status < 3) advance(c.id, m.id); }));
+
+/* ---------- envíos programados ---------- */
+if (!Array.isArray(state.queue)) state.queue = [];
+function runQueue(){
+  const now = Date.now(); if (!state.queue.length) return;
+  const due = state.queue.filter(q => q.ts <= now); if (!due.length){ renderQueue(); return; }
+  state.queue = state.queue.filter(q => q.ts > now);
+  due.forEach(q => { const c = getOrCreate(q.num, q.name); sendTo(c, q.text, q.ts); if (c.id === current) queueChat(); });
+  save(); queueList(); renderQueue();
+}
+let qConfirm = false;
+function renderQueue(){
+  const el = $('#qbar'), q = state.queue;
+  if (!q.length){ el.innerHTML = ''; return; }
+  const next = Math.min(...q.map(x => x.ts)), lastT = Math.max(...q.map(x => x.ts));
+  el.innerHTML = `<div class="qbar"><div class="tx">⏱ ${q.length} programado${q.length === 1 ? '' : 's'}<small>Próximo ${dayLabel(next).toLowerCase()} ${hhmm(next)} · último ${hhmm(lastT)}</small></div><button type="button" id="qCancel">${qConfirm ? '¿Seguro?' : 'Cancelar'}</button></div>`;
+}
+$('#qbar').addEventListener('click', e => {
+  if (!e.target.closest('#qCancel')) return;
+  if (!qConfirm){ qConfirm = true; renderQueue(); setTimeout(() => { qConfirm = false; renderQueue(); }, 3000); return; }
+  const n = state.queue.length; state.queue = []; qConfirm = false; save(); renderQueue(); toast(`${n} envío${n === 1 ? '' : 's'} cancelado${n === 1 ? '' : 's'}`);
+});
+setInterval(runQueue, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) runQueue(); });
 
 /* ---------- navegación ---------- */
 const chatEl = $('#chat'), listEl = $('#list'), shade = $('#shade');
@@ -531,7 +557,7 @@ $('#composer').addEventListener('submit', e => {
   e.preventDefault();
   const text = input.value.trim(); const c = getChat(current);
   if (!text || !c) return;
-  sendTo(c, text, .6); input.value = ''; autoGrow(); updateSend();
+  sendTo(c, text); input.value = ''; autoGrow(); updateSend();
   renderChat(); renderList(); input.focus();
 });
 input.addEventListener('focus', () => setTimeout(scrollBottom, 300));
@@ -575,31 +601,71 @@ function parseNums(){
   });
   return out;
 }
-function fill(tpl, r){
-  const now = Date.now(), c = findByNum(r.num);
+function fill(tpl, r, ts = Date.now()){
+  const c = findByNum(r.num);
   const nombre = r.name || c?.name || r.num;
   return tpl.replace(/\{nombre\}/gi, nombre).replace(/\{n[uú]mero\}/gi, r.num)
-    .replace(/\{fecha\}/gi, new Date(now).toLocaleDateString('es')).replace(/\{hora\}/gi, hhmm(now));
+    .replace(/\{fecha\}/gi, new Date(ts).toLocaleDateString('es')).replace(/\{hora\}/gi, hhmm(ts));
+}
+const schedOn = $('#schedOn'), schedDay = $('#schedDay'), schedFrom = $('#schedFrom'), schedTo = $('#schedTo');
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+try { const sc = JSON.parse(localStorage.getItem(KEY + '.sched') || 'null'); if (sc){ schedOn.checked = sc.on; schedFrom.value = sc.from || '10:00'; schedTo.value = sc.to || '15:00'; } } catch(e){}
+schedDay.value = ymd(new Date());
+function windowRange(){
+  if (!schedOn.checked) return null;
+  if (!schedDay.value || !schedFrom.value || !schedTo.value) return { err: 'Completa día y horas' };
+  const a = new Date(`${schedDay.value}T${schedFrom.value}`).getTime(), b = new Date(`${schedDay.value}T${schedTo.value}`).getTime();
+  if (!(b > a)) return { err: '“Hasta” debe ser después de “Desde”' };
+  return { a, b };
+}
+// reparte n horas dentro de [a,b] de forma uniforme con variación aleatoria
+function spread(n, a, b){
+  const slot = (b - a) / n, out = [];
+  for (let i = 0; i < n; i++) out.push(Math.round(a + slot * (i + rand(.15, .85))));
+  return out;
 }
 function updateBulk(){
-  const list = parseNums(), tpl = bulkTpl.value.trim();
+  const list = parseNums(), tpl = bulkTpl.value.trim(), w = windowRange();
   $('#bulkCount').textContent = `${list.length} número${list.length === 1 ? '' : 's'} válido${list.length === 1 ? '' : 's'}`;
-  $('#bulkGo').disabled = !list.length || !tpl;
-  $('#bulkGo').textContent = list.length ? `Simular envío a ${list.length}` : 'Simular envío';
-  $('#bulkPrev').innerHTML = tpl ? `<div class="m me tail"><div class="b">${esc(fill(tpl, list[0] || { num: '+52 55 0000 0000', name: 'Ana' }))}</div></div>` : '<div class="chatempty" style="margin:4px">Escribe una plantilla</div>';
-  try { localStorage.setItem(KEY + '.tpl', bulkTpl.value); localStorage.setItem(KEY + '.nums', bulkNums.value); } catch(e){}
+  $('#schedRows').classList.toggle('off', !schedOn.checked);
+  const info = $('#schedInfo'); info.classList.toggle('err', !!(w && w.err));
+  if (!w) info.textContent = 'Se envían todos ahora.';
+  else if (w.err) info.textContent = w.err;
+  else {
+    const now = Date.now(), n = list.length;
+    const every = n ? Math.round((w.b - w.a) / n / 60000) : 0;
+    const state_ = w.b <= now ? 'Ya pasó: se registran con esas horas.' : w.a <= now ? 'Los de horas pasadas se registran ya; el resto se envía a su hora (deja la página abierta o vuelve a abrirla).' : 'Se enviarán a su hora (deja la página abierta o vuelve a abrirla).';
+    info.textContent = (n ? `≈ 1 cada ${every < 1 ? '<1' : every} min. ` : '') + state_;
+  }
+  $('#bulkGo').disabled = !list.length || !tpl || !!(w && w.err);
+  $('#bulkGo').textContent = list.length ? (w && !w.err ? `Programar ${list.length} envíos` : `Simular envío a ${list.length}`) : 'Simular envío';
+  const pts = w && !w.err ? w.a : Date.now();
+  $('#bulkPrev').innerHTML = tpl ? `<div class="m me tail"><div class="b">${esc(fill(tpl, list[0] || { num: '+52 55 0000 0000', name: 'Ana' }, pts))}</div></div>` : '<div class="chatempty" style="margin:4px">Escribe una plantilla</div>';
+  try { localStorage.setItem(KEY + '.tpl', bulkTpl.value); localStorage.setItem(KEY + '.nums', bulkNums.value);
+    localStorage.setItem(KEY + '.sched', JSON.stringify({ on: schedOn.checked, from: schedFrom.value, to: schedTo.value })); } catch(e){}
 }
-bulkNums.addEventListener('input', updateBulk); bulkTpl.addEventListener('input', updateBulk);
+[bulkNums, bulkTpl, schedDay, schedFrom, schedTo].forEach(el => el.addEventListener('input', updateBulk));
+schedOn.addEventListener('change', updateBulk);
 document.querySelectorAll('[data-ins]').forEach(b => b.addEventListener('click', () => {
   const t = b.dataset.ins, s = bulkTpl.selectionStart ?? bulkTpl.value.length, e = bulkTpl.selectionEnd ?? s;
   bulkTpl.value = bulkTpl.value.slice(0, s) + t + bulkTpl.value.slice(e); bulkTpl.focus(); bulkTpl.setSelectionRange(s + t.length, s + t.length); updateBulk();
 }));
 $('#bulkBtn').addEventListener('click', () => { updateBulk(); showSheet($('#bulkSheet')); });
 $('#bulkGo').addEventListener('click', () => {
-  const list = parseNums(), tpl = bulkTpl.value.trim(); if (!list.length || !tpl) return;
-  hideSheet(); toast(`Simulando envío a ${list.length} contacto${list.length === 1 ? '' : 's'}…`);
+  const list = parseNums(), tpl = bulkTpl.value.trim(), w = windowRange();
+  if (!list.length || !tpl || (w && w.err)) return;
+  hideSheet();
+  if (w){
+    const times = spread(list.length, w.a, w.b);
+    list.forEach((r, i) => state.queue.push({ id: uid(), num: r.num, name: r.name, text: fill(tpl, r, times[i]), ts: times[i] }));
+    state.queue.sort((x, y) => x.ts - y.ts); save(); runQueue(); renderQueue(); renderList();
+    const pend = state.queue.length;
+    toast(pend ? `⏱ ${list.length} envíos repartidos ${hhmm(w.a)}–${hhmm(w.b)}` : `✓ ${list.length} mensajes registrados`);
+    return;
+  }
+  toast(`Simulando envío a ${list.length} contacto${list.length === 1 ? '' : 's'}…`);
   list.forEach((r, i) => setTimeout(() => {
-    const c = getOrCreate(r.num, r.name); sendTo(c, fill(tpl, r), .3); queueList(); if (c.id === current) queueChat();
+    const c = getOrCreate(r.num, r.name); sendTo(c, fill(tpl, r)); queueList(); if (c.id === current) queueChat();
     if (i === list.length - 1) toast(`✓ ${list.length} mensaje${list.length === 1 ? '' : 's'} simulado${list.length === 1 ? '' : 's'}`);
   }, 300 + i * rand(180, 420)));
 });
@@ -615,10 +681,10 @@ $('#menuBtn').addEventListener('click', () => {
   backdrop.onclick = e => { e.stopImmediatePropagation(); hideActions(); };
 });
 $('#actCancel').addEventListener('click', hideActions);
-$('#actClear').addEventListener('click', () => { const c = getChat(current); if (c){ c.messages = []; typing.delete(c.id); save(); renderChat(); renderList(); } hideActions(); toast('Chat vaciado'); });
+$('#actClear').addEventListener('click', () => { const c = getChat(current); if (c){ c.messages = []; save(); renderChat(); renderList(); } hideActions(); toast('Chat vaciado'); });
 $('#actDelete').addEventListener('click', () => {
   const id = current; hideActions(); goBack();
-  state.chats = state.chats.filter(c => c.id !== id); typing.delete(id); save(); renderList(); toast('Chat eliminado');
+  state.chats = state.chats.filter(c => c.id !== id); save(); renderList(); toast('Chat eliminado');
 });
 
 /* toast */
@@ -629,6 +695,7 @@ function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add
 setInterval(() => { renderList(); }, 60000);
 
 renderList();
+runQueue(); renderQueue();
 })();
 </script>
 </body>
