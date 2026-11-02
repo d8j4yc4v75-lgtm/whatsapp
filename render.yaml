@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: chats-whatsapp
+    runtime: docker
+    plan: starter
+    envVars:
+      - key: WA_TOKEN
+        generateValue: true
+    disk:
+      name: wa-auth
+      mountPath: /data
+      sizeGB: 1

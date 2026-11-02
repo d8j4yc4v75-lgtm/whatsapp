@@ -27,3 +27,12 @@ La app no envía mensajes: todo sigue simulado. Con la cuenta conectada, cada en
 Si la app se abre desde GitHub Pages, escribe en Ajustes la URL del servidor (debe ser `https`) y el token.
 
 Variables: `PORT` (3000), `WA_TOKEN` (protege la API), `DEFAULT_CC` (lada para números de 10 dígitos, `52`), `AUTH_DIR` (carpeta de la sesión, `server/auth`).
+
+### Publicar el servidor (para usarlo desde GitHub Pages)
+
+GitHub Pages solo sirve la página; Baileys necesita un servidor siempre encendido. El repositorio incluye `Dockerfile`, `railway.json` y `render.yaml`:
+
+- **Railway:** New Project → Deploy from GitHub repo → esta rama. Agrega un volumen montado en `/data` y la variable `WA_TOKEN`. En Settings → Networking genera el dominio.
+- **Render:** New → Blueprint → este repositorio (usa `render.yaml`, con disco en `/data`).
+
+Luego abre la página de GitHub Pages → Ajustes → WhatsApp, pega la URL `https://…` del servidor y el token, y toca **Conectar mi WhatsApp**. También puedes abrir directamente la URL del servidor: sirve la misma app.
