@@ -62,6 +62,8 @@ svg{display:block}
 .row:active{background:var(--fill)}
 .av{flex:none;width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:21px;
   background-image:linear-gradient(180deg,rgba(255,255,255,.18),rgba(0,0,0,.08))}
+.av.photo{background-size:cover;background-position:center;color:transparent}
+#cAv{cursor:pointer}
 .av.sm{width:36px;height:36px;font-size:15px}
 .rbody{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:center;padding-right:16px;box-shadow:0 .5px 0 var(--sep) inset;box-shadow:none;border-bottom:.5px solid var(--sep)}
 .row:last-child .rbody{border-bottom:0}
@@ -223,7 +225,7 @@ svg{display:block}
           <span id="backCount" style="margin-left:6px"></span>
         </button>
         <div class="who">
-          <div class="av sm" id="cAv"></div>
+          <div class="av sm" id="cAv" role="button" aria-label="Cambiar foto"></div>
           <div class="t"><div class="n" id="cName"></div><div class="s" id="cStatus">en línea</div></div>
         </div>
         <button class="ibtn" id="menuBtn" type="button" aria-label="Vaciar chat">
@@ -298,6 +300,8 @@ svg{display:block}
   <div class="actions" id="actions" role="alertdialog">
     <div class="ag">
       <div class="msg" id="actMsg"></div>
+      <button type="button" id="actPhoto">Cambiar foto</button>
+      <button type="button" class="d" id="actNoPhoto">Quitar foto</button>
       <button type="button" class="d" id="actClear">Vaciar chat</button>
       <button type="button" class="d" id="actDelete">Eliminar chat</button>
     </div>
@@ -305,6 +309,7 @@ svg{display:block}
   </div>
 
   <div class="toast" id="toast"></div>
+  <input type="file" id="photoInput" accept="image/*" hidden>
 </div>
 
 <script>
@@ -383,6 +388,26 @@ const ICON = {
 };
 const listIcon = st => ICON[st].replace('class="tick', 'style="color:' + (st === 3 ? 'var(--blue)' : 'var(--label2)') + ';flex:none" class="tick');
 
+/* ---------- avatar / foto ---------- */
+const avCls = c => 'av' + (c.photo ? ' photo' : '');
+const avStyle = c => `background-color:${c.color}` + (c.photo ? `;background-image:url('${c.photo}')` : '');
+function pickPhoto(){ if (current) $('#photoInput').click(); }
+$('#cAv').addEventListener('click', pickPhoto);
+$('#photoInput').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0]; e.target.value = ''; const id = current;
+  if (!f || !id) return;
+  const url = URL.createObjectURL(f), img = new Image();
+  img.onload = () => {
+    const S = 192, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const k = Math.min(img.width, img.height), sx = (img.width - k) / 2, sy = (img.height - k) / 2;
+    cv.getContext('2d').drawImage(img, sx, sy, k, k, 0, 0, S, S); URL.revokeObjectURL(url);
+    const c = getChat(id); if (!c) return;
+    c.photo = cv.toDataURL('image/jpeg', .82); save(); renderList(); if (id === current) renderChat(true); toast('Foto actualizada');
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast('No se pudo leer la imagen'); };
+  img.src = url;
+});
+
 /* ---------- render lista ---------- */
 let rafList = 0, rafChat = 0;
 const queueList = () => { if (!rafList) rafList = requestAnimationFrame(() => { rafList = 0; renderList(); }); };
@@ -400,7 +425,7 @@ function renderList(){
     const m = last(c);
     const prev = m ? `<div class="rprev">${m.mine ? listIcon(m.status) : ''}<span>${esc(m.text.replace(/\s+/g,' '))}</span></div>` : '<div class="rprev"><span>Toca para escribir</span></div>';
     return `<button class="row" type="button" data-id="${c.id}">
-      <div class="av" style="background-color:${c.color}">${esc(initial(c))}</div>
+      <div class="${avCls(c)}" style="${avStyle(c)}">${esc(initial(c))}</div>
       <div class="rbody">
         <div class="rtop"><div class="rname">${esc(title(c))}</div><div class="rtime${c.unread ? ' un' : ''}">${listTime(m?.ts)}</div></div>
         <div class="rbot">${prev}${c.unread ? `<div class="badge">${c.unread}</div>` : ''}</div>
@@ -415,7 +440,7 @@ function renderChat(keepScroll){
   const c = getChat(current); if (!c) return;
   const sc = $('#chatScroll');
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
-  $('#cAv').style.backgroundColor = c.color; $('#cAv').textContent = initial(c);
+  $('#cAv').className = avCls(c) + ' sm'; $('#cAv').style.cssText = avStyle(c); $('#cAv').textContent = initial(c);
   $('#cName').textContent = title(c);
   $('#cStatus').textContent = c.name ? c.number + ' · en línea' : 'en línea';
   let html = '', prevDay = null;
@@ -675,12 +700,15 @@ const actions = $('#actions');
 function hideActions(){ actions.classList.remove('on'); backdrop.classList.remove('on'); backdrop.onclick = null; }
 $('#menuBtn').addEventListener('click', () => {
   const c = getChat(current); if (!c) return;
-  $('#actMsg').textContent = `¿Vaciar o eliminar el chat con ${title(c)}? Esta acción no se puede deshacer.`;
+  $('#actMsg').textContent = `${title(c)} · Vaciar o eliminar no se puede deshacer.`;
+  $('#actNoPhoto').hidden = !c.photo;
   $('#actClear').disabled = !c.messages.length; $('#actClear').style.opacity = c.messages.length ? '' : '.35';
   backdrop.classList.add('on'); actions.classList.add('on');
   backdrop.onclick = e => { e.stopImmediatePropagation(); hideActions(); };
 });
 $('#actCancel').addEventListener('click', hideActions);
+$('#actPhoto').addEventListener('click', () => { hideActions(); setTimeout(pickPhoto, 50); });
+$('#actNoPhoto').addEventListener('click', () => { const c = getChat(current); if (c){ delete c.photo; save(); renderChat(true); renderList(); } hideActions(); toast('Foto quitada'); });
 $('#actClear').addEventListener('click', () => { const c = getChat(current); if (c){ c.messages = []; save(); renderChat(); renderList(); } hideActions(); toast('Chat vaciado'); });
 $('#actDelete').addEventListener('click', () => {
   const id = current; hideActions(); goBack();
