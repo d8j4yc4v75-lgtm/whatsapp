@@ -49,7 +49,7 @@ svg{display:block}
 #list .nav.scrolled .navtitle{opacity:1}
 .tbtn{color:var(--blue);font-size:17px;padding:8px;display:flex;align-items:center;gap:4px}
 .tbtn:active{opacity:.4}
-.scroll{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain}
+.scroll{position:absolute;inset:0;overflow-y:auto;overscroll-behavior-y:contain}
 #listScroll{padding:calc(44px + var(--st)) var(--sr) calc(84px + var(--sb)) var(--sl)}
 .big{font-size:34px;font-weight:700;letter-spacing:.37px;margin:2px 16px 8px}
 .search{margin:0 16px 10px;height:36px;border-radius:10px;background:var(--fill);display:flex;align-items:center;padding:0 8px;gap:6px;color:var(--label2)}
@@ -125,13 +125,16 @@ svg{display:block}
 .backdrop.on{opacity:1;pointer-events:auto}
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:51;background:var(--sheet);border-radius:12px 12px 0 0;transform:translateY(105%);transition:transform .4s var(--ease);
   max-height:calc(100% - var(--st) - 12px);display:flex;flex-direction:column;padding-bottom:var(--sb);visibility:hidden;transition:transform .4s var(--ease),visibility 0s .4s}
-.sheet.on{transform:translateY(0);visibility:visible;transition:transform .4s var(--ease)}
+.sheet.on{transform:none;visibility:visible;transition:transform .4s var(--ease)}
 @media (min-width:600px){.sheet{left:50%;right:auto;width:560px;margin-left:-280px}}
 .sh-head{display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 8px;flex:none;position:relative}
 .sh-head .t{position:absolute;left:50%;transform:translateX(-50%);font-weight:600;font-size:17px}
 .sh-head .tbtn.b{font-weight:600}
 .tbtn:disabled{opacity:.35}
-.sh-body{overflow-y:auto;padding:0 16px 20px;-webkit-overflow-scrolling:touch}
+.sh-body{overflow-y:auto;padding:0 16px 20px;overscroll-behavior:contain;flex:1 1 auto;min-height:0}
+.group textarea,.group input{-webkit-user-select:text;user-select:text;touch-action:manipulation}
+.qbar .ed{color:var(--blue)}
+.note{margin:4px 0 0;padding:10px 12px;border-radius:10px;background:var(--fill);font-size:14px;line-height:1.35}
 .lbl{font-size:13px;color:var(--label2);text-transform:uppercase;margin:16px 16px 6px}
 .lbl:first-child{margin-top:4px}
 .group{background:var(--bg3);border-radius:10px;overflow:hidden}
@@ -268,17 +271,14 @@ svg{display:block}
       <span style="width:70px"></span>
     </div>
     <div class="sh-body">
+      <div class="note" id="editNote" hidden></div>
       <div class="lbl">Números</div>
-      <div class="group"><textarea id="bulkNums" placeholder="Uno por línea. Opcional: número, nombre&#10;+52 55 1111 2222, Ana&#10;+52 55 3333 4444, Luis&#10;5512345678"></textarea></div>
+      <div class="group"><textarea id="bulkNums" placeholder="numero, nombre, monto&#10;+52 55 1111 2222, Ana, 500&#10;+52 55 3333 4444, Luis, 750&#10;5512345678"></textarea></div>
       <div class="foot" id="bulkCount">0 números válidos</div>
+      <div class="foot">Uno por línea. Para tus propias variables pon una primera fila con encabezados (ej. <b>numero, nombre, monto</b>) y úsalas en la plantilla como <b>{monto}</b>.</div>
       <div class="lbl">Plantilla</div>
       <div class="group"><textarea id="bulkTpl" placeholder="Hola {nombre}, te escribo para…"></textarea></div>
-      <div class="chips">
-        <button class="chip" type="button" data-ins="{nombre}">+ {nombre}</button>
-        <button class="chip" type="button" data-ins="{numero}">+ {numero}</button>
-        <button class="chip" type="button" data-ins="{fecha}">+ {fecha}</button>
-        <button class="chip" type="button" data-ins="{hora}">+ {hora}</button>
-      </div>
+      <div class="chips" id="chips"></div>
       <div class="lbl">Horario</div>
       <div class="group">
         <div class="trow"><span>Repartir en horario</span><label class="sw"><input type="checkbox" id="schedOn" checked><span></span></label></div>
@@ -496,7 +496,7 @@ function runQueue(){
   const now = Date.now(); if (!state.queue.length) return;
   const due = state.queue.filter(q => q.ts <= now); if (!due.length){ renderQueue(); return; }
   state.queue = state.queue.filter(q => q.ts > now);
-  due.forEach(q => { const c = getOrCreate(q.num, q.name); sendTo(c, q.text, q.ts); if (c.id === current) queueChat(); });
+  due.forEach(q => { const c = getOrCreate(q.num, q.name); sendTo(c, q.tpl ? fill(q.tpl, q, q.ts) : q.text, q.ts); if (c.id === current) queueChat(); });
   save(); queueList(); renderQueue();
 }
 let qConfirm = false;
@@ -504,9 +504,11 @@ function renderQueue(){
   const el = $('#qbar'), q = state.queue;
   if (!q.length){ el.innerHTML = ''; return; }
   const next = Math.min(...q.map(x => x.ts)), lastT = Math.max(...q.map(x => x.ts));
-  el.innerHTML = `<div class="qbar"><div class="tx">⏱ ${q.length} programado${q.length === 1 ? '' : 's'}<small>Próximo ${dayLabel(next).toLowerCase()} ${hhmm(next)} · último ${hhmm(lastT)}</small></div><button type="button" id="qCancel">${qConfirm ? '¿Seguro?' : 'Cancelar'}</button></div>`;
+  el.innerHTML = `<div class="qbar"><div class="tx">⏱ ${q.length} programado${q.length === 1 ? '' : 's'}<small>Próximo ${dayLabel(next).toLowerCase()} ${hhmm(next)} · último ${hhmm(lastT)}</small></div><button type="button" class="ed" id="qEdit">Editar</button><button type="button" id="qCancel">${qConfirm ? '¿Seguro?' : 'Cancelar'}</button></div>`;
 }
+let editing = false;
 $('#qbar').addEventListener('click', e => {
+  if (e.target.closest('#qEdit')) return editQueue();
   if (!e.target.closest('#qCancel')) return;
   if (!qConfirm){ qConfirm = true; renderQueue(); setTimeout(() => { qConfirm = false; renderQueue(); }, 3000); return; }
   const n = state.queue.length; state.queue = []; qConfirm = false; save(); renderQueue(); toast(`${n} envío${n === 1 ? '' : 's'} cancelado${n === 1 ? '' : 's'}`);
@@ -597,8 +599,16 @@ $('#listScroll').addEventListener('scroll', e => $('#listNav').classList.toggle(
 /* ---------- hojas ---------- */
 const backdrop = $('#backdrop'); let openSheet = null;
 function showSheet(el){ openSheet = el; backdrop.classList.add('on'); el.classList.add('on'); }
-function hideSheet(){ if (!openSheet) return; openSheet.classList.remove('on'); backdrop.classList.remove('on'); document.activeElement?.blur(); openSheet = null; }
+function hideSheet(){ if (!openSheet) return;
+  if (editing && openSheet.id === 'bulkSheet'){ editing = false; $('#editNote').hidden = true; if (editBackup){ state.queue.push(...editBackup); editBackup = null; save(); renderQueue(); toast('Programados sin cambios'); } } openSheet.classList.remove('on'); backdrop.classList.remove('on'); document.activeElement?.blur(); openSheet = null; }
 backdrop.addEventListener('click', hideSheet);
+function fitSheet(){
+  const vv = window.visualViewport; if (!vv) return;
+  const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  document.querySelectorAll('.sheet').forEach(sh => { sh.style.bottom = kb ? kb + 'px' : ''; sh.style.maxHeight = kb ? (vv.height - 8) + 'px' : ''; sh.style.paddingBottom = kb ? '0' : ''; });
+}
+if (window.visualViewport){ visualViewport.addEventListener('resize', fitSheet); visualViewport.addEventListener('scroll', fitSheet); }
+document.querySelectorAll('.sheet textarea, .sheet input').forEach(el => el.addEventListener('focus', () => setTimeout(() => { fitSheet(); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 300)));
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', hideSheet));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') hideSheet(); });
 
@@ -618,20 +628,44 @@ $('#newCreate').addEventListener('click', createNew);
 /* difusión */
 const bulkNums = $('#bulkNums'), bulkTpl = $('#bulkTpl');
 try { bulkTpl.value = localStorage.getItem(KEY + '.tpl') || ''; bulkNums.value = localStorage.getItem(KEY + '.nums') || ''; } catch(e){}
+const keyOf = k => String(k).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '_');
 function parseNums(){
-  const seen = new Set(), out = [];
-  bulkNums.value.split(/\n/).forEach(line => {
-    const parts = line.split(/[,;\t]/); const num = (parts[0] || '').trim(); const name = parts.slice(1).join(' ').trim();
-    if (!validNum(num)) return; const k = normNum(num); if (seen.has(k)) return; seen.add(k); out.push({ num, name });
+  const seen = new Set(), out = []; let header = null;
+  const lines = bulkNums.value.split(/\n/).filter(l => l.trim());
+  if (lines.length){ const f = lines[0].split(/[,;\t]/); if (!validNum(f[0]) && /[a-záéíóúñ]/i.test(f[0])){ header = f.map(keyOf); lines.shift(); } }
+  lines.forEach(line => {
+    const parts = line.split(/[,;\t]/).map(x => x.trim()); const num = parts[0] || '';
+    if (!validNum(num)) return; const k = normNum(num); if (seen.has(k)) return; seen.add(k);
+    const vars = {}; let name = '';
+    if (header){ header.forEach((h, idx) => { if (idx > 0 && h) vars[h] = parts[idx] ?? ''; }); name = vars.nombre || ''; }
+    else name = parts.slice(1).join(' ').trim();
+    out.push({ num, name, vars });
   });
+  out.header = header;
   return out;
 }
 function fill(tpl, r, ts = Date.now()){
-  const c = findByNum(r.num);
-  const nombre = r.name || c?.name || r.num;
-  return tpl.replace(/\{nombre\}/gi, nombre).replace(/\{n[uú]mero\}/gi, r.num)
-    .replace(/\{fecha\}/gi, new Date(ts).toLocaleDateString('es')).replace(/\{hora\}/gi, hhmm(ts));
+  const c = findByNum(r.num), v = r.vars || {};
+  return tpl.replace(/\{([^{}\n]+)\}/g, (m, k) => {
+    k = keyOf(k);
+    if (k === 'nombre') return r.name || v.nombre || c?.name || r.num;
+    if (k === 'numero') return r.num;
+    if (k === 'fecha' && !(k in v)) return new Date(ts).toLocaleDateString('es');
+    if (k === 'hora' && !(k in v)) return hhmm(ts);
+    return k in v ? v[k] : m;
+  });
 }
+function renderChips(list){
+  const keys = ['nombre', 'numero', 'fecha', 'hora', ...((list.header || []).slice(1).filter(h => h && !['nombre','numero','fecha','hora'].includes(h)))];
+  const html = keys.map(k => `<button class="chip" type="button" data-ins="{${esc(k)}}">+ {${esc(k)}}</button>`).join('');
+  if ($('#chips').innerHTML !== html) $('#chips').innerHTML = html;
+}
+$('#chips').addEventListener('pointerdown', e => { if (e.target.closest('[data-ins]')) e.preventDefault(); });
+$('#chips').addEventListener('click', e => {
+  const b = e.target.closest('[data-ins]'); if (!b) return;
+  const t = b.dataset.ins, s = bulkTpl.selectionStart ?? bulkTpl.value.length, en = bulkTpl.selectionEnd ?? s;
+  bulkTpl.value = bulkTpl.value.slice(0, s) + t + bulkTpl.value.slice(en); bulkTpl.focus(); bulkTpl.setSelectionRange(s + t.length, s + t.length); updateBulk();
+});
 const schedOn = $('#schedOn'), schedDay = $('#schedDay'), schedFrom = $('#schedFrom'), schedTo = $('#schedTo');
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 try { const sc = JSON.parse(localStorage.getItem(KEY + '.sched') || 'null'); if (sc){ schedOn.checked = sc.on; schedFrom.value = sc.from || '10:00'; schedTo.value = sc.to || '15:00'; } } catch(e){}
@@ -651,7 +685,10 @@ function spread(n, a, b){
 }
 function updateBulk(){
   const list = parseNums(), tpl = bulkTpl.value.trim(), w = windowRange();
-  $('#bulkCount').textContent = `${list.length} número${list.length === 1 ? '' : 's'} válido${list.length === 1 ? '' : 's'}`;
+  renderChips(list);
+  const miss = [...new Set([...tpl.matchAll(/\{([^{}\n]+)\}/g)].map(m => keyOf(m[1])))].filter(k => !['nombre','numero','fecha','hora'].includes(k) && !(list.header || []).includes(k));
+  $('#bulkCount').textContent = `${list.length} número${list.length === 1 ? '' : 's'} válido${list.length === 1 ? '' : 's'}` + (miss.length ? ` · Falta columna: ${miss.map(k => '{' + k + '}').join(', ')}` : '');
+  $('#bulkCount').classList.toggle('err', !!miss.length);
   $('#schedRows').classList.toggle('off', !schedOn.checked);
   const info = $('#schedInfo'); info.classList.toggle('err', !!(w && w.err));
   if (!w) info.textContent = 'Se envían todos ahora.';
@@ -671,18 +708,31 @@ function updateBulk(){
 }
 [bulkNums, bulkTpl, schedDay, schedFrom, schedTo].forEach(el => el.addEventListener('input', updateBulk));
 schedOn.addEventListener('change', updateBulk);
-document.querySelectorAll('[data-ins]').forEach(b => b.addEventListener('click', () => {
-  const t = b.dataset.ins, s = bulkTpl.selectionStart ?? bulkTpl.value.length, e = bulkTpl.selectionEnd ?? s;
-  bulkTpl.value = bulkTpl.value.slice(0, s) + t + bulkTpl.value.slice(e); bulkTpl.focus(); bulkTpl.setSelectionRange(s + t.length, s + t.length); updateBulk();
-}));
-$('#bulkBtn').addEventListener('click', () => { updateBulk(); showSheet($('#bulkSheet')); });
+$('#bulkBtn').addEventListener('click', () => { if (editing){ editing = false; $('#editNote').hidden = true; } updateBulk(); showSheet($('#bulkSheet')); });
+// Editar programados: se sacan de la cola y se cargan en el formulario para cambiarlos y volver a programar
+function editQueue(){
+  const q = [...state.queue].sort((a, b) => a.ts - b.ts); if (!q.length) return;
+  const keys = [...new Set(q.flatMap(x => Object.keys(x.vars || {})))].filter(k => k !== 'nombre');
+  const head = ['numero', 'nombre', ...keys];
+  bulkNums.value = head.join(', ') + '\n' + q.map(x => [x.num, x.name || (x.vars || {}).nombre || '', ...keys.map(k => (x.vars || {})[k] ?? '')].join(', ')).join('\n');
+  bulkTpl.value = q[0].tpl || q[0].text;
+  const first = new Date(Math.max(q[0].ts, Date.now() + 60000)), last = new Date(q[q.length - 1].ts);
+  const hm2 = d => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  schedOn.checked = true; schedDay.value = ymd(first); schedFrom.value = hm2(first); schedTo.value = hm2(new Date(Math.max(last.getTime() + 60000, first.getTime() + 60000)));
+  state.queue = []; save(); renderQueue(); editing = true;
+  const n = q.length; $('#editNote').hidden = false;
+  $('#editNote').textContent = `Editando ${n} envío${n === 1 ? '' : 's'} programado${n === 1 ? '' : 's'}. Cambia números, variables o plantilla y vuelve a programar. Si cancelas, se restauran.`;
+  editBackup = q; updateBulk(); showSheet($('#bulkSheet'));
+}
+let editBackup = null;
 $('#bulkGo').addEventListener('click', () => {
   const list = parseNums(), tpl = bulkTpl.value.trim(), w = windowRange();
   if (!list.length || !tpl || (w && w.err)) return;
+  editing = false; editBackup = null; $('#editNote').hidden = true;
   hideSheet();
   if (w){
     const times = spread(list.length, w.a, w.b);
-    list.forEach((r, i) => state.queue.push({ id: uid(), num: r.num, name: r.name, text: fill(tpl, r, times[i]), ts: times[i] }));
+    list.forEach((r, i) => state.queue.push({ id: uid(), num: r.num, name: r.name, vars: r.vars, tpl, text: fill(tpl, r, times[i]), ts: times[i] }));
     state.queue.sort((x, y) => x.ts - y.ts); save(); runQueue(); renderQueue(); renderList();
     const pend = state.queue.length;
     toast(pend ? `⏱ ${list.length} envíos repartidos ${hhmm(w.a)}–${hhmm(w.b)}` : `✓ ${list.length} mensajes registrados`);
