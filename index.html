@@ -239,7 +239,7 @@ svg{display:block}
 .sw input:checked+span::after{transform:translateX(20px)}
 #schedRows.off{display:none}
 .foot.err{color:var(--red)}
-.qbar{margin:0 16px 10px;padding:10px 12px;border-radius:10px;background:var(--fill);display:flex;align-items:center;gap:10px;font-size:15px}
+.qbar{margin:0 0 10px;padding:10px 12px;border-radius:10px;background:var(--fill);display:flex;align-items:center;gap:10px;font-size:15px}
 .qbar .tx{flex:1;min-width:0;line-height:1.3}
 .qbar .tx small{display:block;color:var(--label2);font-size:13px}
 .qbar button{color:var(--red);font-size:15px;padding:4px}
@@ -290,7 +290,6 @@ svg{display:block}
         <button class="fchip" type="button" data-f="fav">Favoritos</button>
         <button class="fchip" type="button" data-f="groups">Grupos</button>
       </div>
-      <div id="qbar"></div>
       <div class="rows" id="rows"></div>
     </div>
     <header class="nav" id="listNav">
@@ -310,7 +309,7 @@ svg{display:block}
     <nav class="tabbar">
       <div class="tab"><svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="14" cy="14" r="6.6"/><path d="M14 3.5a10.5 10.5 0 0 1 9.1 5.25M24.4 12a10.5 10.5 0 0 1-1.3 7.25M20.5 22.3A10.5 10.5 0 0 1 7.5 22.3M4.9 19.25A10.5 10.5 0 0 1 3.6 12M4.9 8.75A10.5 10.5 0 0 1 10 4.3"/><path d="M7.5 22.3l-2.4 2.2.6-3.4"/></svg>Novedades</div>
       <div class="tab"><i class="tb" id="callsTab"></i><svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M7.2 3.8l2.9-.4 2.3 5.3-2.3 1.9c1.4 3 3.9 5.6 6.9 7l1.9-2.3 5.3 2.3-.4 2.9c-.2 1.5-1.5 2.6-3 2.5C12 22.3 5.7 16 5 7.4 4.6 5.6 5.7 4 7.2 3.8z"/></svg>Llamadas</div>
-      <div class="tab"><svg viewBox="0 0 34 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="17" cy="9" r="3.6"/><circle cx="7.5" cy="11" r="2.8"/><circle cx="26.5" cy="11" r="2.8"/><path d="M10 22.5a7 7 0 0 1 14 0zM2 21.5a5.5 5.5 0 0 1 7.6-5.1M32 21.5a5.5 5.5 0 0 0-7.6-5.1"/></svg>Comunidades</div>
+      <div class="tab" id="commTab" role="button" tabindex="0"><svg viewBox="0 0 34 28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="17" cy="9" r="3.6"/><circle cx="7.5" cy="11" r="2.8"/><circle cx="26.5" cy="11" r="2.8"/><path d="M10 22.5a7 7 0 0 1 14 0zM2 21.5a5.5 5.5 0 0 1 7.6-5.1M32 21.5a5.5 5.5 0 0 0-7.6-5.1"/></svg>Comunidades</div>
       <div class="tab on"><i class="tb" id="unreadTab"></i><svg viewBox="0 0 34 28" fill="currentColor"><path d="M22.5 6.5c5 0 9 3.3 9 7.5 0 2.2-1.1 4.2-2.9 5.6.2 1.5 1 2.9 2 3.9-2.4 0-4.4-.9-5.8-2-.9.2-1.8.3-2.7.3-.6 0-1.1 0-1.7-.1 3.3-1.6 5.5-4.6 5.5-8 0-2.9-1.5-5.5-4-7.2z" opacity=".55"/><path d="M13 4.5c-6.1 0-11 4.1-11 9.1 0 2.7 1.4 5.1 3.7 6.8-.2 1.7-1 3.3-2.3 4.4 2.7 0 5-.9 6.6-2.2 1 .3 2 .4 3 .4 6.1 0 11-4.1 11-9.2S19.1 4.5 13 4.5z" opacity=".9"/></svg>Chats</div>
       <div class="tab" id="waTab" role="button" tabindex="0"><span class="me" id="meAv"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4.6"/><path d="M2.8 23a9.2 8 0 0 1 18.4 0z"/></svg></span>Tú</div>
     </nav>
@@ -428,6 +427,16 @@ svg{display:block}
     </div>
   </div>
 
+  <!-- COMUNIDADES: envíos programados -->
+  <div class="sheet" id="commSheet" role="dialog" aria-label="Programados">
+    <div class="sh-head">
+      <span style="width:70px"></span>
+      <div class="t">Programados</div>
+      <button class="tbtn b" type="button" data-close>OK</button>
+    </div>
+    <div class="sh-body"><div id="qbar"></div></div>
+  </div>
+
   <!-- CONFIRMACIÓN -->
   <div class="actions" id="actions" role="alertdialog">
     <div class="ag">
@@ -461,7 +470,7 @@ let current = null;
 
 function seed(){
   const now = Date.now(), d = 864e5;
-  const mk = (num, name, msgs) => ({ id: uid(), number: num, name, color: colorFor(num), unread: 0, messages: msgs.map(([t, mine, ago, st]) => ({ id: uid(), text: t, mine, ts: now - ago, status: mine ? (st ?? 3) : null })) });
+  const mk = (num, name, msgs) => ({ id: uid(), number: num, name, color: colorFor(num), unread: 0, messages: msgs.map(([t, mine, ago, st]) => ({ id: uid(), text: t, mine, ts: now - ago, status: mine ? (st ?? 2) : null })) });
   return [
     mk('+52 55 1234 5678', 'Ana', [['¿Vamos por café mañana?', false, d+36e5], ['¡Va! ¿A las 10?', true, d+35e5], ['Perfecto ☕', false, 18e5]]),
     mk('+52 33 8765 4321', 'Carlos', [['Te mando el archivo en un rato', true, 3*d], ['Gracias, quedo pendiente', false, 3*d-6e5]])
@@ -479,6 +488,8 @@ function fix(s){
     c.messages = c.messages.filter(m => m && typeof m.text === 'string');
     c.messages.forEach(m => {
       if (m.mine && !(m.status >= 0 && m.status <= 3)) m.status = m.final = 1;
+      if (m.mine && m.status === 3) m.status = 2;
+      if (m.mine && m.final === 3) m.final = 2;
       if (m.real){ delete m.real; delete m.error; delete m.wa; if (!(m.final >= 1)) m.final = 2; }
     });
   });
@@ -660,7 +671,7 @@ function advance(chatId, msgId){
   }, delay);
 }
 // Estado final al azar: casi siempre dos palomitas; leído y una palomita, poco frecuentes
-function randomFinal(){ const r = Math.random(); return r < .10 ? 1 : r < .85 ? 2 : 3; }
+function randomFinal(){ return Math.random() < .12 ? 1 : 2; } // sin palomitas azules
 function sendTo(c, text, ts = Date.now()){
   // con WhatsApp conectado se verifica antes: los números sin WhatsApp se omiten
   WA.check(c).then(ok => { const ch = getChat(c.id); if (!ch) return;
@@ -716,6 +727,7 @@ const WA = (() => {
       if (es && es.readyState === 2){ es = null; setTimeout(listen, Math.min(30000, 2000 * 2 ** retry++)); } };
   }
   $('#waTab').addEventListener('click', () => { render(); showSheet($('#waSheet')); });
+  $('#commTab').addEventListener('click', () => { renderQueue(); showSheet($('#commSheet')); });
   $('#waConnect').addEventListener('click', async () => {
     cfg.used = true; saveCfg(); if (!es) listen();
     try { st = await api(st.status === 'offline' || st.status === 'disconnected' ? 'connect' : 'logout', {}); }
@@ -793,7 +805,7 @@ function runQueue(){
 let qConfirm = false;
 function renderQueue(){
   const el = $('#qbar'), q = state.queue;
-  if (!q.length){ el.innerHTML = ''; return; }
+  if (!q.length){ el.innerHTML = '<div class="foot" style="text-align:center;margin:24px 0">No hay envíos programados.</div>'; return; }
   const next = Math.min(...q.map(x => x.ts)), lastT = Math.max(...q.map(x => x.ts));
   el.innerHTML = `<div class="qbar"><div class="tx">⏱ ${q.length} programado${q.length === 1 ? '' : 's'}<small>Próximo ${dayLabel(next).toLowerCase()} ${hhmm(next)} · último ${hhmm(lastT)}</small></div><button type="button" class="ed" id="qEdit">Editar</button><button type="button" id="qCancel">${qConfirm ? '¿Seguro?' : 'Cancelar'}</button></div>`;
 }
@@ -893,7 +905,7 @@ $('#listScroll').addEventListener('scroll', e => $('#listNav').classList.toggle(
 
 /* ---------- hojas ---------- */
 const backdrop = $('#backdrop'); let openSheet = null;
-function showSheet(el){ openSheet = el; backdrop.classList.add('on'); el.classList.add('on'); }
+function showSheet(el){ if (openSheet && openSheet !== el) openSheet.classList.remove('on'); openSheet = el; backdrop.classList.add('on'); el.classList.add('on'); }
 function hideSheet(){ if (!openSheet) return;
   if (editing && openSheet.id === 'bulkSheet'){ editing = false; $('#editNote').hidden = true; if (editBackup){ state.queue.push(...editBackup); editBackup = null; save(); renderQueue(); toast('Programados sin cambios'); } } openSheet.classList.remove('on'); backdrop.classList.remove('on'); document.activeElement?.blur(); openSheet = null; }
 backdrop.addEventListener('click', hideSheet);
