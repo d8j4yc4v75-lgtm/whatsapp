@@ -34,7 +34,7 @@
   --bg:#fff; --bg2:#f2f2f7; --bg3:#fff; --label:#000; --label2:rgba(60,60,67,.6); --label3:rgba(60,60,67,.3);
   --sep:rgba(60,60,67,.29); --blue:#007aff; --red:#ff3b30; --green:#34c759;
   --bar:rgba(249,249,249,.86); --fill:rgba(118,118,128,.12); --in:#e9e9eb; --inText:#000;
-  --chatbg:#fff; --sheet:#f2f2f7; --dim:rgba(0,0,0,.35);
+  --chatbg:#fff; --sheet:#f2f2f7; --dim:rgba(0,0,0,.35); --bgRGB:255,255,255;
   --wall:#efeae2; --wallOp:.07; --chatBar:rgba(246,246,246,.94); --composerBg:#f6f6f6; --cardBtn:rgba(118,118,128,.14); --dayBg:rgba(255,255,255,.92); --dayText:#54656f; --inputBg:rgba(118,118,128,.12); --card:rgba(255,255,255,.95);
   --accent:#1daa61; --onaccent:#fff; --out:#d9fdd3; --outText:#000; --outMeta:rgba(0,0,0,.45); --tickRead:#53bdeb;
   --glass:rgba(255,255,255,.66); --glassBorder:rgba(0,0,0,.07); --glassShadow:0 6px 20px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.06); --glassHi:rgba(255,255,255,.95); --glassLo:rgba(0,0,0,.04); --sheen:rgba(255,255,255,.5);
@@ -48,7 +48,7 @@
     --bg:#0b0b0b; --bg2:#0b0b0b; --bg3:#1c1c1e; --label:#fff; --label2:rgba(235,235,245,.6); --label3:rgba(235,235,245,.3);
     --sep:rgba(84,84,88,.6); --blue:#0a84ff; --red:#ff453a; --green:#30d158;
     --bar:rgba(22,22,24,.86); --fill:rgba(118,118,128,.24); --in:#262628; --inText:#fff;
-    --chatbg:#0b0b0b; --sheet:#1c1c1e; --dim:rgba(0,0,0,.6);
+    --chatbg:#0b0b0b; --sheet:#1c1c1e; --dim:rgba(0,0,0,.6); --bgRGB:11,11,11;
     --wall:#0a0a0a; --wallOp:.085; --dayBg:rgba(23,23,23,.92); --dayText:#fff; --inputBg:#292e2c; --card:#242625; --in:#242626; --chatBar:rgba(19,19,19,.94); --composerBg:#141917; --cardBtn:#3b3b3b;
     --accent:#21c063; --onaccent:#000; --out:#144d37; --outText:#fff; --outMeta:rgba(255,255,255,.6);
     --glass:rgba(38,38,40,.72); --glassBorder:rgba(255,255,255,.09); --glassShadow:0 8px 24px rgba(0,0,0,.6),0 1px 2px rgba(0,0,0,.5); --glassHi:rgba(255,255,255,.22); --glassLo:rgba(255,255,255,.05); --sheen:rgba(255,255,255,.07);
@@ -76,7 +76,11 @@ svg{display:block}
 /* ---------- LISTA ---------- */
 #list .nav{position:absolute;top:0;left:0;right:0;z-index:5;padding:calc(var(--st) + 6px) calc(16px + var(--sr)) 10px calc(16px + var(--sl));
   background:transparent;transition:background .25s}
-#list .nav.scrolled{background:linear-gradient(to bottom,var(--bg) calc(100% - 16px),transparent);padding-bottom:26px}
+#list .nav::before{content:"";position:absolute;inset:0 0 -14px;z-index:-1;opacity:0;transition:opacity .25s;pointer-events:none;
+  background:linear-gradient(to bottom,rgba(var(--bgRGB),.72) 0%,rgba(var(--bgRGB),.5) 60%,rgba(var(--bgRGB),0) 100%);
+  -webkit-backdrop-filter:blur(12px) saturate(150%);backdrop-filter:blur(12px) saturate(150%);
+  -webkit-mask-image:linear-gradient(to bottom,#000 65%,transparent);mask-image:linear-gradient(to bottom,#000 65%,transparent)}
+#list .nav.scrolled::before{opacity:1}
 .navrow{height:44px;display:flex;align-items:center;justify-content:space-between;position:relative}
 .navtitle{position:absolute;left:50%;transform:translateX(-50%);font-weight:600;font-size:17px;white-space:nowrap;opacity:0;transition:opacity .2s}
 #list .nav.scrolled .navtitle{opacity:1}
@@ -84,7 +88,7 @@ svg{display:block}
 .tbtn.more{width:36px;height:36px;padding:0;justify-content:center;border-radius:50%;background:var(--fill);color:var(--label)}
 .tbtn:active{opacity:.4}
 .scroll{position:absolute;inset:0;overflow-y:auto;overscroll-behavior-y:contain}
-#listScroll{padding:calc(60px + var(--st)) var(--sr) calc(100px + var(--sb)) var(--sl)}
+#listScroll{padding:calc(60px + var(--st)) var(--sr) calc(84px + var(--sb)) var(--sl)}
 .big{font-size:34px;font-weight:700;letter-spacing:.2px;margin:6px 16px 12px;line-height:41px}
 .search{margin:0 16px 14px;height:44px;border-radius:22px;background:var(--searchBg);display:flex;align-items:center;padding:0 12px;gap:8px;color:var(--label2)}
 .search svg{width:19px;height:19px}
@@ -118,7 +122,7 @@ svg{display:block}
 .rprev .tick{display:inline-block;vertical-align:-1px;margin-right:4px;width:17px;height:12px}
 .badge{flex:none;margin-top:4px;min-width:22px;height:22px;border-radius:11px;background:var(--accent);color:var(--onaccent);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 6px}
 .empty{color:var(--label2);text-align:center;padding:60px 32px;font-size:15px;line-height:1.4}
-.tabbar{position:absolute;z-index:5;left:calc(21px + var(--sl));right:calc(21px + var(--sr));bottom:calc(var(--sb) + 10px);max-width:520px;margin:0 auto;height:62px;border-radius:31px;display:flex;align-items:center;justify-content:space-between;padding:0 4px;
+.tabbar{position:absolute;z-index:5;left:calc(21px + var(--sl));right:calc(21px + var(--sr));bottom:max(10px,calc(var(--sb) - 12px));max-width:520px;margin:0 auto;height:62px;border-radius:31px;display:flex;align-items:center;justify-content:space-between;padding:0 4px;
   background:linear-gradient(180deg,var(--tbSheen),transparent 60%),var(--tbGlass);-webkit-backdrop-filter:blur(14px) saturate(170%);backdrop-filter:blur(14px) saturate(170%);
   box-shadow:inset 0 .5px 0 var(--tbRim),inset .5px 0 0 var(--tbRimSide),inset -.5px 0 0 var(--tbRimSide),inset 0 -.5px 0 var(--tbRimLo),0 10px 30px rgba(0,0,0,.35)}
 .tab{position:relative;flex:0 1 auto;min-width:0;height:54px;padding:0 9px;border-radius:27px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:7px;gap:3px;font-size:11px;letter-spacing:.05px;font-weight:500;color:var(--label);pointer-events:none;white-space:nowrap}
