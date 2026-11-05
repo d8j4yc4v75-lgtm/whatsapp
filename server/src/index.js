@@ -357,6 +357,13 @@ app.post('/api/campaigns', route(req => {
 
 app.get('/api/campaigns/:cid/items', route(req => campaigns.items(Number(req.params.cid), req.query.status || null)))
 
+app.post('/api/campaigns/:cid/retry', route(req => {
+	const id = Number(req.params.cid)
+	if (!campaigns.get(id)) throw Object.assign(new Error('Envío no encontrado'), { status: 404 })
+	const retried = campaigns.retryFailed(id)
+	return { retried, campaign: campaigns.get(id) }
+}))
+
 app.post('/api/campaigns/:cid/force', route(req => {
 	const id = Number(req.params.cid)
 	const c = campaigns.get(id)

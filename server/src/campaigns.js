@@ -207,6 +207,14 @@ export class CampaignRunner {
 		db.prepare("UPDATE campaign_items SET status = 'skipped', error = ? WHERE id = ? AND status = 'pending'").run(CHAT_SKIP, item.id)
 	}
 
+	/** Vuelve a poner en cola los fallidos (menos los que no tienen WhatsApp) y reactiva el envío */
+	retryFailed(id) {
+		const n = db.prepare("UPDATE campaign_items SET status = 'pending', error = NULL, sent_by = NULL, sent_at = NULL, message_id = NULL WHERE campaign_id = ? AND status = 'failed' AND (error IS NULL OR error NOT LIKE '%no tiene WhatsApp%')").run(id).changes
+		if (n) db.prepare("UPDATE campaigns SET status = 'running', note = NULL, disabled = NULL WHERE id = ?").run(id)
+		this.emit(id)
+		return n
+	}
+
 	/** Activa o quita el modo urgente de un envío ya creado */
 	setForced(id, on) {
 		db.prepare('UPDATE campaigns SET forced = ?, note = NULL WHERE id = ?').run(on ? 1 : 0, id)

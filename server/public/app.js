@@ -1335,6 +1335,7 @@ function renderCampaignList() {
 				${safe && (c.status === 'running' || c.status === 'paused') && n.pending ? `<button class="chip" style="--c:#C77700" data-act="camp-force" data-val="${c.id}">${c.forced ? 'Quitar urgente' : '⚡ Enviar ya (ignorar límites)'}</button>` : ''}
 				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
 				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
+				${n.failed && c.status !== 'cancelled' ? `<button class="chip" data-act="camp-retry" data-val="${c.id}">↻ Reintentar fallidos</button>` : ''}
 				<a class="chip" style="--c:#1D6F42;text-decoration:none" href="/api/campaigns/${c.id}/export?token=${enc(S.token)}" download>📊 Excel</a>
 			</div>
 		</div>`
@@ -2405,6 +2406,16 @@ document.addEventListener('click', async e => {
 			return
 		}
 		case 'camp-failed': return showFailed(Number(val))
+		case 'camp-retry': {
+			if (!confirm('¿Volver a enviar a los que fallaron? (No se reintentan los números sin WhatsApp)')) return
+			try {
+				const { retried, campaign } = await api('POST', `/campaigns/${val}/retry`)
+				S.campaigns = S.campaigns.map(x => x.id === campaign.id ? campaign : x)
+				renderCampaignList()
+				toast(retried ? `Reintentando ${retried} mensaje(s)` : 'No hay fallidos que se puedan reintentar')
+			} catch (err) { toast(err.message) }
+			return
+		}
 		case 'camp-force': {
 			const c = S.campaigns.find(x => x.id === Number(val)); if (!c) return
 			if (!c.forced && !confirm('⚡ Enviar ya: este envío ignorará los topes diarios y por hora de tus números (y los días de descanso) para terminar los recordatorios. Sube el riesgo de restricción. ¿Continuar?')) return
