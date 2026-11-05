@@ -153,6 +153,12 @@ CREATE TABLE IF NOT EXISTS app_settings (
 `)
 try { db.exec('ALTER TABLE conversation_labels ADD COLUMN at INTEGER') } catch {}
 try { db.exec('ALTER TABLE chats ADD COLUMN muted INTEGER NOT NULL DEFAULT 0') } catch {}
+// Reparación única: mensajes marcados «No enviado» por la sincronización aunque el cliente contestó después (sí le llegaron)
+if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'fix_status0_v1'").get()) {
+	db.prepare(`UPDATE messages SET status = 3 WHERE from_me = 1 AND status = 0 AND error IS NULL AND EXISTS (
+		SELECT 1 FROM messages r WHERE r.account_id = messages.account_id AND r.jid = messages.jid AND r.from_me = 0 AND r.ts > messages.ts)`).run()
+	db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('fix_status0_v1', '1')").run()
+}
 
 // Mensajes editados o eliminados para todos
 for (const sql of ['ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0']) { try { db.exec(sql) } catch {} }

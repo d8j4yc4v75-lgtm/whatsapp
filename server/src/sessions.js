@@ -267,7 +267,7 @@ export class Session {
 			this.saveContacts(contacts || [])
 			db.transaction(() => {
 				for (const c of chats || []) this.saveChat(c, true)
-				for (const m of messages || []) this.saveMessage(m, false)
+				for (const m of messages || []) this.saveMessage(m, false, true)
 			})()
 			this.manager.emit('event', { type: 'conversations.changed', data: { accountId: this.accountId } })
 		})
@@ -476,7 +476,11 @@ export class Session {
 		if (row) this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(row) })
 	}
 
-	saveMessage(m, live) {
+	saveMessage(m, live, fromHistory = false) {
+		// Los mensajes decodificados de WhatsApp traen status = 0 («error») como valor por defecto aunque no venga en el mensaje;
+		// solo se toma en cuenta si de verdad viene, y nunca el «error» de la sincronización del historial
+		const ownStatus = m && Object.prototype.hasOwnProperty.call(m, 'status') && typeof m.status === 'number' ? m.status : null
+		const status = ownStatus === null || (ownStatus === 0 && fromHistory) ? null : ownStatus
 		const key = m.key
 		if (!key?.remoteJid || !m.message) return
 		const remote = jidNormalizedUser(key.remoteJid)
@@ -518,18 +522,18 @@ export class Session {
 			text: d.text ?? null,
 			media_mime: d.media_mime ?? null,
 			file_name: d.file_name ?? null,
-			status: fromMe ? Number(m.status ?? 1) : 0,
+			status: fromMe ? (status ?? (fromHistory ? 2 : 1)) : 0,
 			raw: MEDIA_TYPES[getContentType(content)] ? JSON.stringify(m, (k, v) => (k === 'jpegThumbnail' || k === 'thumbnailDirectPath' ? undefined : BufferJSON.replacer(k, v))) : null
 		}
 		const inserted = stmt.insertMessage.run(row).changes > 0
 		// El estado de error puede llegar fusionado en el mismo evento del mensaje ya guardado
-		if (!inserted && fromMe && typeof m.status === 'number') {
-			if (m.status === 0) {
+		if (!inserted && fromMe && status !== null) {
+			if (status === 0) {
 				note(this.accountId, 'status', `0 ${JSON.stringify(m.messageStubParameters || '')}`)
 				stmt.forceStatus.run(0, this.accountId, key.id)
 				this.rejectionAlert()
 			} else {
-				stmt.setStatus.run(m.status, this.accountId, key.id)
+				stmt.setStatus.run(status, this.accountId, key.id)
 			}
 			const saved = stmt.getMessage.get(this.accountId, key.id)
 			if (saved) this.manager.emit('event', { type: 'message.status', data: { accountId: this.accountId, id: key.id, status: saved.status } })
