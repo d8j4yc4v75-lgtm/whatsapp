@@ -518,3 +518,31 @@ details summary { cursor: pointer; }
 .ai-opt > span { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ai-opt b { font-size: 13px; color: var(--muted); font-weight: 600; }
 .ai-text { white-space: pre-wrap; word-break: break-word; }
+
+/* Info. del contacto */
+.sheet.full { max-height: 100dvh; height: 100dvh; border-radius: 0; }
+.ci-loading { padding: 40px; text-align: center; color: var(--muted); }
+.ci-head { display: flex; flex-direction: column; align-items: center; padding: 8px 16px 18px; text-align: center; }
+.avatar.ci-avatar { width: 120px; height: 120px; margin-bottom: 12px; }
+.ci-head h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.4px; word-break: break-word; }
+.ci-phone { font-size: 17px; margin-top: 4px; }
+.ci-push { color: var(--muted); font-size: 15px; margin-top: 2px; }
+.ci-btns { display: flex; gap: 8px; justify-content: center; margin-top: 16px; width: 100%; max-width: 420px; }
+.ci-btn {
+	flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border: 0; border-radius: 12px;
+	background: var(--card); color: var(--accent-strong); font-size: 12px; text-decoration: none; min-width: 0;
+}
+.ci-btn .ic { width: 22px; height: 22px; }
+.ci-btn span { color: var(--text); }
+.ci-btn:active { background: var(--fill); }
+.ci-ic { display: grid; place-items: center; color: var(--muted); }
+.ci-ic .ic { width: 22px; height: 22px; }
+.ci-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 0 16px 12px; }
+.ci-thumb { aspect-ratio: 1; border: 0; border-radius: 8px; overflow: hidden; background: var(--fill); padding: 0; color: var(--muted); font-size: 22px; }
+.ci-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ci-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.ci-note { white-space: pre-wrap; }
+.ci-stats { font-size: 15px; }
+.sheet button.item { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; }
+.sheet .item.danger, .sheet .item.danger .ci-ic { color: var(--danger); }
+.sheet .item .ic { flex-shrink: 0; }

@@ -183,6 +183,10 @@ const IC = {
 	copy: svg('<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>'),
 	pencil: svg('<path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/><path d="m14.5 5.5 3 3"/>'),
 	ban: svg('<circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/>'),
+	user: svg('<circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>'),
+	call: svg('<path d="M5 4h3.5l1.5 4-2 1.5a11 11 0 0 0 6.5 6.5l1.5-2 4 1.5V19a1.5 1.5 0 0 1-1.5 1.5A15.5 15.5 0 0 1 3.5 5.5 1.5 1.5 0 0 1 5 4Z"/>'),
+	bell: svg('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
+	image: svg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5-5 4 4 2.5-2.5L20 19"/>'),
 	camera: svg('<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5Z"/><circle cx="12" cy="12.5" r="3.5"/>')
 }
 const TICK1 = '<svg class="tick" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2l6.5-7.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
@@ -515,8 +519,8 @@ async function renderChat(jid, full) {
 		$('#app').innerHTML = `
 			<header class="bar chat-bar">
 				<button class="icon-btn back" data-act="back" aria-label="Atrás">${IC.back}<i class="badge" id="back-badge" hidden></i></button>
-				<span id="c-avatar" class="c-avatar" data-act="chat-menu"></span>
-				<div class="title" data-act="chat-menu"><b id="c-title"></b><small id="c-sub"></small></div>
+				<span id="c-avatar" class="c-avatar" data-act="contact-info"></span>
+				<div class="title" data-act="contact-info"><b id="c-title"></b><small id="c-sub"></small></div>
 				<button class="icon-btn" data-act="chat-menu" aria-label="Más opciones">${IC.more}</button>
 			</header>
 			<div id="c-banners"></div>
@@ -568,6 +572,95 @@ function renderChatHeader() {
 			+ (c?.reminder ? `<div class="banner reminder" data-act="reminder">${IC.clock}<span>${esc(reminderLabel(c.reminder.at))}${c.reminder.text ? ' · ' + esc(c.reminder.text) : ''}</span></div>` : '')
 		if (banners.innerHTML !== html) banners.innerHTML = html
 	}
+}
+
+// ---------- Info. del contacto ----------
+async function openContactInfo() {
+	const key = S.active
+	const c = conv(key)
+	if (!key) return
+	sheet('Info. del contacto', '<div class="ci-loading">Cargando…</div>')
+	$('#sheet .sheet')?.classList.add('full')
+	let info
+	try { info = await api('GET', `/conversations/${enc(key)}/info`) } catch (e) { const b = $('#sheet .sheet-body'); if (b) b.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
+	const body = $('#sheet .sheet-body')
+	if (!body || S.active !== key) return
+	const cc = conv(key) || c || {}
+	const date = ts => ts ? new Date(ts).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+	const ago = ts => { if (!ts) return '—'; const d = Math.floor((Date.now() - ts) / 864e5); return d <= 0 ? 'hoy' : d === 1 ? 'ayer' : `hace ${d} días` }
+	const title = cc.name || info.name || fmtPhone(info.phone)
+	const labels = (cc.labelIds || []).map(label).filter(Boolean)
+	const pr = info.promises || []
+	const kept = pr.filter(p => p.status === 'kept').length, broken = pr.filter(p => p.status === 'broken').length, pending = pr.filter(p => p.status === 'pending').length
+	const PST = { pending: ['Pendiente', '#FF9500'], kept: ['Cumplida', '#25D366'], broken: ['Incumplida', '#D9480F'], replaced: ['Reprogramada', '#8E8E93'] }
+	const media = info.media || []
+	const thumbs = media.filter(m => m.type === 'image' || m.type === 'video').slice(0, 8)
+	const docs = media.filter(m => m.type === 'document')
+	const others = (info.otherAccounts || []).map(id => accountTag(id)).join(' ')
+	const btn = (act, icon, text, val = '', href = '') => href
+		? `<a class="ci-btn" href="${href}">${icon}<span>${text}</span></a>`
+		: `<button class="ci-btn" data-act="${act}"${val ? ` data-val="${esc(val)}"` : ''}>${icon}<span>${text}</span></button>`
+	body.innerHTML = `
+		<div class="ci-head">
+			<div class="avatar ci-avatar">${PH_PERSON}${info.picture ? `<img src="${esc(info.picture)}" alt="" data-act="view-img" onerror="this.remove()">` : ''}</div>
+			<h2>${esc(title)}</h2>
+			${title !== fmtPhone(info.phone) ? `<div class="ci-phone">${esc(fmtPhone(info.phone))}</div>` : ''}
+			${info.pushName && info.pushName !== title ? `<div class="ci-push">~${esc(info.pushName)}</div>` : ''}
+			<div class="ci-btns">
+				${btn('', IC.call, 'Llamar', '', 'tel:+' + info.phone)}
+				${btn('ci-copy', IC.copy, 'Copiar', info.phone)}
+				${btn('labels', IC.tag, 'Etiquetas')}
+				${btn('note', IC.note, 'Nota')}
+				${btn('reminder', IC.clock, 'Recordar')}
+			</div>
+		</div>
+		${info.about || info.business ? `<div class="group">
+			${info.about ? `<div class="item"><span class="grow"><small>Info.</small>${esc(info.about)}</span></div>` : ''}
+			${info.business?.category ? `<div class="item"><span class="grow"><small>Empresa</small>${esc(info.business.category)}${info.business.description ? ' · ' + esc(info.business.description) : ''}</span></div>` : ''}
+			${info.business?.email ? `<div class="item"><span class="grow"><small>Correo</small>${esc(info.business.email)}</span></div>` : ''}
+			${info.business?.address ? `<div class="item"><span class="grow"><small>Dirección</small>${esc(info.business.address)}</span></div>` : ''}
+		</div>` : ''}
+
+		<div class="group">
+			<div class="item ci-link"><span class="ci-ic">${IC.image}</span><span class="grow">Archivos, enlaces y documentos</span><span class="muted">${media.length + (info.stats.links || 0)}</span></div>
+			${thumbs.length ? `<div class="ci-grid">${thumbs.map(m => `<button class="ci-thumb" data-act="ci-media" data-val="${esc(m.id)}|${m.type}">${m.type === 'image' ? `<img src="${mediaURL({ accountId: info.accountId, id: m.id, type: m.type })}" loading="lazy" alt="" onerror="this.remove()">` : '▶︎'}</button>`).join('')}</div>` : ''}
+			${docs.slice(0, 5).map(m => `<button class="item ci-doc" data-act="ci-media" data-val="${esc(m.id)}|document"><span class="ci-ic">${IC.doc}</span><span class="grow">${esc(m.fileName || 'Documento')}<small>${date(m.ts)}</small></span></button>`).join('')}
+		</div>
+
+		<div class="section">Etiquetas</div>
+		<div class="group"><button class="item" data-act="labels"><span class="grow ci-tags">${labels.length ? labels.map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('') : '<span class="muted">Sin etiquetas</span>'}</span>${IC.chevron}</button></div>
+
+		<div class="section">Nota</div>
+		<div class="group"><button class="item" data-act="note"><span class="grow ci-note">${cc.note ? esc(cc.note) : '<span class="muted">Agregar nota</span>'}</span>${IC.chevron}</button></div>
+
+		<div class="section">Promesas de pago</div>
+		<div class="group">
+			${pr.length ? `<div class="item"><span class="grow ci-stats"><b style="color:#25D366">${kept}</b> cumplidas · <b style="color:#D9480F">${broken}</b> incumplidas · <b style="color:#FF9500">${pending}</b> pendiente${pending === 1 ? '' : 's'}</span></div>
+			${pr.slice(0, 6).map(p => `<div class="item"><span class="grow">${p.amount ? `<b>$${Number(p.amount).toLocaleString('es-MX')}</b> · ` : ''}${date(p.at)}<small>${esc((p.text || '').slice(0, 90))}</small></span><span class="tag solid" style="--c:${PST[p.status]?.[1] || '#8E8E93'}">${PST[p.status]?.[0] || p.status}</span></div>`).join('')}`
+			: '<div class="item"><span class="grow muted">Sin promesas registradas</span></div>'}
+		</div>
+
+		${info.reminders.length ? `<div class="section">Recordatorios</div><div class="group">${info.reminders.map(r => `<button class="item" data-act="reminder"><span class="grow">⏰ ${esc(reminderLabel(r.at))}<small>${esc(r.text || '')}</small></span></button>`).join('')}</div>` : ''}
+
+		<div class="section">Actividad</div>
+		<div class="group">
+			<div class="item"><span class="grow">Primer mensaje</span><span class="muted">${date(info.stats.first)}</span></div>
+			<div class="item"><span class="grow">Última respuesta del cliente</span><span class="muted">${ago(info.stats.lastIn)}</span></div>
+			<div class="item"><span class="grow">Mensajes</span><span class="muted">${info.stats.sent} enviados · ${info.stats.received} recibidos</span></div>
+			<div class="item"><span class="grow">Atendido desde</span><span>${accountTag(info.accountId)}</span></div>
+			${others ? `<div class="item"><span class="grow">También escribe a</span><span>${others}</span></div>` : ''}
+			${info.campaigns.length ? `<div class="item"><span class="grow">Envíos masivos recibidos<small>${info.campaigns.slice(0, 3).map(x => esc(x.name)).join(', ')}</small></span><span class="muted">${info.campaigns.length}</span></div>` : ''}
+		</div>
+
+		<div class="group" style="margin-top:22px">
+			<div class="item"><span class="ci-ic">${IC.bell}</span><span class="grow">Silenciar notificaciones</span><label class="switch"><input type="checkbox" data-act="ci-mute"${cc.muted ? ' checked' : ''}><i></i></label></div>
+			<div class="item"><span class="ci-ic">${IC.ban}</span><span class="grow">No enviarle masivos</span><label class="switch"><input type="checkbox" data-act="ci-optout"${info.optedOut ? ' checked' : ''}><i></i></label></div>
+		</div>
+
+		<div class="group" style="margin-top:22px">
+			<button class="item" data-act="archive-conv"><span class="ci-ic">${cc.archived ? IC.unarchive : IC.archive}</span><span class="grow">${cc.archived ? 'Desarchivar chat' : 'Archivar chat'}</span></button>
+			<button class="item danger" data-act="delete-conv"><span class="ci-ic">${IC.trash}</span><span class="grow">Eliminar chat</span></button>
+		</div>`
 }
 
 // ---------- Notas y recordatorios ----------
@@ -2151,9 +2244,30 @@ document.addEventListener('click', async e => {
 			try { renderProfile(id, await api('DELETE', `/accounts/${id}/profile/photo`)); toast('Foto quitada') } catch (err) { toast(err.message, 6000) }
 			return
 		}
+		case 'contact-info': return openContactInfo()
+		case 'ci-copy': { try { await navigator.clipboard.writeText('+' + val); toast('Número copiado') } catch { toast('+' + val) } return }
+		case 'ci-mute': {
+			try { const c = await api('PUT', `/conversations/${enc(S.active)}/mute`, { muted: el.checked }); if (c) upsertConv(c); toast(el.checked ? 'Notificaciones silenciadas 🔕' : 'Notificaciones activadas 🔔') } catch (err) { toast(err.message); el.checked = !el.checked }
+			return
+		}
+		case 'ci-optout': {
+			try { await api('PUT', `/conversations/${enc(S.active)}/optout`, { optedOut: el.checked }); toast(el.checked ? 'Ya no recibirá envíos masivos' : 'Volverá a recibir envíos masivos') } catch (err) { toast(err.message); el.checked = !el.checked }
+			return
+		}
+		case 'ci-media': {
+			const [id, type] = val.split('|')
+			const url = mediaURL({ accountId: accOf(S.active), id, type })
+			if (type === 'image') {
+				const v = document.createElement('div'); v.className = 'viewer'
+				v.innerHTML = `<img src="${url}" alt=""><button aria-label="Cerrar">✕</button>`
+				v.onclick = () => v.remove(); return document.body.appendChild(v)
+			}
+			return window.open(url, '_blank')
+		}
 		case 'chat-menu': {
 			const c = conv(S.active)
 			return actionSheet(c ? convName(c) : '', [
+				{ act: 'contact-info', text: 'Info. del contacto', icon: IC.user },
 				{ act: 'note', text: c?.note ? 'Editar nota' : 'Agregar nota', icon: IC.note },
 				{ act: 'reminder', text: 'Recordatorio', icon: IC.clock },
 				{ act: 'labels', text: 'Etiquetas', icon: IC.tag },

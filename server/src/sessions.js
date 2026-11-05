@@ -570,7 +570,7 @@ export class Session {
 			}
 			const conv = this.manager.conversation(this.accountId, jid)
 			const account = stmt.getAccount.get(this.accountId)
-			sendPush({
+			if (!conv?.muted) sendPush({
 				title: `${intent ? INTENTS[intent].tag + ' · ' : ''}${conv?.name || jid.split('@')[0]} · ${account?.name}`,
 				body: (isGroup && row.sender_name ? `${row.sender_name}: ` : '') + preview(row),
 				jid: `${this.accountId}:${jid}`,
@@ -651,6 +651,16 @@ export class Session {
 	}
 
 	// Foto de perfil del contacto (URL del CDN de WhatsApp)
+	// «Info.» (estado) y perfil de empresa de un contacto
+	async contactAbout(jid) {
+		if (!this.sock || this.status !== 'connected') return {}
+		const [about, biz] = await Promise.all([
+			this.sock.fetchStatus(jid).then(list => { const st = list?.[0]?.status; return typeof st === 'string' ? st : st?.status ?? null }).catch(() => null),
+			this.sock.getBusinessProfile ? this.sock.getBusinessProfile(jid).catch(() => null) : null
+		])
+		return { about: about || null, business: biz ? { description: biz.description || null, email: biz.email || null, website: [].concat(biz.website || []).filter(Boolean), address: biz.address || null, category: biz.category || null } : null }
+	}
+
 	async profilePictureUrl(jid) {
 		if (!this.sock || this.status !== 'connected') return null
 		try { return await this.sock.profilePictureUrl(jid, 'image') } catch { return null }
@@ -884,6 +894,43 @@ export class SessionManager extends EventEmitter {
 		return { ok: true }
 	}
 
+	/** Todo lo que se sabe de un cliente, para la pantalla «Info. del contacto» */
+	async contactInfo(accountId, jid) {
+		const key = `${accountId}:${jid}`
+		const phone = jid.split('@')[0]
+		const contact = db.prepare('SELECT name, notify FROM contacts WHERE jid = ?').get(jid) || {}
+		const s = this.sessions.get(accountId)
+		const [picture, extra] = await Promise.all([
+			this.avatarUrl(accountId, jid).catch(() => null),
+			s?.contactAbout ? s.contactAbout(jid).catch(() => ({})) : {}
+		])
+		const counts = db.prepare(`SELECT SUM(from_me = 1) sent, SUM(from_me = 0) received, MIN(ts) first, MAX(CASE WHEN from_me = 0 THEN ts END) lastIn
+			FROM messages WHERE account_id = ? AND jid = ?`).get(accountId, jid)
+		const media = db.prepare(`SELECT id, type, file_name, media_mime, ts, text FROM messages WHERE account_id = ? AND jid = ? AND deleted IS NOT 1
+			AND type IN ('image', 'video', 'document', 'audio') ORDER BY ts DESC LIMIT 60`).all(accountId, jid)
+		const links = db.prepare(`SELECT COUNT(*) n FROM messages WHERE account_id = ? AND jid = ? AND text LIKE '%http%'`).get(accountId, jid).n
+		let promises = []
+		try { promises = db.prepare('SELECT at, amount, status, text FROM promises WHERE conv_key = ? ORDER BY created_at DESC LIMIT 20').all(key) } catch {}
+		const reminders = db.prepare('SELECT id, at, text FROM reminders WHERE conv_key = ? AND done = 0 ORDER BY at').all(key)
+		const optedOut = Boolean(db.prepare('SELECT 1 FROM optouts WHERE phone = ?').get(phone))
+		let campaigns = []
+		try {
+			campaigns = db.prepare(`SELECT c.name, i.status, i.sent_at FROM campaign_items i JOIN campaigns c ON c.id = i.campaign_id
+				WHERE i.phone = ? OR i.phone = ? ORDER BY i.id DESC LIMIT 10`).all(phone, phone.replace(/^521/, '52'))
+		} catch {}
+		const others = db.prepare('SELECT account_id FROM chats WHERE jid = ? AND account_id != ?').all(jid, accountId).map(r => r.account_id)
+		return {
+			key, accountId, jid, phone, picture,
+			name: this.conversation(accountId, jid)?.name || contact.name || null,
+			pushName: contact.notify || null,
+			about: extra.about || null,
+			business: extra.business || null,
+			stats: { sent: counts.sent || 0, received: counts.received || 0, first: counts.first || null, lastIn: counts.lastIn || null, links },
+			media: media.map(m => ({ id: m.id, type: m.type, fileName: m.file_name, mime: m.media_mime, ts: m.ts, caption: m.text })),
+			promises, reminders, optedOut, campaigns, otherAccounts: others
+		}
+	}
+
 	// Devuelve la URL de la foto de perfil, guardándola en caché un día
 	async avatarUrl(accountId, jid) {
 		const row = db.prepare('SELECT avatar_url, avatar_ts FROM chats WHERE account_id = ? AND jid = ?').get(accountId, jid)
@@ -912,6 +959,7 @@ export class SessionManager extends EventEmitter {
 			lastFromMe: Boolean(last?.from_me),
 			unread: r.unread || 0,
 			archived: Boolean(r.archived),
+			muted: Boolean(r.muted),
 			hasAvatar: Boolean(r.avatar_url),
 			labelIds: labels,
 			note: note?.text || null,

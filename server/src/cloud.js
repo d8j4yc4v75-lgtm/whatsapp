@@ -341,7 +341,7 @@ export class CloudSession {
 			}
 			const conv = this.manager.conversation(this.accountId, row.jid)
 			const account = stmt.getAccount.get(this.accountId)
-			sendPush({
+			if (!conv?.muted) sendPush({
 				title: `${intent ? INTENTS[intent].tag + ' · ' : ''}${conv?.name || '+' + row.jid.split('@')[0]} · ${account?.name}`,
 				body: preview(row),
 				jid: `${this.accountId}:${row.jid}`,

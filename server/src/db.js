@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 `)
 try { db.exec('ALTER TABLE conversation_labels ADD COLUMN at INTEGER') } catch {}
+try { db.exec('ALTER TABLE chats ADD COLUMN muted INTEGER NOT NULL DEFAULT 0') } catch {}
 
 // Mensajes editados o eliminados para todos
 for (const sql of ['ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0']) { try { db.exec(sql) } catch {} }

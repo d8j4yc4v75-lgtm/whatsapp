@@ -236,6 +236,27 @@ app.get('/api/conversations/:key', route(req => {
 	return conv
 }))
 
+app.get('/api/conversations/:key/info', route(req => {
+	const { accountId, jid } = convKey(req.params.key)
+	return manager.contactInfo(accountId, jid)
+}))
+
+app.put('/api/conversations/:key/mute', route(req => {
+	const { accountId, jid } = convKey(req.params.key)
+	db.prepare('UPDATE chats SET muted = ? WHERE account_id = ? AND jid = ?').run(req.body.muted ? 1 : 0, accountId, jid)
+	const conv = manager.conversation(accountId, jid)
+	manager.emit('event', { type: 'conversation.update', data: conv })
+	return conv
+}))
+
+app.put('/api/conversations/:key/optout', route(req => {
+	const { jid } = convKey(req.params.key)
+	const phone = jid.split('@')[0]
+	if (req.body.optedOut) db.prepare('INSERT OR REPLACE INTO optouts (phone, at) VALUES (?, ?)').run(phone, Date.now())
+	else db.prepare('DELETE FROM optouts WHERE phone = ?').run(phone)
+	return { optedOut: Boolean(req.body.optedOut) }
+}))
+
 app.get('/api/conversations/:key/messages', route(req => {
 	const { accountId, jid } = convKey(req.params.key)
 	return manager.messages(accountId, jid, { before: req.query.before, limit: Math.min(200, Number(req.query.limit) || 50) })
