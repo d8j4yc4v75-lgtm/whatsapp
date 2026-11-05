@@ -29,7 +29,7 @@ const S = {
 	ws: null,
 	active: null,
 	recorder: null,
-	ai: { configured: false, review: true }
+	ai: { review: true }
 }
 
 function toast(text, ms = 3500) {
@@ -685,7 +685,7 @@ function renderComposer() {
 		<button class="round ghost" data-act="attach" aria-label="Adjuntar">${IC.plus}</button>
 		${isCloud ? `<button class="round ghost" data-act="tpl-chat" aria-label="Plantilla">${IC.template}</button>` : ''}
 		<textarea id="text" rows="1" placeholder="Mensaje"></textarea>
-		<button class="round ghost ai-btn" id="ai-btn" data-act="ai-fix" aria-label="Corregir con IA" hidden>${IC.sparkle}</button>
+		<button class="round ghost ai-btn" id="ai-btn" data-act="ai-fix" aria-label="Corregir texto" hidden>${IC.sparkle}</button>
 		<button class="round mic" id="send-btn" data-act="send" aria-label="Enviar">${IC.mic}</button>`
 	const ta = $('#text')
 	ta.value = prev
@@ -914,7 +914,7 @@ async function sendText(override, skipReview) {
 	const text = (override ?? ta.value).trim()
 	const from = defaultFrom(S.active)
 	if (!text || !from) return
-	if (!skipReview && S.ai.configured && S.ai.review) return aiReview(text)
+	if (!skipReview && S.ai.review) return aiReview(text)
 	ta.value = ''
 	ta.dispatchEvent(new Event('input'))
 	try {
@@ -1890,12 +1890,9 @@ function renderSettings() {
 			<div class="group"><div class="item"><span class="grow">Entender respuestas de clientes<small>Etiqueta, da de baja, crea recordatorios y sugiere respuestas</small></span><label class="switch"><input type="checkbox" data-act="smart-toggle" id="smart-cb" checked><i></i></label></div></div>
 			<p class="hint">Cuando un cliente contesta, la app lo entiende y actúa sola: «ya pagué» → etiqueta <b>Pagó</b>; «mañana le deposito» → <b>Promesa de pago</b> y recordatorio ese día; «número equivocado», «baja» o una queja → ya no recibe masivos; «¿a qué cuenta deposito?» → te sugiere tu respuesta de datos de pago. Además los masivos respetan la hora local del cliente (según su lada) y el horario legal de 7 a 22 h.</p>
 
-			<div class="section">Corrección con IA</div>
-			<div class="group"><div class="item"><span class="grow">Revisar antes de enviar<small>Corrige ortografía y propone una respuesta mejorada</small></span><label class="switch"><input type="checkbox" data-act="ai-review-toggle" id="ai-review-cb"${S.ai.review ? ' checked' : ''}><i></i></label></div>
-			${S.ai.fromEnv ? '<div class="item"><span class="grow">Clave de IA<small>Configurada en el servidor</small></span></div>'
-				: S.ai.configured ? '<div class="item"><span class="grow">Clave de IA<small>Guardada</small></span><button class="link" data-act="ai-del-key" style="color:var(--danger)">Quitar</button></div>'
-				: '<div class="item"><input type="password" id="ai-key" placeholder="Clave de API de Anthropic (sk-ant-…)" autocomplete="off"></div><button class="btn primary" data-act="ai-save-key">Guardar clave</button>'}</div>
-			<p class="hint">Al tocar enviar se abre una revisión con el texto corregido y una versión mejorada; eliges cuál mandar o la editas. También puedes usar el botón ✨ junto al mensaje. Obtén tu clave en console.anthropic.com.</p>
+			<div class="section">Corrección de texto</div>
+			<div class="group"><div class="item"><span class="grow">Revisar antes de enviar<small>Corrige ortografía y propone una respuesta mejorada</small></span><label class="switch"><input type="checkbox" data-act="ai-review-toggle" id="ai-review-cb"${S.ai.review ? ' checked' : ''}><i></i></label></div></div>
+			<p class="hint">Al tocar enviar se abre una revisión con el texto corregido (acentos, abreviaturas, signos y mayúsculas) y una versión más cordial; eliges cuál mandar o la editas. También puedes usar el botón ✨ junto al mensaje. Todo se hace en tu servidor, sin IA ni servicios externos.</p>
 
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
@@ -2073,11 +2070,10 @@ function sheet(title, html, bind) {
 }
 function closeSheet() { $('#sheet')?.remove() }
 
-// ---------- Corrección con IA antes de enviar ----------
+// ---------- Corrección de texto antes de enviar ----------
 async function aiReview(text) {
-	if (!S.ai.configured) { toast('Configura tu clave de IA en Ajustes'); return }
 	const key = S.active
-	sheet('Revisar mensaje', `<div id="ai-box" class="ai-box"><div class="ai-loading">${IC.sparkle}<span>Revisando ortografía y redacción…</span></div></div>`)
+	sheet('Revisar mensaje', `<div id="ai-box" class="ai-box"><div class="ai-loading">${IC.sparkle}<span>Revisando…</span></div></div>`)
 	let r
 	try {
 		r = await api('POST', '/ai/rewrite', { text, accountId: accOf(key), jid: jidOf(key) })
@@ -2233,15 +2229,6 @@ document.addEventListener('click', async e => {
 			if (o.key !== S.active) return
 			if (act === 'ai-edit') { const ta = $('#text'); ta.value = text; ta.dispatchEvent(new Event('input')); ta.focus(); return }
 			return sendText(text, true)
-		}
-		case 'ai-save-key': {
-			const k = $('#ai-key')?.value.trim(); if (!k) return toast('Pega tu clave')
-			try { S.ai = await api('PUT', '/settings/ai', { key: k }); toast('Clave guardada'); render() } catch (e) { toast(e.message) }
-			return
-		}
-		case 'ai-del-key': {
-			try { S.ai = await api('PUT', '/settings/ai', { key: '' }); toast('Clave eliminada'); render() } catch (e) { toast(e.message) }
-			return
 		}
 		case 'ai-review-toggle': {
 			try { S.ai = await api('PUT', '/settings/ai', { review: el.checked }); toast(S.ai.review ? 'Revisión antes de enviar activada' : 'Revisión antes de enviar desactivada') } catch (e) { toast(e.message); el.checked = !el.checked }

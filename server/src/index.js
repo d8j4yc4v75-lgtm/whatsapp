@@ -16,7 +16,7 @@ import { CloudSession, validSignature, webhookVerifyToken } from './cloud.js'
 import { CampaignRunner } from './campaigns.js'
 import { WarmupManager, library as warmupLibrary } from './warmup.js'
 import { smartEnabled, setSmartEnabled } from './smart.js'
-import { aiStatus, aiSave, aiRewrite } from './ai.js'
+import { correctorStatus, correctorSave, rewrite } from './corrector.js'
 import { setupExtras } from './extras.js'
 import { diskInfo, startMaintenance } from './maintenance.js'
 
@@ -294,10 +294,10 @@ app.post('/api/send-template', route(async req => {
 app.get('/api/settings/smart', route(() => ({ enabled: smartEnabled() })))
 app.put('/api/settings/smart', route(req => { setSmartEnabled(req.body.enabled !== false); return { enabled: smartEnabled() } }))
 
-// ---- Corrección de texto con IA ----
-app.get('/api/settings/ai', route(() => aiStatus()))
-app.put('/api/settings/ai', route(req => aiSave(req.body || {})))
-app.post('/api/ai/rewrite', route(req => aiRewrite(req.body || {})))
+// ---- Corrección de texto (local, sin IA) ----
+app.get('/api/settings/ai', route(() => correctorStatus()))
+app.put('/api/settings/ai', route(req => correctorSave(req.body || {})))
+app.post('/api/ai/rewrite', route(req => rewrite(req.body || {})))
 
 // ---- Calentamiento (tus números se escriben entre sí) ----
 app.get('/api/warmup', route(() => warmup.status()))
