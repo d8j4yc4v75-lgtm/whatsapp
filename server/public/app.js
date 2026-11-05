@@ -28,7 +28,8 @@ const S = {
 	wsOk: false,
 	ws: null,
 	active: null,
-	recorder: null
+	recorder: null,
+	ai: { configured: false, review: true }
 }
 
 function toast(text, ms = 3500) {
@@ -160,6 +161,7 @@ const healthDot = a => a?.health ? `<i class="hdot ${a.health.level}" title="${H
 const svg = (d, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
 const IC = {
 	chats: svg('<path d="M4.5 12a7.5 7.5 0 1 1 3.1 6.1L4 19.5l1.3-3.4A7.4 7.4 0 0 1 4.5 12Z"/><path d="M8.5 11h7M8.5 14h4.5"/>'),
+	sparkle: svg('<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z"/>'),
 	send: svg('<path d="M21 3 10.5 13.5"/><path d="M21 3 14.5 21l-4-7.5L3 9.5 21 3Z"/>'),
 	phone: svg('<rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M11 18.5h2"/>'),
 	gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
@@ -247,6 +249,7 @@ async function loadAll() {
 	S.labels = labels
 	S.replies = replies
 	api('GET', '/settings/rest-days').then(d => { S.restDays = d }).catch(() => {})
+	api('GET', '/settings/ai').then(d => { S.ai = d }).catch(() => {})
 	updateBadge()
 }
 
@@ -682,6 +685,7 @@ function renderComposer() {
 		<button class="round ghost" data-act="attach" aria-label="Adjuntar">${IC.plus}</button>
 		${isCloud ? `<button class="round ghost" data-act="tpl-chat" aria-label="Plantilla">${IC.template}</button>` : ''}
 		<textarea id="text" rows="1" placeholder="Mensaje"></textarea>
+		<button class="round ghost ai-btn" id="ai-btn" data-act="ai-fix" aria-label="Corregir con IA" hidden>${IC.sparkle}</button>
 		<button class="round mic" id="send-btn" data-act="send" aria-label="Enviar">${IC.mic}</button>`
 	const ta = $('#text')
 	ta.value = prev
@@ -690,6 +694,7 @@ function renderComposer() {
 		ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'
 		const btn = $('#send-btn')
 		const has = Boolean(ta.value.trim())
+		$('#ai-btn').hidden = !has
 		if (btn.classList.contains('mic') === has) { btn.classList.toggle('mic', !has); btn.innerHTML = has ? IC.sendFill : IC.mic }
 	}
 	ta.oninput = () => { sync(); renderQuickReplies() }
@@ -904,11 +909,12 @@ async function markRead(jid) {
 	api('POST', `/conversations/${enc(jid)}/read`).catch(() => {})
 }
 
-async function sendText() {
+async function sendText(override, skipReview) {
 	const ta = $('#text')
-	const text = ta.value.trim()
+	const text = (override ?? ta.value).trim()
 	const from = defaultFrom(S.active)
 	if (!text || !from) return
+	if (!skipReview && S.ai.configured && S.ai.review) return aiReview(text)
 	ta.value = ''
 	ta.dispatchEvent(new Event('input'))
 	try {
@@ -1884,6 +1890,13 @@ function renderSettings() {
 			<div class="group"><div class="item"><span class="grow">Entender respuestas de clientes<small>Etiqueta, da de baja, crea recordatorios y sugiere respuestas</small></span><label class="switch"><input type="checkbox" data-act="smart-toggle" id="smart-cb" checked><i></i></label></div></div>
 			<p class="hint">Cuando un cliente contesta, la app lo entiende y actúa sola: «ya pagué» → etiqueta <b>Pagó</b>; «mañana le deposito» → <b>Promesa de pago</b> y recordatorio ese día; «número equivocado», «baja» o una queja → ya no recibe masivos; «¿a qué cuenta deposito?» → te sugiere tu respuesta de datos de pago. Además los masivos respetan la hora local del cliente (según su lada) y el horario legal de 7 a 22 h.</p>
 
+			<div class="section">Corrección con IA</div>
+			<div class="group"><div class="item"><span class="grow">Revisar antes de enviar<small>Corrige ortografía y propone una respuesta mejorada</small></span><label class="switch"><input type="checkbox" data-act="ai-review-toggle" id="ai-review-cb"${S.ai.review ? ' checked' : ''}><i></i></label></div>
+			${S.ai.fromEnv ? '<div class="item"><span class="grow">Clave de IA<small>Configurada en el servidor</small></span></div>'
+				: S.ai.configured ? '<div class="item"><span class="grow">Clave de IA<small>Guardada</small></span><button class="link" data-act="ai-del-key" style="color:var(--danger)">Quitar</button></div>'
+				: '<div class="item"><input type="password" id="ai-key" placeholder="Clave de API de Anthropic (sk-ant-…)" autocomplete="off"></div><button class="btn primary" data-act="ai-save-key">Guardar clave</button>'}</div>
+			<p class="hint">Al tocar enviar se abre una revisión con el texto corregido y una versión mejorada; eliges cuál mandar o la editas. También puedes usar el botón ✨ junto al mensaje. Obtén tu clave en console.anthropic.com.</p>
+
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
 				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
@@ -1914,6 +1927,7 @@ function renderSettings() {
 	$('#nl-name').value = prevLabel
 	loadWarmup()
 	api('GET', '/settings/smart').then(r => { const cb = $('#smart-cb'); if (cb) cb.checked = r.enabled }).catch(() => {})
+	api('GET', '/settings/ai').then(r => { S.ai = r; const cb = $('#ai-review-cb'); if (cb) cb.checked = r.review }).catch(() => {})
 	api('GET', '/info').then(info => {
 		const el = $('#storage')
 		if (el) el.innerHTML = info.persistent
@@ -2059,6 +2073,36 @@ function sheet(title, html, bind) {
 }
 function closeSheet() { $('#sheet')?.remove() }
 
+// ---------- Corrección con IA antes de enviar ----------
+async function aiReview(text) {
+	if (!S.ai.configured) { toast('Configura tu clave de IA en Ajustes'); return }
+	const key = S.active
+	sheet('Revisar mensaje', `<div id="ai-box" class="ai-box"><div class="ai-loading">${IC.sparkle}<span>Revisando ortografía y redacción…</span></div></div>`)
+	let r
+	try {
+		r = await api('POST', '/ai/rewrite', { text, accountId: accOf(key), jid: jidOf(key) })
+	} catch (e) {
+		const box = $('#ai-box'); if (!box) return
+		box.innerHTML = `<p class="hint" style="color:var(--danger)">${esc(e.message)}</p>
+			<div class="group"><button class="btn primary" data-act="ai-pick" data-val="original">Enviar sin corregir</button></div>`
+		S.aiOpts = { original: text, key }
+		return
+	}
+	const box = $('#ai-box')
+	if (!box || S.active !== key) return
+	S.aiOpts = { ...r, key }
+	const opt = (id, title, body, checked) => `<label class="ai-opt"><input type="radio" name="ai-opt" value="${id}"${checked ? ' checked' : ''}><span><b>${title}</b><span class="ai-text">${esc(body)}</span></span></label>`
+	const same = r.corregido === r.original
+	box.innerHTML = `
+		${same ? '<p class="hint">✅ No se encontraron errores de ortografía.</p>' : ''}
+		<div class="group">
+			${opt('corregido', 'Ortografía corregida', r.corregido, true)}
+			${r.mejorado !== r.corregido ? opt('mejorado', 'Respuesta mejorada', r.mejorado) : ''}
+			${same ? '' : opt('original', 'Original', r.original)}
+		</div>
+		<div class="group"><button class="btn primary" data-act="ai-send">Enviar</button><button class="btn" data-act="ai-edit">Editar antes de enviar</button></div>`
+}
+
 // Menú de acciones que sube desde abajo (como el de iOS)
 function actionSheet(title, actions) {
 	closeSheet()
@@ -2180,6 +2224,29 @@ document.addEventListener('click', async e => {
 		}
 		case 'attach': return $('#file').click()
 		case 'send': return $('#text').value.trim() ? sendText() : startRecording()
+		case 'ai-fix': { const v = $('#text')?.value.trim(); if (v) aiReview(v); return }
+		case 'ai-send': case 'ai-edit': case 'ai-pick': {
+			const o = S.aiOpts; if (!o) return
+			const choice = act === 'ai-pick' ? val : ($('input[name="ai-opt"]:checked')?.value || 'corregido')
+			const text = o[choice] || o.original
+			closeSheet()
+			if (o.key !== S.active) return
+			if (act === 'ai-edit') { const ta = $('#text'); ta.value = text; ta.dispatchEvent(new Event('input')); ta.focus(); return }
+			return sendText(text, true)
+		}
+		case 'ai-save-key': {
+			const k = $('#ai-key')?.value.trim(); if (!k) return toast('Pega tu clave')
+			try { S.ai = await api('PUT', '/settings/ai', { key: k }); toast('Clave guardada'); render() } catch (e) { toast(e.message) }
+			return
+		}
+		case 'ai-del-key': {
+			try { S.ai = await api('PUT', '/settings/ai', { key: '' }); toast('Clave eliminada'); render() } catch (e) { toast(e.message) }
+			return
+		}
+		case 'ai-review-toggle': {
+			try { S.ai = await api('PUT', '/settings/ai', { review: el.checked }); toast(S.ai.review ? 'Revisión antes de enviar activada' : 'Revisión antes de enviar desactivada') } catch (e) { toast(e.message); el.checked = !el.checked }
+			return
+		}
 		case 'rec-send': return stopRecording(true)
 		case 'rec-cancel': return stopRecording(false)
 		case 'older': {
