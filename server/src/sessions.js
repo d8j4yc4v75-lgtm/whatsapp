@@ -957,6 +957,8 @@ export class SessionManager extends EventEmitter {
 			lastTs: Math.max(r.last_ts, last?.ts || 0),
 			lastText: preview(last),
 			lastFromMe: Boolean(last?.from_me),
+			lastId: last?.id || null,
+			lastStatus: last?.from_me ? (last.status ?? null) : null,
 			unread: r.unread || 0,
 			archived: Boolean(r.archived),
 			muted: Boolean(r.muted),

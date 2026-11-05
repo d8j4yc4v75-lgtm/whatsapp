@@ -339,6 +339,10 @@ function handleEvent({ type, data }) {
 				const m = list.find(x => x.id === data.id && x.accountId === data.accountId)
 				if (m) m.status = data.status === 0 ? 0 : Math.max(m.status, data.status)
 			}
+			{
+				const c = S.convs.find(x => x.lastId === data.id && x.accountId === data.accountId)
+				if (c) { c.lastStatus = data.status === 0 ? 0 : Math.max(c.lastStatus ?? 0, data.status); renderSoon() }
+			}
 			break
 		case 'conversation.update':
 			if (data.key === S.active && data.unread > 0 && document.visibilityState === 'visible') {
@@ -506,7 +510,7 @@ function renderInboxList() {
 			${avatarHtml(c)}
 			<div class="body">
 				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
-				<div class="bottom"><span class="preview">${c.lastFromMe ? 'Tú: ' : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
+				<div class="bottom"><span class="preview">${c.lastFromMe ? (c.lastStatus != null ? `<span class="ptick">${ticks(c.lastStatus)}</span>` : 'Tú: ') : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
 				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}${c.reminder ? `<span class="tag" style="--c:#7C5CFF">${esc(reminderLabel(c.reminder.at))}</span>` : ''}${c.note ? '<span class="tag" style="--c:#B7791F">Nota</span>' : ''}${S.filter.waiting ? `<span class="tag" style="--c:#E5484D">${waitingLabel(c.lastTs)}</span>` : ''}</div>
 			</div>
 		</a></li>`).join('')
