@@ -1,4 +1,5 @@
 import { db } from './db.js'
+import { sendPush } from './push.js'
 
 // Asistente: entiende lo que contesta el cliente y actúa solo.
 // - Queja / amenaza de denuncia → no volver a escribirle en masivos, etiqueta y aviso.
@@ -20,18 +21,43 @@ const RULES = [
 	['queja', /\b(acoso|acosando|acosar|hostig\w*|denunci\w*|demand\w*|condusef|profeco|redeco|reportar\w*|reporte|amenaz\w*|extorsi\w*|fraude|estafa\w*|policia|abogado|ministerio publico)\b/],
 	['baja', /^(baja|stop|alto|no molestar)$|\b(ya no me (escriban|escribas|manden|mandes|envien|molesten|marquen|busquen)|dejen de (escribir\w*|mandar\w*|molestar\w*|marcar\w*)|no me (escriban|escribas|molesten|vuelvan a escribir|manden mensajes)|(eliminen|borren) mi numero|darme de baja|me doy de baja)\b/],
 	['equivocado', /\b(numero equivocado|esta equivocad\w*|se equivoc\w*|equivocacion|no soy (yo|esa persona|el|ella|quien busca\w*)|no conozco a|no lo conozco|no la conozco|no se quien es|aqui no vive|no vive aqui|no es mi (deuda|cuenta)|no tengo ninguna deuda|yo no tengo deuda|yo no saque)\b/],
+	['se_niega', /\b(no (voy|pienso|vamos) a pagar\w*|no (le|les|te) (debo|voy a pagar)|no (les|le|te) pienso (dar|pagar)|no reconozco (esa|la|ninguna) deuda|no pagare|no voy a dar (ni|nada))\b/],
 	['pagado', /\b(ya (le |te |les )?(pague|deposite|transferi|liquide|abone|cubri|salde|realice el pago|hice el (pago|deposito)|quedo pagado|esta pagado|quedo liquidado)|pago realizado|(ya )?(te|le) (mande|envie) el comprobante|(aqui|ahi) (esta|va|le va|te va) el comprobante|adjunto (el )?comprobante)\b/],
 	['promesa', new RegExp(`\\b(${PAY_VERB}\\b.*\\b${WHEN}\\b|\\b${WHEN}\\b.*\\b${PAY_VERB}\\b|cuando me paguen|en cuanto me paguen)`)],
+	['sin_dinero', /\b(no tengo (dinero|lana|trabajo|con que|para pagar)|(me )?(quede|estoy) sin (trabajo|chamba|dinero|lana)|me (corrieron|despidieron)|estoy (desempleado|enfermo|enferma|hospitalizad\w*)|ando (corto|corta|sin lana|bajo de dinero)|no me alcanza|ahorita no (puedo|tengo)|situacion (dificil|complicada)|no he podido pagar)\b/],
 	['datos_pago', /\b(a que cuenta|numero de cuenta|clabe|donde (le |te )?(deposito|pago)|datos (para (pagar|depositar)|de pago|bancarios|de la cuenta)|como (le |te )?(pago|deposito)|referencia de pago|en que banco|me (pasa|pasas|da|das) (la cuenta|los datos))\b/],
-	['negociar', /\b(descuento|no (puedo|alcanzo a) pagar (todo|eso|tanto)|en partes|pagos? (chiquitos|pequenos|parciales)|abonos|convenio|plazos|mensualidades|quita|cuanto es lo menos)\b/]
+	['negociar', /\b(descuento|no (puedo|alcanzo a) pagar (todo|eso|tanto)|en partes|pagos? (chiquitos|pequenos|parciales)|abonos|convenio|plazos|mensualidades|quita|cuanto es lo menos)\b/],
+	['saldo', /\b(cuanto (debo|le debo|les debo|es|seria|tengo que pagar)|de (que|donde) es (la|esa|esta) deuda|cual es mi (saldo|adeudo|deuda)|mi saldo|saldo pendiente|por que (les|le) debo|de que es)\b/]
 ]
+// Enojo sin llegar a queja formal: se marca además de la intención principal
+const ANGRY = /\b(ching\w*|pinche\w*|pendej\w*|cabron\w*|idiota\w*|estupid\w*|imbecil\w*|vergu?\w*|mierda|carajo|fastidi\w*|harto|harta|hartos|que (lata|molestia)|ya (basta|estuvo)|dejen de (chingar|joder|fregar)|no (sean|seas) (necios|necio|encajosos))\b/
 
 export function classify(text) {
 	const t = norm(text)
 	if (!t) return null
 	for (const [intent, re] of RULES) if (re.test(t)) return intent
+	// «$1,500 el lunes», «te mando quinientos mañana»: monto + fecha también es promesa
+	if (amountOf(text) && new RegExp(`\\b${WHEN}\\b`).test(t)) return 'promesa'
+	return ANGRY.test(t) ? 'molesto' : null
+}
+export const isAngry = text => ANGRY.test(norm(text))
+
+const WORDNUM = { cien: 100, doscientos: 200, trescientos: 300, cuatrocientos: 400, quinientos: 500, seiscientos: 600, setecientos: 700, ochocientos: 800, novecientos: 900, mil: 1000 }
+/** Monto que menciona el cliente: «$1,500», «500 pesos», «2 mil», «quinientos» */
+export function amountOf(text) {
+	const raw = String(text || '')
+	const t = norm(raw.replace(/\$/g, ' $ '))
+	let m = raw.match(/\$\s?(\d{1,3}(?:[,.]\d{3})+|\d+)(?:\.\d{1,2})?/)
+	if (m) return Number(m[1].replace(/[,.]/g, ''))
+	m = t.match(/\b(\d+(?:\.\d+)?)\s?(mil|k)\b/)
+	if (m) return Math.round(Number(m[1]) * 1000)
+	m = t.match(/\b(\d{1,3}(?:,\d{3})+|\d{2,6})\s?(pesos|varos|baros|mxn)\b/) || t.match(/\b(?:abono|abonar|deposito|depositar|pago|pagar|doy|dar|mando|transfiero|liquido|cubro)\w* (?:de |los |unos )?(\d{1,3}(?:,\d{3})+|\d{3,6})\b/)
+	if (m) return Number(m[1].replace(/,/g, ''))
+	m = t.match(/\b(cien|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos|mil)( pesos)?\b/)
+	if (m && (m[2] || /\b(pag|deposit|abon|transfer|doy|dar|mando)\w*/.test(t))) return WORDNUM[m[1]]
 	return null
 }
+export const money = n => '$' + Number(n).toLocaleString('es-MX')
 
 // Qué etiqueta y color se pone según lo que contestó
 export const INTENTS = {
@@ -41,7 +67,20 @@ export const INTENTS = {
 	pagado: { label: 'Pagó', color: '#25D366', tag: '💰 Dice que ya pagó' },
 	promesa: { label: 'Promesa de pago', color: '#FF9500', tag: '🤝 Promete pagar' },
 	datos_pago: { label: 'Pide datos de pago', color: '#0A84FF', tag: '🏦 Pide datos de pago' },
-	negociar: { label: 'Quiere negociar', color: '#AF52DE', tag: '💬 Quiere negociar' }
+	negociar: { label: 'Quiere negociar', color: '#AF52DE', tag: '💬 Quiere negociar' },
+	se_niega: { label: 'Se niega a pagar', color: '#C0392B', tag: '✋ Se niega a pagar' },
+	sin_dinero: { label: 'Sin dinero', color: '#A2845E', tag: '🪙 Dice que no tiene dinero' },
+	saldo: { label: 'Pregunta saldo', color: '#5AC8FA', tag: '🧾 Pregunta su saldo' },
+	molesto: { label: 'Molesto', color: '#FF6B35', tag: '😠 Está molesto' },
+	incumplida: { label: 'Promesa incumplida', color: '#D9480F', tag: '⏰ Promesa incumplida' }
+}
+
+// Al detectar una intención se quitan las etiquetas que ya no aplican
+const CLEARS = {
+	pagado: ['promesa', 'incumplida', 'datos_pago', 'saldo', 'negociar', 'sin_dinero', 'se_niega'],
+	promesa: ['se_niega', 'sin_dinero', 'saldo', 'negociar'],
+	negociar: ['se_niega'],
+	datos_pago: ['se_niega', 'saldo']
 }
 
 // ---- Fecha prometida ----
@@ -111,6 +150,59 @@ function addLabel(key, intent) {
 	const { label, color } = INTENTS[intent]
 	db.prepare('INSERT OR IGNORE INTO conversation_labels (jid, label_id, at) VALUES (?, ?, ?)').run(key, ensureLabel(label, color), Date.now())
 }
+function removeLabel(key, intent) {
+	db.prepare('DELETE FROM conversation_labels WHERE jid = ? AND label_id IN (SELECT id FROM labels WHERE lower(name) = lower(?))').run(key, INTENTS[intent].label)
+}
+
+// ---- Historial de promesas ----
+db.exec(`CREATE TABLE IF NOT EXISTS promises (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conv_key TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  amount INTEGER,
+  text TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  closed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_promises_conv ON promises (conv_key, status);`)
+try { db.exec('ALTER TABLE messages ADD COLUMN suggestion TEXT') } catch {}
+
+export function promiseHistory(key) {
+	const rows = db.prepare('SELECT status, COUNT(*) n FROM promises WHERE conv_key = ? GROUP BY status').all(key)
+	const c = Object.fromEntries(rows.map(r => [r.status, r.n]))
+	return { total: rows.reduce((a, r) => a + r.n, 0), kept: c.kept || 0, broken: c.broken || 0, pending: c.pending || 0 }
+}
+const ord = n => n + 'ª'
+const setBotNote = (key, text) => {
+	const note = db.prepare('SELECT text FROM conversation_notes WHERE conv_key = ?').get(key)
+	if (!note || note.text.startsWith('🤖')) db.prepare('INSERT OR REPLACE INTO conversation_notes (conv_key, text, updated_at) VALUES (?, ?, ?)').run(key, text, Date.now())
+}
+
+// ---- Respuesta sugerida (de usted, lista para editar) ----
+function suggestionFor(intent, text, { date, amount, hist } = {}) {
+	const t = norm(text)
+	switch (intent) {
+		case 'queja': return 'Lamento mucho la molestia. Tomamos nota de su comentario y no volveremos a enviarle mensajes masivos. Si desea revisar su cuenta, con gusto le atiendo por este medio.'
+		case 'baja': return 'Listo, ya no le enviaremos más mensajes. Gracias.'
+		case 'equivocado': return 'Una disculpa por la molestia. Corregimos nuestro registro y no volveremos a escribirle. Que tenga buen día.'
+		case 'se_niega': return 'Entiendo. Con gusto le explico el detalle del adeudo y las opciones que tenemos para regularizarlo. ¿Le comparto la información?'
+		case 'pagado': return /comprobante|adjunt/.test(t)
+			? '¡Muchas gracias! Recibimos su comprobante; en cuanto se vea reflejado el pago se lo confirmo.'
+			: '¡Gracias por su pago! ¿Me podría compartir su comprobante para registrarlo?'
+		case 'promesa': {
+			const what = `${amount ? `de ${money(amount)} ` : ''}${date ? (date === 'hoy' ? 'para hoy' : `para el ${date}`) : ''}`.trim()
+			const again = hist?.broken ? ' Le pido de favor que esta vez se pueda cumplir para mantener su cuenta en orden.' : ''
+			return `Perfecto, queda registrado su compromiso de pago${what ? ' ' + what : ''}.${again} Al realizarlo, por favor compártame su comprobante. ¡Gracias!`
+		}
+		case 'sin_dinero': return 'Entiendo su situación. Podemos buscar una opción que se ajuste a sus posibilidades, como pagos en partes. ¿Cuánto podría abonar y en qué fecha?'
+		case 'datos_pago': return 'Con gusto, en un momento le comparto los datos para realizar su pago.'
+		case 'negociar': return 'Claro, podemos revisar opciones. ¿Qué monto podría cubrir y en qué fecha? Con eso le propongo un plan.'
+		case 'saldo': return 'Con gusto le comparto el detalle de su saldo. Permítame un momento.'
+		case 'molesto': return 'Una disculpa si nuestros mensajes le causaron molestia. Mi intención es ayudarle a encontrar una solución. ¿Le parece si lo revisamos juntos?'
+	}
+	return null
+}
 function optOut(phone) {
 	db.prepare('INSERT OR REPLACE INTO optouts (phone, at) VALUES (?, ?)').run(String(phone).replace(/\D/g, ''), Date.now())
 }
@@ -121,33 +213,67 @@ function optOut(phone) {
  */
 export function smartIncoming({ accountId, jid, msgId, text }) {
 	if (!smartEnabled() || !text) return null
-	const intent = classify(text)
+	let intent = classify(text)
 	if (!intent) return null
 	const key = `${accountId}:${jid}`
+	// «No les debo nada» después de pagar no es negarse a pagar
+	if (intent === 'se_niega' && db.prepare('SELECT 1 FROM conversation_labels c JOIN labels l ON l.id = c.label_id WHERE c.jid = ? AND lower(l.name) = lower(?)').get(key, INTENTS.pagado.label)) return null
 	const phone = jid.split('@')[0]
-	db.prepare('UPDATE messages SET intent = ? WHERE account_id = ? AND id = ?').run(intent, accountId, msgId)
+	const now = Date.now()
 	addLabel(key, intent)
+	for (const old of CLEARS[intent] || []) removeLabel(key, old)
+	if (intent !== 'molesto' && isAngry(text)) addLabel(key, 'molesto')
 	if (intent === 'queja' || intent === 'baja' || intent === 'equivocado') optOut(phone)
+	const amount = amountOf(text)
+	let extra = {}
 	if (intent === 'pagado') {
-		// Ya pagó: los recordatorios de su promesa ya no hacen falta
+		// Ya pagó: sus promesas quedan cumplidas y los recordatorios automáticos ya no hacen falta
+		db.prepare("UPDATE promises SET status = 'kept', closed_at = ? WHERE conv_key = ? AND status = 'pending'").run(now, key)
 		db.prepare("UPDATE reminders SET done = 1 WHERE conv_key = ? AND done = 0 AND text LIKE '🤖%'").run(key)
+		const h = promiseHistory(key)
+		setBotNote(key, `🤖 Dice que pagó${amount ? ' ' + money(amount) : ''} (${new Date(now).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', timeZone: 'America/Mexico_City' })})${h.total ? ` · promesas: ${h.kept} cumplida(s), ${h.broken} incumplida(s)` : ''}`)
 	}
 	if (intent === 'promesa') {
 		const p = promisedDate(text)
+		// La promesa anterior que ya venció sin pago cuenta como incumplida
+		const prev = db.prepare("SELECT id, at FROM promises WHERE conv_key = ? AND status = 'pending' ORDER BY at DESC").all(key)
+		for (const r of prev) db.prepare("UPDATE promises SET status = ?, closed_at = ? WHERE id = ?").run(r.at < now ? 'broken' : 'replaced', now, r.id)
 		if (p) {
-			const reminderText = `🤖 Prometió pagar ${p.text}: «${String(text).slice(0, 120)}»`
+			db.prepare('INSERT INTO promises (conv_key, at, amount, text, created_at) VALUES (?, ?, ?, ?, ?)').run(key, p.at, amount, String(text).slice(0, 300), now)
+			const h = promiseHistory(key)
+			const n = h.total - (db.prepare("SELECT COUNT(*) n FROM promises WHERE conv_key = ? AND status = 'replaced'").get(key).n)
+			const what = `${amount ? money(amount) + ' ' : ''}${p.text}`
+			const reminderText = `🤖 ${n > 1 ? ord(n) + ' promesa: ' : 'Prometió '}pagar ${what}${h.broken ? ` (${h.broken} incumplida${h.broken > 1 ? 's' : ''})` : ''}: «${String(text).slice(0, 120)}»`
 			const existing = db.prepare("SELECT id FROM reminders WHERE conv_key = ? AND done = 0 AND text LIKE '🤖%'").get(key)
 			if (existing) db.prepare('UPDATE reminders SET at = ?, text = ? WHERE id = ?').run(p.at, reminderText, existing.id)
-			else db.prepare('INSERT INTO reminders (conv_key, at, text, created_at) VALUES (?, ?, ?, ?)').run(key, p.at, reminderText, Date.now())
-			// Nota automática solo si no tienes una tuya
-			const note = db.prepare('SELECT text FROM conversation_notes WHERE conv_key = ?').get(key)
-			if (!note || note.text.startsWith('🤖')) {
-				db.prepare('INSERT OR REPLACE INTO conversation_notes (conv_key, text, updated_at) VALUES (?, ?, ?)').run(key, `🤖 Prometió pagar ${p.text}`, Date.now())
-			}
-		}
+			else db.prepare('INSERT INTO reminders (conv_key, at, text, created_at) VALUES (?, ?, ?, ?)').run(key, p.at, reminderText, now)
+			setBotNote(key, `🤖 ${n > 1 ? ord(n) + ' promesa' : 'Promesa'}: pagar ${what}${h.broken ? ` · ${h.broken} incumplida${h.broken > 1 ? 's' : ''} antes` : ''}`)
+			extra = { date: p.text, amount, hist: h }
+		} else extra = { amount }
 	}
+	if (intent === 'negociar' || intent === 'sin_dinero') {
+		if (amount) setBotNote(key, `🤖 Ofrece ${money(amount)}${intent === 'sin_dinero' ? ' (dice que no tiene dinero)' : ''}`)
+	}
+	const suggestion = suggestionFor(intent, text, extra)
+	db.prepare('UPDATE messages SET intent = ?, suggestion = ? WHERE account_id = ? AND id = ?').run(intent, suggestion, accountId, msgId)
 	return intent
 }
+
+// ---- Promesas vencidas: si pasó un día de la fecha y no dijo que pagó, se marca incumplida ----
+export function checkBrokenPromises(now = Date.now()) {
+	const due = db.prepare("SELECT * FROM promises WHERE status = 'pending' AND at < ?").all(now - 24 * 3600e3)
+	for (const p of due) {
+		db.prepare("UPDATE promises SET status = 'broken', closed_at = ? WHERE id = ?").run(now, p.id)
+		removeLabel(p.conv_key, 'promesa')
+		addLabel(p.conv_key, 'incumplida')
+		const h = promiseHistory(p.conv_key)
+		setBotNote(p.conv_key, `🤖 No cumplió su promesa${p.amount ? ' de ' + money(p.amount) : ''} · ${h.broken} incumplida${h.broken > 1 ? 's' : ''}, ${h.kept} cumplida${h.kept === 1 ? '' : 's'}`)
+		const name = db.prepare('SELECT name FROM chats WHERE account_id = ? AND jid = ?').get(Number(p.conv_key.split(':')[0]), p.conv_key.slice(p.conv_key.indexOf(':') + 1))?.name
+		try { sendPush({ title: `${INTENTS.incumplida.tag} · ${name || '+' + p.conv_key.split(':')[1].split('@')[0]}`, body: `No avisó su pago${p.amount ? ' de ' + money(p.amount) : ''}. Dale seguimiento.`, jid: p.conv_key }) } catch {}
+	}
+	return due.length
+}
+setInterval(() => { try { if (smartEnabled()) checkBrokenPromises() } catch {} }, 30 * 60e3).unref()
 
 // ---- Hora local del cliente según su lada (México) ----
 const LADA_TZ = [

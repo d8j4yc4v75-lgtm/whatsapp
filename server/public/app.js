@@ -782,7 +782,11 @@ const INTENT_UI = {
 	pagado: { tag: '💰 Dice que ya pagó', reply: /comprobante/i, replyIfProof: /gracias/i },
 	promesa: { tag: '🤝 Prometió pagar', note: 'Se creó un recordatorio para ese día.', reply: /promesa|compromiso/i },
 	datos_pago: { tag: '🏦 Pide datos de pago', reply: /datos|cuenta|pagar/i },
-	negociar: { tag: '💬 Quiere negociar', reply: /opciones|convenio|plan/i }
+	negociar: { tag: '💬 Quiere negociar', reply: /opciones|convenio|plan/i },
+	se_niega: { tag: '✋ Se niega a pagar', note: 'Explícale el adeudo con calma.' },
+	sin_dinero: { tag: '🪙 Dice que no tiene dinero', note: 'Ofrécele pagos en partes.' },
+	saldo: { tag: '🧾 Pregunta su saldo', reply: /saldo|adeudo/i },
+	molesto: { tag: '😠 Está molesto', note: 'Responde con calma; evita insistir hoy.' }
 }
 function updateSuggestion() {
 	const el = $('#suggest')
@@ -793,7 +797,7 @@ function updateSuggestion() {
 	if (!ui) { el.hidden = true; el.innerHTML = ''; return }
 	const re = last.intent === 'pagado' && /comprobante/i.test(last.text || '') ? ui.replyIfProof : ui.reply
 	const r = re ? (S.replies || []).find(x => re.test(x.title) || re.test(x.text)) : null
-	const html = `<span class="sg-tag">${ui.tag}</span>${ui.note ? `<small>${esc(ui.note)}</small>` : ''}${r ? `<button class="chip" data-act="qr-pick" data-val="${r.id}">💡 ${esc(r.title)}</button>` : ''}`
+	const html = `<span class="sg-tag">${ui.tag}</span>${ui.note ? `<small>${esc(ui.note)}</small>` : ''}${r ? `<button class="chip" data-act="qr-pick" data-val="${r.id}">💡 ${esc(r.title)}</button>` : ''}${last.suggestion ? `<button class="chip" data-act="sg-use">✍️ Respuesta sugerida</button>` : ''}`
 	if (el.innerHTML !== html) el.innerHTML = html
 	el.hidden = false
 }
@@ -1888,7 +1892,7 @@ function renderSettings() {
 
 			<div class="section">Asistente inteligente</div>
 			<div class="group"><div class="item"><span class="grow">Entender respuestas de clientes<small>Etiqueta, da de baja, crea recordatorios y sugiere respuestas</small></span><label class="switch"><input type="checkbox" data-act="smart-toggle" id="smart-cb" checked><i></i></label></div></div>
-			<p class="hint">Cuando un cliente contesta, la app lo entiende y actúa sola: «ya pagué» → etiqueta <b>Pagó</b>; «mañana le deposito» → <b>Promesa de pago</b> y recordatorio ese día; «número equivocado», «baja» o una queja → ya no recibe masivos; «¿a qué cuenta deposito?» → te sugiere tu respuesta de datos de pago. Además los masivos respetan la hora local del cliente (según su lada) y el horario legal de 7 a 22 h.</p>
+			<p class="hint">Cuando un cliente contesta, la app lo entiende y actúa sola: «ya pagué» → etiqueta <b>Pagó</b>; «mañana le deposito» → <b>Promesa de pago</b> y recordatorio ese día; «número equivocado», «baja» o una queja → ya no recibe masivos; «¿a qué cuenta deposito?» → te sugiere tu respuesta de datos de pago. También detecta el monto prometido, si dice que no tiene dinero, si se niega, si pregunta su saldo o si está molesto; lleva el historial de promesas (si pasa un día de la fecha sin que diga que pagó, la marca <b>Promesa incumplida</b> y te avisa) y te deja una respuesta sugerida en cada caso. Además los masivos respetan la hora local del cliente (según su lada) y el horario legal de 7 a 22 h.</p>
 
 			<div class="section">Corrección de texto</div>
 			<div class="group"><div class="item"><span class="grow">Revisar antes de enviar<small>Corrige ortografía y propone una respuesta mejorada</small></span><label class="switch"><input type="checkbox" data-act="ai-review-toggle" id="ai-review-cb"${S.ai.review ? ' checked' : ''}><i></i></label></div></div>
@@ -2220,6 +2224,16 @@ document.addEventListener('click', async e => {
 		}
 		case 'attach': return $('#file').click()
 		case 'send': return $('#text').value.trim() ? sendText() : startRecording()
+		case 'sg-use': {
+			const list = S.msgs[S.active] || []
+			const last = list[list.length - 1]
+			const ta = $('#text')
+			if (!last?.suggestion || !ta) return
+			ta.value = last.suggestion
+			ta.dispatchEvent(new Event('input'))
+			ta.focus()
+			return
+		}
 		case 'ai-fix': { const v = $('#text')?.value.trim(); if (v) aiReview(v); return }
 		case 'ai-send': case 'ai-edit': case 'ai-pick': {
 			const o = S.aiOpts; if (!o) return

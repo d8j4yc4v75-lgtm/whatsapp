@@ -563,7 +563,10 @@ export class Session {
 			let intent = null
 			if (!isGroup && row.text) {
 				try { intent = smartIncoming({ accountId: this.accountId, jid, msgId: key.id, text: row.text }) } catch (e) { note(this.accountId, 'smart-error', e.message) }
-				if (intent) this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
+				if (intent) {
+					this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(stmt.getMessage.get(this.accountId, key.id)) })
+					this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })
+				}
 			}
 			const conv = this.manager.conversation(this.accountId, jid)
 			const account = stmt.getAccount.get(this.accountId)
@@ -826,6 +829,7 @@ export class SessionManager extends EventEmitter {
 			status: r.status,
 			edited: Boolean(r.edited),
 			intent: r.intent || null,
+			suggestion: r.suggestion || null,
 			deleted: Boolean(r.deleted)
 		}
 	}

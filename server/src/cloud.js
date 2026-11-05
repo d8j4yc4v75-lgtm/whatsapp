@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import { db } from './db.js'
 import { MEDIA_DIR, note, preview, stmt } from './sessions.js'
 import { sendPush } from './push.js'
+import { smartIncoming, INTENTS } from './smart.js'
 
 // API oficial de WhatsApp (Cloud API de Meta)
 const GRAPH = `${process.env.GRAPH_BASE || 'https://graph.facebook.com'}/${process.env.GRAPH_VERSION || 'v23.0'}`
@@ -330,10 +331,18 @@ export class CloudSession {
 		this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(stmt.getMessage.get(this.accountId, row.id)) })
 		this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, row.jid) })
 		if (live) {
+			let intent = null
+			if (!row.from_me && row.text) {
+				try { intent = smartIncoming({ accountId: this.accountId, jid: row.jid, msgId: row.id, text: row.text }) } catch {}
+				if (intent) {
+					this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(stmt.getMessage.get(this.accountId, row.id)) })
+					this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, row.jid) })
+				}
+			}
 			const conv = this.manager.conversation(this.accountId, row.jid)
 			const account = stmt.getAccount.get(this.accountId)
 			sendPush({
-				title: `${conv?.name || '+' + row.jid.split('@')[0]} · ${account?.name}`,
+				title: `${intent ? INTENTS[intent].tag + ' · ' : ''}${conv?.name || '+' + row.jid.split('@')[0]} · ${account?.name}`,
 				body: preview(row),
 				jid: `${this.accountId}:${row.jid}`,
 				badge: this.manager.totalUnread()
