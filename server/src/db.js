@@ -159,6 +159,12 @@ if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'fix_status0_v1'").get()
 		SELECT 1 FROM messages r WHERE r.account_id = messages.account_id AND r.jid = messages.jid AND r.from_me = 0 AND r.ts > messages.ts)`).run()
 	db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('fix_status0_v1', '1')").run()
 }
+// Los demás «No enviado» viejos no se pueden comprobar: casi todos venían de la sincronización, quedan como enviados (✓).
+// Desde ahora un fallo real guarda el motivo en «error», así que se distingue.
+if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'fix_status0_v2'").get()) {
+	db.prepare('UPDATE messages SET status = 2 WHERE from_me = 1 AND status = 0 AND error IS NULL').run()
+	db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('fix_status0_v2', '1')").run()
+}
 
 // Mensajes editados o eliminados para todos
 for (const sql of ['ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0']) { try { db.exec(sql) } catch {} }

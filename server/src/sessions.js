@@ -79,7 +79,7 @@ export const stmt = {
 		ON CONFLICT (account_id, id) DO NOTHING`),
 	setMedia: db.prepare('UPDATE messages SET media_path = ? WHERE account_id = ? AND id = ?'),
 	setStatus: db.prepare('UPDATE messages SET status = MAX(status, ?) WHERE account_id = ? AND id = ?'),
-	forceStatus: db.prepare('UPDATE messages SET status = ? WHERE account_id = ? AND id = ?'),
+	forceStatus: db.prepare("UPDATE messages SET status = ?, error = COALESCE(error, 'Rechazado por WhatsApp') WHERE account_id = ? AND id = ?"),
 	setText: db.prepare('UPDATE messages SET text = ?, edited = 1 WHERE account_id = ? AND id = ?'),
 	setDeleted: db.prepare('UPDATE messages SET deleted = 1, text = NULL WHERE account_id = ? AND id = ?'),
 	getMessage: db.prepare('SELECT * FROM messages WHERE account_id = ? AND id = ?'),

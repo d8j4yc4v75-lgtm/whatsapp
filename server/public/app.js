@@ -926,6 +926,7 @@ function openMsgMenu(m) {
 	const age = Date.now() - m.ts
 	const canChange = m.fromMe && !m.deleted && account(m.accountId)?.kind !== 'cloud'
 	const acts = []
+	if (m.fromMe && m.status === 0 && m.type === 'text' && m.text) acts.push({ act: 'msg-resend', text: 'Reenviar', icon: IC.send })
 	if (m.text && !m.deleted) acts.push({ act: 'msg-copy', text: 'Copiar', icon: IC.copy })
 	if (canChange && m.type === 'text' && age < 15 * 60000) acts.push({ act: 'msg-edit', text: 'Editar', icon: IC.pencil })
 	if (canChange && age < 2 * 864e5) acts.push({ act: 'msg-delete', text: 'Eliminar para todos', icon: IC.trash, danger: true })
@@ -2222,6 +2223,14 @@ document.addEventListener('click', async e => {
 	const val = el.dataset.val
 	if (el.classList.contains('as-btn')) closeSheet()
 	switch (act) {
+		case 'msg-resend': {
+			const m = S.menuMsg; if (!m?.text) return
+			try {
+				const sent = await api('POST', '/send', { accountId: m.accountId, jid: m.jid, text: m.text })
+				insertMsg(sent); renderMessages(true); toast('Reenviado')
+			} catch (err) { toast(err.message) }
+			return
+		}
 		case 'msg-copy': {
 			const m = S.menuMsg; if (!m?.text) return
 			try { await navigator.clipboard.writeText(m.text); toast('Copiado') } catch { toast('No se pudo copiar') }
