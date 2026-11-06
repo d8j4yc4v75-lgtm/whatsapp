@@ -1895,6 +1895,7 @@ function renderAccount(id, full) {
 				<div class="item"><span class="grow">Días vinculado</span><span>${h.ageDays}</span></div>
 				<div class="item"><span class="grow">Envíos sugeridos hoy</span><span><b>${h.suggestedDaily}</b></span></div>
 			</div>
+			${h.restUntil ? `<div class="group"><div class="item"><span class="grow">Permitir mientras descansa<small>Mensajes de envíos masivos al día (0 = ninguno)</small></span><input type="number" id="ac-rest-allow" min="0" max="50" value="${a.restAllow || 0}" class="num"></div><button class="btn" data-act="rest-allow" data-val="${a.id}">Guardar</button></div>` : ''}
 			<div class="group">${h.restUntil
 				? '<button class="btn" data-act="rest" data-val="0">Terminar descanso ahora</button>'
 				: [3, 5, 7].map(d => `<button class="btn" data-act="rest" data-val="${d}">😴 Poner a descansar ${d} días</button>`).join('')}</div>
@@ -2426,6 +2427,11 @@ document.addEventListener('click', async e => {
 				renderCampaignList()
 				toast(upd.forced ? '⚡ Enviando sin límites (con pausas entre mensajes)' : 'Volvió a los límites normales')
 			} catch (err) { toast(err.message) }
+			return
+		}
+		case 'rest-allow': {
+			const n = Number($('#ac-rest-allow')?.value) || 0
+			try { Object.assign(account(Number(val)), await api('PATCH', `/accounts/${val}`, { restAllow: n })); toast(n ? `Podrá enviar ${n} al día mientras descansa` : 'No enviará mientras descansa') } catch (err) { toast(err.message) }
 			return
 		}
 		case 'rest': {

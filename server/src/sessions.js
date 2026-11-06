@@ -803,6 +803,7 @@ export class SessionManager extends EventEmitter {
 		if (a.kind !== 'cloud') {
 			info.health = accountHealth(id, info.status)
 			info.reserve = Boolean(a.reserve)
+			info.restAllow = a.rest_allow || 0
 		}
 		if (a.kind === 'cloud') {
 			const cfg = JSON.parse(a.cloud || '{}')

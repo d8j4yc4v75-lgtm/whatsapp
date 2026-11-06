@@ -349,7 +349,12 @@ export class CampaignRunner {
 			if (!session || session instanceof CloudSession || session.status !== 'connected') continue
 			// Con «subir poco a poco», el límite depende de la salud del número
 			const health = accountHealth(acc, session.status)
-			if (health?.restUntil) continue
+			// Descansando: solo envía si tú le permitiste unos cuantos al día (máximo esos, sin importar el modo)
+			if (health?.restUntil) {
+				const allow = db.prepare('SELECT rest_allow FROM accounts WHERE id = ?').get(acc)?.rest_allow || 0
+				if (allow > 0 && this.safeSentLast24h(acc) < allow) ready.set(acc, session)
+				continue
+			}
 			// En rojo (rechazos o mensajes que no se entregan) no se usa en ningún modo: fallaría y lo terminaría de bloquear
 			if (health?.level === 'red') continue
 			// Urgente: sin topes diarios ni por hora (solo las pausas entre mensajes). Nunca usa un número

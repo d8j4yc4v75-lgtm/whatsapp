@@ -5,7 +5,9 @@ import { db } from './db.js'
 for (const sql of [
 	'ALTER TABLE accounts ADD COLUMN linked_at INTEGER',
 	'ALTER TABLE accounts ADD COLUMN rest_until INTEGER',
-	'ALTER TABLE accounts ADD COLUMN rest_ended_at INTEGER'
+	'ALTER TABLE accounts ADD COLUMN rest_ended_at INTEGER',
+	// Mensajes al día que tú permites aunque el número esté descansando (0 = ninguno)
+	'ALTER TABLE accounts ADD COLUMN rest_allow INTEGER NOT NULL DEFAULT 0'
 ]) {
 	try { db.exec(sql) } catch {}
 }
