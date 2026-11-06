@@ -39,7 +39,9 @@ for (const sql of [
 	// Urgente: ignora los topes diarios/por hora sugeridos (recordatorios obligatorios)
 	'ALTER TABLE campaigns ADD COLUMN forced INTEGER NOT NULL DEFAULT 0',
 	// Brincar a quien ya tiene chat con alguno de tus números
-	'ALTER TABLE campaigns ADD COLUMN skip_chats INTEGER NOT NULL DEFAULT 0'
+	'ALTER TABLE campaigns ADD COLUMN skip_chats INTEGER NOT NULL DEFAULT 0',
+	// Intentos de un contacto que falló por un problema temporal (conexión)
+	'ALTER TABLE campaign_items ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0'
 ]) {
 	try { db.exec(sql) } catch {}
 }
@@ -395,6 +397,16 @@ export class CampaignRunner {
 				if (Math.random() < 0.08) this.nextAt.set(acc, Date.now() + (10 + Math.random() * 20) * 60000)
 			} catch (e) {
 				const noWa = /no tiene WhatsApp|inválido/i.test(e.message)
+				// Fallas temporales (conexión caída, tiempo agotado, número reconectando): no es «No enviado»,
+				// el contacto vuelve a la cola y se intenta más tarde (hasta 3 veces)
+				const transient = e.transient || /timed? ?out|time-?out|connection (closed|lost|failure)|not connected|no está conectad|socket|econn|stream errored|428|408|503|429|rate-overlimit/i.test(String(e.message || e))
+				if (!noWa && transient && (item.attempts || 0) < 2) {
+					db.prepare("UPDATE campaign_items SET status = 'pending', sent_by = NULL, sent_at = NULL, error = NULL, attempts = attempts + 1 WHERE id = ?").run(item.id)
+					this.nextAt.set(acc, Date.now() + (2 + Math.random() * 3) * 60000)
+					this.emit(c.id)
+					this.globalNextAt = Date.now() + 8000 + Math.random() * 17000
+					break
+				}
 				db.prepare("UPDATE campaign_items SET status = 'failed', error = ?, sent_at = ?, sent_by = ? WHERE id = ?")
 					.run(noWa ? 'Ese número no tiene WhatsApp' : e.message, Date.now(), noWa ? null : acc, item.id)
 				// Un número sin WhatsApp no gasta el turno de envío

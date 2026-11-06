@@ -998,8 +998,18 @@ export class SessionManager extends EventEmitter {
 		const digits = String(phone).replace(/\D/g, '')
 		if (!digits) throw new Error('Número inválido')
 		const sock = session.requireSocket()
-		const [res] = (await sock.onWhatsApp(digits)) || []
-		if (!res?.exists) throw new Error('Ese número no tiene WhatsApp')
-		return canonicalJid(res.jid)
+		// En México el mismo número puede estar registrado como 52… o 521…: se prueban las dos formas
+		const tries = [digits]
+		if (/^521\d{10}$/.test(digits)) tries.push('52' + digits.slice(3))
+		else if (/^52\d{10}$/.test(digits)) tries.push('521' + digits.slice(2))
+		for (const d of tries) {
+			let res
+			try { [res] = (await sock.onWhatsApp(d)) || [] } catch (e) {
+				// Si la consulta falla (conexión lenta o caída) no significa que no tenga WhatsApp
+				throw Object.assign(new Error('No se pudo verificar el número (conexión): se vuelve a intentar'), { transient: true })
+			}
+			if (res?.exists) return canonicalJid(res.jid)
+		}
+		throw new Error('Ese número no tiene WhatsApp')
 	}
 }
