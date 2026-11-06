@@ -121,8 +121,10 @@ export function accountHealth(accountId, status) {
 		suggestedDaily = 0
 	} else if (resting) {
 		level = 'red'
-		reason = `Descansando hasta el ${new Date(a.rest_until).toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'America/Mexico_City' })}. Los envíos masivos no lo usan.`
-		suggestedDaily = 0
+		const until = new Date(a.rest_until).toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'America/Mexico_City' })
+		// Si tú le permitiste unos cuantos al día mientras descansa, ese es su tope
+		reason = a.rest_allow > 0 ? `Descansando hasta el ${until}. Le permitiste ${a.rest_allow} envíos masivos al día.` : `Descansando hasta el ${until}. Los envíos masivos no lo usan.`
+		suggestedDaily = a.rest_allow > 0 ? a.rest_allow : 0
 	} else if (r24 >= 2) {
 		level = 'red'
 		reason = `WhatsApp rechazó ${r24} mensajes en las últimas 24 h. Déjalo descansar unos días.`
