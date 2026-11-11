@@ -41,7 +41,9 @@ for (const sql of [
 	// Brincar a quien ya tiene chat con alguno de tus números
 	'ALTER TABLE campaigns ADD COLUMN skip_chats INTEGER NOT NULL DEFAULT 0',
 	// Intentos de un contacto que falló por un problema temporal (conexión)
-	'ALTER TABLE campaign_items ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0'
+	'ALTER TABLE campaign_items ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0',
+	// Envío programado: no empieza antes de esta fecha
+	'ALTER TABLE campaigns ADD COLUMN start_at INTEGER'
 ]) {
 	try { db.exec(sql) } catch {}
 }
@@ -96,7 +98,7 @@ export class CampaignRunner {
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
 	}
 
-	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, forced, skipChats, rows }) {
+	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, forced, skipChats, startAt, rows }) {
 		const safe = kind === 'safe'
 		if (!Array.isArray(rows) || !rows.length) throw new Error('La lista está vacía')
 		if (rows.length > 20000) throw new Error('Máximo 20,000 contactos por envío')
@@ -153,6 +155,7 @@ export class CampaignRunner {
 		})()
 		if (forced) db.prepare('UPDATE campaigns SET forced = 1 WHERE id = ?').run(id)
 		if (skipChats) db.prepare('UPDATE campaigns SET skip_chats = 1 WHERE id = ?').run(id)
+		if (Number(startAt) > Date.now()) db.prepare('UPDATE campaigns SET start_at = ? WHERE id = ?').run(Number(startAt), id)
 		this.emit(id)
 		return { campaign: this.get(id), invalid }
 	}
@@ -184,6 +187,7 @@ export class CampaignRunner {
 			autoRamp: c.auto_ramp !== 0,
 			forced: Boolean(c.forced),
 			skipChats: Boolean(c.skip_chats),
+			startAt: c.start_at && c.start_at > Date.now() ? c.start_at : null,
 			hourlyPerNumber: c.hourly_per_number,
 			minDelay: c.min_delay,
 			maxDelay: c.max_delay,
@@ -261,6 +265,7 @@ export class CampaignRunner {
 			// Días de descanso: ese día no sale ningún envío masivo
 			const restToday = restDays().includes(weekdayNow())
 			for (const c of db.prepare("SELECT * FROM campaigns WHERE status = 'running'").all()) {
+				if (c.start_at && Date.now() < c.start_at) continue // programado: todavía no le toca
 				// Un envío urgente sí sale en días de descanso (solo respeta su horario)
 				const inWindow = (!restToday || c.forced) && (c.start_hour <= c.end_hour ? hour >= c.start_hour && hour < c.end_hour : hour >= c.start_hour || hour < c.end_hour)
 				if (c.kind === 'safe') await this.tickSafe(c, inWindow)

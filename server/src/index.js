@@ -18,7 +18,7 @@ import { WarmupManager, library as warmupLibrary } from './warmup.js'
 import { smartEnabled, setSmartEnabled } from './smart.js'
 import { correctorStatus, correctorSave, rewrite } from './corrector.js'
 import { setupExtras } from './extras.js'
-import { diskInfo, startMaintenance } from './maintenance.js'
+import { diskInfo, startMaintenance, mediaDays, setMediaDays } from './maintenance.js'
 
 const STARTED_AT = new Date().toISOString()
 const manager = new SessionManager()
@@ -338,6 +338,38 @@ app.get('/api/warmup/media/:name', (req, res) => {
 	if (!file) return res.sendStatus(404)
 	res.sendFile(file)
 })
+
+// ---- Buscar dentro de los mensajes ----
+app.get('/api/search', route(req => {
+	const q = String(req.query.q || '').trim()
+	if (q.length < 3) return []
+	const rows = db.prepare(`
+		SELECT m.account_id, m.jid, m.id, m.text, m.ts, m.from_me FROM messages m
+		WHERE m.text LIKE ? ESCAPE '\\' AND m.jid NOT LIKE '%@g.us' ORDER BY m.ts DESC LIMIT 40`).all('%' + q.replace(/[\\%_]/g, '\\$&') + '%')
+	return rows.map(r => {
+		const c = manager.conversation(r.account_id, r.jid)
+		return { key: `${r.account_id}:${r.jid}`, accountId: r.account_id, phone: r.jid.split('@')[0], name: c?.name || null, text: r.text, ts: r.ts, fromMe: Boolean(r.from_me) }
+	})
+}))
+
+// ---- Tablero de promesas de pago ----
+app.get('/api/promises', route(() => {
+	let rows = []
+	try {
+		rows = db.prepare(`SELECT * FROM promises WHERE status = 'pending' OR (status IN ('kept', 'broken') AND closed_at > ?) ORDER BY at`).all(Date.now() - 14 * 864e5)
+	} catch {}
+	return rows.map(p => {
+		const i = p.conv_key.indexOf(':')
+		const accountId = Number(p.conv_key.slice(0, i)), jid = p.conv_key.slice(i + 1)
+		const c = manager.conversation(accountId, jid)
+		return { id: p.id, key: p.conv_key, accountId, phone: jid.split('@')[0], name: c?.name || null, at: p.at, amount: p.amount, text: p.text, status: p.status, closedAt: p.closed_at }
+	})
+}))
+
+// ---- Almacenamiento: cuántos días se guardan fotos, audios y documentos ----
+const storageInfo = () => { const d = diskInfo(); return { days: mediaDays(), mediaMb: d.parts.media?.mb || 0, freeMb: d.freeMb, totalMb: d.totalMb } }
+app.get('/api/settings/storage', route(() => storageInfo()))
+app.put('/api/settings/storage', route(req => { setMediaDays(req.body.days); return storageInfo() }))
 
 app.get('/api/campaigns', route(() => campaigns.list()))
 

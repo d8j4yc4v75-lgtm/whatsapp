@@ -68,6 +68,18 @@ function pruneMedia(olderThanMs) {
 	return removed
 }
 
+// Días que se conservan fotos, audios y documentos descargados (ajustable en Ajustes › Almacenamiento)
+export function mediaDays() {
+	const v = Number(db.prepare("SELECT value FROM app_settings WHERE key = 'media_days'").get()?.value)
+	return v >= 1 && v <= 365 ? v : 14
+}
+export function setMediaDays(days) {
+	const d = Math.max(1, Math.min(365, Math.floor(Number(days) || 14)))
+	db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('media_days', ?)").run(String(d))
+	cleanup()
+	return d
+}
+
 export function cleanup() {
 	try {
 		// Copias de sesiones cerradas que guardaban versiones anteriores
@@ -76,7 +88,7 @@ export function cleanup() {
 				if (name.includes('-logout-')) fs.rmSync(path.join(AUTH_DIR, name), { recursive: true, force: true })
 			}
 		}
-		let removed = pruneMedia(14 * DAY)
+		let removed = pruneMedia(mediaDays() * DAY)
 		if (freeRatio() < 0.2) removed += pruneMedia(DAY)
 		if (freeRatio() < 0.1) removed += pruneMedia(0)
 		db.pragma('wal_checkpoint(TRUNCATE)')

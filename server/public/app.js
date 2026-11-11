@@ -401,6 +401,8 @@ function route() {
 const go = hash => { location.hash = hash }
 
 let lastRoute = ''
+const isWide = () => matchMedia('(min-width: 900px)').matches
+matchMedia('(min-width: 900px)').addEventListener?.('change', () => { lastRoute = ''; if (S.token) render() })
 function render() {
 	if (!S.token) return
 	const r = route()
@@ -409,8 +411,20 @@ function render() {
 	lastRoute = key
 	if (r.name !== 'chat' && S.active) S.active = null
 
-	if (r.name === 'chat') return renderChat(r.arg, changed)
-	if (changed || !$('#view')) {
+	// En computadora: lista de chats a la izquierda y la conversación a la derecha
+	if (isWide() && (r.name === 'chat' || r.name === 'inbox')) {
+		const fresh = !$('#pane')
+		if (fresh) $('#app').innerHTML = `<div class="split"><div class="side"><main class="view" id="view"></main>${tabs('inbox')}</div><section class="pane" id="pane"></section></div>`
+		let p
+		if (r.name === 'chat') p = renderChat(r.arg, changed || fresh)
+		else if (changed || fresh) $('#pane').innerHTML = '<div class="empty pane-empty"><div class="big">💬</div>Elige un chat para verlo aquí</div>'
+		renderInbox(fresh)
+		if (fresh && S.inboxScroll) $('#view').scrollTop = S.inboxScroll
+		updateBadge()
+		return p
+	}
+	if (r.name === 'chat') return renderChat(r.arg, changed || Boolean($('#pane')))
+	if (changed || !$('#view') || $('#pane')) {
 		$('#app').innerHTML = `<main class="view" id="view"></main>${tabs(r.name)}`
 	}
 	updateBadge()
@@ -478,8 +492,10 @@ function renderInbox(full) {
 			${!isStandalone() && /iPhone|iPad/.test(navigator.userAgent) ? `<div class="install"><b>Instala la app</b>Toca <b style="display:inline">Compartir ⬆︎</b> y luego <b style="display:inline">«Añadir a pantalla de inicio»</b>. Así se abre como app y recibe notificaciones.</div>` : ''}
 			<div class="search"><input id="q" type="search" placeholder="Buscar" value="${esc(S.filter.q)}"></div>
 			<div class="chips" id="chips"></div>
-			<ul class="list" id="convs"></ul>`
-		$('#q').oninput = e => { S.filter.q = e.target.value; renderInboxList() }
+			<ul class="list" id="convs"></ul>
+			<div id="msg-results"></div>`
+		$('#q').oninput = e => { S.filter.q = e.target.value; renderInboxList(); searchMessages() }
+		searchMessages()
 	}
 	renderChips()
 	renderInboxList()
@@ -500,6 +516,26 @@ function renderChips() {
 	].join('')
 }
 
+// Busca el texto dentro de todos los mensajes (además de nombres y números)
+let searchTimer
+function searchMessages() {
+	clearTimeout(searchTimer)
+	const q = S.filter.q.trim()
+	const el = $('#msg-results')
+	if (!el) return
+	if (q.length < 3) { el.innerHTML = ''; return }
+	searchTimer = setTimeout(async () => {
+		let rows = []
+		try { rows = await api('GET', `/search?q=${enc(q)}`) } catch {}
+		const box = $('#msg-results')
+		if (!box || S.filter.q.trim() !== q) return
+		const mark = t => { const i = t.toLowerCase().indexOf(q.toLowerCase()); if (i < 0) return esc(t.slice(0, 120)); const a = Math.max(0, i - 40); return (a ? '…' : '') + esc(t.slice(a, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length, i + q.length + 80)) }
+		box.innerHTML = `<div class="section">Mensajes${rows.length ? ` (${rows.length})` : ''}</div>` + (rows.length
+			? `<ul class="list">${rows.map(r => `<li><a class="row" href="#/chat/${enc(r.key)}"><div class="body" style="padding-left:0"><div class="top"><span class="name">${esc(fmtPhone(r.phone))}${r.name ? ` · ${esc(r.name)}` : ''}</span><span class="time">${timeLabel(r.ts)}</span></div><div class="bottom"><span class="preview">${r.fromMe ? 'Tú: ' : ''}${mark(r.text || '')}</span></div><div class="tags">${accountTag(r.accountId)}</div></div></a></li>`).join('')}</ul>`
+			: '<p class="hint">Ningún mensaje contiene ese texto.</p>')
+	}, 350)
+}
+
 function renderInboxList() {
 	const list = filteredConvs()
 	const el = $('#convs')
@@ -509,11 +545,11 @@ function renderInboxList() {
 		return
 	}
 	el.innerHTML = list.map(c => `
-		<li><a class="row" href="#/chat/${enc(c.key)}">
+		<li><a class="row ${c.key === S.active ? 'active' : ''}" href="#/chat/${enc(c.key)}">
 			${avatarHtml(c)}
 			<div class="body">
 				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
-				<div class="bottom"><span class="preview">${c.lastFromMe ? (c.lastStatus != null ? `<span class="ptick">${ticks(c.lastStatus)}</span>` : 'Tú: ') : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
+				<div class="bottom"><span class="preview">${drafts()[c.key] && c.key !== S.active ? `<b class="draft">Borrador:</b> ${esc(drafts()[c.key])}</span><span hidden>` : ''}${c.lastFromMe ? (c.lastStatus != null ? `<span class="ptick">${ticks(c.lastStatus)}</span>` : 'Tú: ') : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
 				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}${c.reminder ? `<span class="tag" style="--c:#7C5CFF">${esc(reminderLabel(c.reminder.at))}</span>` : ''}${c.note ? '<span class="tag" style="--c:#B7791F">Nota</span>' : ''}${S.filter.waiting ? `<span class="tag" style="--c:#E5484D">${waitingLabel(c.lastTs)}</span>` : ''}</div>
 			</div>
 		</a></li>`).join('')
@@ -523,7 +559,7 @@ function renderInboxList() {
 async function renderChat(jid, full) {
 	if (full) {
 		S.active = jid
-		$('#app').innerHTML = `
+		;(isWide() && $('#pane') || $('#app')).innerHTML = `
 			<header class="bar chat-bar">
 				<button class="icon-btn back" data-act="back" aria-label="Atrás">${IC.back}<i class="badge" id="back-badge" hidden></i></button>
 				<span id="c-avatar" class="c-avatar" data-act="contact-info"></span>
@@ -770,6 +806,15 @@ function renderFrom() {
 	}
 }
 
+// Borradores: lo que escribiste y no enviaste se guarda por chat (en este dispositivo)
+const drafts = () => store.get('drafts', {})
+function saveDraft(key, text) {
+	if (!key) return
+	const d = drafts()
+	if (text.trim()) d[key] = text.slice(0, 2000); else delete d[key]
+	store.set('drafts', d)
+}
+
 function renderComposer() {
 	const row = $('#compose-row')
 	if (S.recorder) {
@@ -779,7 +824,7 @@ function renderComposer() {
 			<button class="round rec" data-act="rec-send" aria-label="Enviar nota de voz">${IC.sendFill}</button>`
 		return
 	}
-	const prev = $('#text')?.value || ''
+	const prev = $('#text')?.value || drafts()[S.active] || ''
 	const isCloud = account(accOf(S.active))?.kind === 'cloud'
 	row.innerHTML = `
 		<button class="round ghost" data-act="attach" aria-label="Adjuntar">${IC.plus}</button>
@@ -797,7 +842,7 @@ function renderComposer() {
 		$('#ai-btn').hidden = !has
 		if (btn.classList.contains('mic') === has) { btn.classList.toggle('mic', !has); btn.innerHTML = has ? IC.sendFill : IC.mic }
 	}
-	ta.oninput = () => { sync(); renderQuickReplies() }
+	ta.oninput = () => { sync(); renderQuickReplies(); saveDraft(S.active, ta.value) }
 	sync()
 }
 
@@ -1264,6 +1309,7 @@ async function renderCampaigns(full) {
 		$('#view').innerHTML = `
 			${largeBar('Envíos', `<button class="icon-btn" data-act="new-campaign" aria-label="Nuevo envío">${IC.plus}</button>`)}
 			<div class="settings" style="min-height:100%">
+			<div class="group" style="margin-top:8px"><button class="btn" data-act="promises">🤝 Promesas de pago<small style="display:block;color:var(--muted)">Las de hoy, vencidas, próximas y cumplidas</small></button></div>
 			<div class="section">Resultados</div>
 			<div class="chips" style="padding:4px 16px 8px">${[[1, 'Hoy'], [7, '7 días'], [30, '30 días']].map(([d, t]) => `<button class="chip ${S.statsDays === d ? 'on' : ''}" data-act="stats-days" data-val="${d}">${t}</button>`).join('')}</div>
 			<div id="stats"><p class="hint">Cargando…</p></div>
@@ -1321,7 +1367,7 @@ function renderCampaignList() {
 		const pct = total ? Math.round(done / total * 100) : 0
 		const safe = c.kind === 'safe'
 		const waiting = c.note === 'limit' || c.note === 'limit-safe' || /^Esperando/.test(c.note || '')
-		const why = c.note === 'limit' ? 'Esperando: se alcanzó el límite diario de Meta'
+		let why = c.note === 'limit' ? 'Esperando: se alcanzó el límite diario de Meta'
 			: c.note === 'limit-safe' ? (c.forced ? 'Esperando a que algún número pueda enviar (conectado y sin rechazos).' : 'Esperando: los números ya enviaron su máximo de hoy. Sigue mañana sola. Si es urgente, toca «⚡ Enviar ya».')
 			: c.note || ''
 		const tags = safe
@@ -1330,6 +1376,7 @@ function renderCampaignList() {
 		const info = safe
 			? `Modo seguro · ${c.autoRamp ? 'sube poco a poco hasta ' : ''}${c.dailyPerNumber} por número al día · ${c.hourlyPerNumber || 8} por hora · pausas de ${Math.round(c.minDelay / 60)}–${Math.round(c.maxDelay / 60)} min · ${c.startHour}:00–${c.endHour}:00`
 			: `Plantilla ${esc(c.template)} · ${c.perHour}/hora · ${c.startHour}:00–${c.endHour}:00`
+		if (c.startAt && c.status === 'running') why = `⏰ Programado: empieza el ${new Date(c.startAt).toLocaleString('es', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
 		return `<div class="item" style="display:block">
 			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${c.forced ? '<span class="pill warn">⚡ Urgente</span>' : ''}${tags}<span class="status" style="color:${color}">${st}</span></div>
 			<small>${info}</small>
@@ -1414,6 +1461,7 @@ function openNewSafeCampaign() {
 			<div class="item"><span class="grow">Pausa máxima (minutos)</span><input type="number" id="sf-max" value="5" min="1" max="120" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Desde (hora)</span><input type="number" id="sf-start" value="9" min="0" max="23" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="sf-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Programar inicio<small>Opcional: déjalo vacío para empezar ahora</small></span><input type="datetime-local" id="sf-at"></div>
 		</div>
 		<p class="hint">Recomendado: 20–30 por número al día, máximo 8 por hora y pausas de 2 a 5 minutos. Más rápido aumenta el riesgo de que WhatsApp restrinja el número.</p>
 		<div class="pad"><button class="btn primary" id="sf-go">Iniciar envío</button></div>`, el => {
@@ -1498,6 +1546,7 @@ function openNewSafeCampaign() {
 					maxDelay: Number($('#sf-max', el).value) * 60,
 					startHour: Number($('#sf-start', el).value),
 					endHour: Number($('#sf-end', el).value),
+					startAt: $('#sf-at', el).value ? new Date($('#sf-at', el).value).getTime() : undefined,
 					rows
 				})
 				closeSheet()
@@ -1529,6 +1578,7 @@ function openNewCloudCampaign() {
 			<div class="item"><span class="grow">Mensajes por hora</span><input type="number" id="cp-rate" value="50" min="1" max="600" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Desde (hora)</span><input type="number" id="cp-start" value="9" min="0" max="23" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="cp-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
+			<div class="item"><span class="grow">Programar inicio<small>Opcional: déjalo vacío para empezar ahora</small></span><input type="datetime-local" id="cp-at"></div>
 			<label class="item"><input type="checkbox" id="cp-skipchats" checked><span class="grow"><b>Brincar si ya tiene chat</b><small>Si este número ya tiene chat con ese cliente, no se le manda la plantilla.</small></span></label>
 		</div>
 		<div class="pad"><button class="btn primary" id="cp-go">Iniciar envío</button></div>`, el => {
@@ -1578,6 +1628,7 @@ function openNewCloudCampaign() {
 					perHour: Number($('#cp-rate', el).value),
 					startHour: Number($('#cp-start', el).value),
 					endHour: Number($('#cp-end', el).value),
+					startAt: $('#cp-at', el).value ? new Date($('#cp-at', el).value).getTime() : undefined,
 					skipChats: $('#cp-skipchats', el).checked,
 					rows
 				})
@@ -2023,7 +2074,8 @@ function renderSettings() {
 			<p class="hint">En cualquier chat escribe <b>/</b> y elige una respuesta. {nombre} se cambia por el nombre del cliente.</p>
 
 			<div class="section">Almacenamiento</div>
-			<div class="group"><div class="item"><span class="grow">Datos guardados</span><span id="storage">…</span></div></div>
+			<div class="group"><div class="item"><span class="grow">Datos guardados</span><span id="storage">…</span></div><div id="storage-box"></div></div>
+			<p class="hint">Las fotos, audios y documentos más viejos que esos días se borran solos del servidor para no llenar el disco. Los mensajes de texto no se borran. Un archivo borrado a veces se puede volver a descargar al abrirlo, si WhatsApp todavía lo tiene.</p>
 
 			<div class="section">Seguridad</div>
 			<div class="group">
@@ -2034,6 +2086,7 @@ function renderSettings() {
 		</div>`
 	$('#nl-name').value = prevLabel
 	loadWarmup()
+	api('GET', '/settings/storage').then(renderStorage).catch(() => {})
 	api('GET', '/settings/smart').then(r => { const cb = $('#smart-cb'); if (cb) cb.checked = r.enabled }).catch(() => {})
 	api('GET', '/settings/ai').then(r => { S.ai = r; const cb = $('#ai-review-cb'); if (cb) cb.checked = r.review }).catch(() => {})
 	api('GET', '/info').then(info => {
@@ -2044,6 +2097,16 @@ function renderSettings() {
 	}).catch(() => {})
 	view.dataset.labelColor = COLORS[1]
 	bindColorPicker(view, c => { view.dataset.labelColor = c })
+}
+
+function renderStorage(st) {
+	const el = $('#storage-box'); if (!el) return
+	const used = st.totalMb ? Math.round((1 - st.freeMb / st.totalMb) * 100) : null
+	el.innerHTML = `
+		<div class="item"><span class="grow">Fotos, audios y documentos</span><span class="muted">${st.mediaMb >= 1024 ? (st.mediaMb / 1024).toFixed(1) + ' GB' : Math.round(st.mediaMb) + ' MB'}</span></div>
+		${used != null ? `<div class="item"><span class="grow">Disco usado</span><span class="${used >= 80 ? '' : 'muted'}" ${used >= 80 ? 'style="color:var(--danger)"' : ''}>${used}%</span></div>` : ''}
+		<div class="item"><span class="grow">Borrar archivos después de (días)</span><input type="number" id="st-days" min="1" max="365" value="${st.days}" class="num"></div>
+		<button class="btn" data-act="storage-save">Guardar</button>`
 }
 
 async function loadWarmup() {
@@ -2168,6 +2231,35 @@ async function enablePush() {
 	} catch (e) { toast('No se pudo activar: ' + e.message) }
 }
 
+// ---------- Tablero de promesas de pago ----------
+async function openPromises() {
+	sheet('Promesas de pago', '<div id="pr-body"><p class="hint">Cargando…</p></div>')
+	let rows = []
+	try { rows = await api('GET', '/promises') } catch (e) { const b = $('#pr-body'); if (b) b.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
+	const el = $('#pr-body'); if (!el) return
+	const now = new Date()
+	const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), d1 = d0 + 864e5
+	const money = n => n ? ' · $' + Number(n).toLocaleString('es-MX') : ''
+	const day = t => new Date(t).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })
+	const row = p => `<a class="item" href="#/chat/${enc(p.key)}"><span class="grow"><b>${esc(fmtPhone(p.phone))}</b>${p.name ? ` <span class="muted">${esc(p.name)}</span>` : ''}<small>${esc(day(p.at))}${money(p.amount)}${p.text ? ` · «${esc(p.text.slice(0, 70))}»` : ''}</small></span>${accountTag(p.accountId)}${IC.chevron}</a>`
+	const pend = rows.filter(p => p.status === 'pending')
+	const groups = [
+		['Vencidas (no han dicho que pagaron)', pend.filter(p => p.at < d0)],
+		['Hoy', pend.filter(p => p.at >= d0 && p.at < d1)],
+		['Próximas', pend.filter(p => p.at >= d1)],
+		['Cumplidas (últimos 14 días)', rows.filter(p => p.status === 'kept').reverse()],
+		['Incumplidas (últimos 14 días)', rows.filter(p => p.status === 'broken').reverse()]
+	]
+	const total = pend.reduce((n, p) => n + (p.amount || 0), 0)
+	el.innerHTML = `<div class="stats-grid" style="padding-top:8px">
+			<div class="stat"><b>${groups[1][1].length}</b><small>para hoy</small></div>
+			<div class="stat"><b style="color:var(--danger)">${groups[0][1].length}</b><small>vencidas</small></div>
+			<div class="stat"><b>${total ? '$' + total.toLocaleString('es-MX') : pend.length}</b><small>${total ? 'prometido pendiente' : 'pendientes'}</small></div>
+		</div>` + (rows.length
+		? groups.filter(g => g[1].length).map(([t, list]) => `<div class="section">${t} (${list.length})</div><div class="group">${list.map(row).join('')}</div>`).join('')
+		: '<p class="hint">Todavía no hay promesas. Cuando un cliente escriba algo como «mañana le deposito», aparecerá aquí sola.</p>')
+}
+
 // ---------- Hojas modales ----------
 function sheet(title, html, bind) {
 	closeSheet()
@@ -2285,6 +2377,11 @@ document.addEventListener('click', async e => {
 				v.onclick = () => v.remove(); return document.body.appendChild(v)
 			}
 			return window.open(url, '_blank')
+		}
+		case 'promises': return openPromises()
+		case 'storage-save': {
+			try { renderStorage(await api('PUT', '/settings/storage', { days: Number($('#st-days').value) })); toast('Guardado') } catch (err) { toast(err.message) }
+			return
 		}
 		case 'chat-menu': {
 			const c = conv(S.active)
