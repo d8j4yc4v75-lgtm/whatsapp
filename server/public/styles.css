@@ -591,3 +591,6 @@ mark { background: color-mix(in srgb, #ffcc00 45%, transparent); color: inherit;
 .selbar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 12px; background: var(--bar); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-top: var(--hair); font-size: 14px; z-index: 4; }
 .selbar .grow { flex: 1; }
 .selbar .chip:disabled { opacity: 0.4; }
+
+.row .name .cname { font-weight: 400; color: var(--muted); font-size: 14px; }
+.per-num { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; }

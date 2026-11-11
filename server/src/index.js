@@ -430,6 +430,20 @@ app.get('/api/search', route(req => {
 	})
 }))
 
+// ---- Contactos guardados en tus teléfonos (se sincronizan al vincular) ----
+app.get('/api/contacts', route(req => {
+	const q = String(req.query.q || '').trim()
+	if (q.length < 2) return []
+	const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'
+	const digits = q.replace(/\D/g, '')
+	return db.prepare(`
+		SELECT jid, COALESCE(name, notify) AS name FROM contacts
+		WHERE jid LIKE '%@s.whatsapp.net' AND (name LIKE @like ESCAPE '\\' OR notify LIKE @like ESCAPE '\\' ${digits.length >= 3 ? "OR jid LIKE @num" : ''})
+		AND jid NOT IN (SELECT phone || '@s.whatsapp.net' FROM accounts WHERE phone IS NOT NULL)
+		ORDER BY name IS NULL, name LIMIT 30`).all(digits.length >= 3 ? { like, num: `%${digits}%` } : { like })
+		.map(r => ({ phone: r.jid.split('@')[0], name: r.name || null }))
+}))
+
 // ---- Tablero de promesas de pago ----
 app.get('/api/promises', route(() => {
 	let rows = []

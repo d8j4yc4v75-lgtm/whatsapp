@@ -480,7 +480,7 @@ function filteredConvs() {
 		if (f.waiting && (c.lastFromMe || c.isGroup || !c.lastTs)) return false
 		if (f.reminders && !c.reminder) return false
 		if (q) {
-			return convName(c).toLowerCase().includes(q) || (digits && (c.phone || '').includes(digits)) || (c.lastText || '').toLowerCase().includes(q) || (c.note || '').toLowerCase().includes(q)
+			return convName(c).toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q) || (digits && (c.phone || '').includes(digits)) || (c.lastText || '').toLowerCase().includes(q) || (c.note || '').toLowerCase().includes(q)
 		}
 		return true
 	})
@@ -550,12 +550,16 @@ function searchMessages() {
 	if (!el) return
 	if (q.length < 3) { el.innerHTML = ''; return }
 	searchTimer = setTimeout(async () => {
-		let rows = []
-		try { rows = await api('GET', `/search?q=${enc(q)}`) } catch {}
+		let rows = [], contacts = []
+		try { [rows, contacts] = await Promise.all([api('GET', `/search?q=${enc(q)}`), api('GET', `/contacts?q=${enc(q)}`)]) } catch {}
 		const box = $('#msg-results')
 		if (!box || S.filter.q.trim() !== q) return
+		// Contactos guardados en tus teléfonos que todavía no tienen chat aquí
+		const shown = new Set(filteredConvs().map(c => (c.phone || '').slice(-10)))
+		contacts = contacts.filter(c => !shown.has(c.phone.slice(-10)))
+		const contactsHtml = contacts.length ? `<div class="section">Contactos de tus teléfonos (${contacts.length})</div><div class="group">${contacts.map(c => `<button class="btn" data-act="new-chat" data-val="${esc(c.phone)}"><b style="color:var(--text)">${esc(c.name || fmtPhone(c.phone))}</b><small style="display:block;color:var(--muted)">${esc(fmtPhone(c.phone))} · toca para escribirle</small></button>`).join('')}</div>` : ''
 		const mark = t => { const i = t.toLowerCase().indexOf(q.toLowerCase()); if (i < 0) return esc(t.slice(0, 120)); const a = Math.max(0, i - 40); return (a ? '…' : '') + esc(t.slice(a, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length, i + q.length + 80)) }
-		box.innerHTML = `<div class="section">Mensajes${rows.length ? ` (${rows.length})` : ''}</div>` + (rows.length
+		box.innerHTML = contactsHtml + `<div class="section">Mensajes${rows.length ? ` (${rows.length})` : ''}</div>` + (rows.length
 			? `<ul class="list">${rows.map(r => `<li><a class="row" href="#/chat/${enc(r.key)}"><div class="body" style="padding-left:0"><div class="top"><span class="name">${esc(fmtPhone(r.phone))}${r.name ? ` · ${esc(r.name)}` : ''}</span><span class="time">${timeLabel(r.ts)}</span></div><div class="bottom"><span class="preview">${r.fromMe ? 'Tú: ' : ''}${mark(r.text || '')}</span></div><div class="tags">${accountTag(r.accountId)}</div></div></a></li>`).join('')}</ul>`
 			: '<p class="hint">Ningún mensaje contiene ese texto.</p>')
 	}, 350)
@@ -627,7 +631,7 @@ function convRowHtml(c, d) {
 			${S.sel ? `<span class="pick ${S.sel.has(c.key) ? 'on' : ''}"></span>` : ''}
 			${avatarHtml(c)}
 			<div class="body">
-				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
+				<div class="top"><span class="name">${esc(convName(c))}${c.name && !c.isGroup ? ` <span class="cname">${esc(c.name)}</span>` : ''}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
 				<div class="bottom"><span class="preview">${d[c.key] && c.key !== S.active ? `<b class="draft">Borrador:</b> ${esc(d[c.key])}</span><span hidden>` : ''}${c.lastFromMe ? (c.lastStatus != null ? `<span class="ptick">${ticks(c.lastStatus)}</span>` : 'Tú: ') : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
 				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}${c.reminder ? `<span class="tag" style="--c:#7C5CFF">${esc(reminderLabel(c.reminder.at))}</span>` : ''}${c.note ? '<span class="tag" style="--c:#B7791F">Nota</span>' : ''}${S.filter.waiting ? `<span class="tag" style="--c:#E5484D">${waitingLabel(c.lastTs)}</span>` : ''}</div>
 			</div>
@@ -1264,14 +1268,14 @@ function openLabelsSheet() {
 }
 
 // ---------- Nuevo chat ----------
-function openNewChat() {
+function openNewChat(prefill) {
 	const connected = S.accounts.filter(a => a.status === 'connected')
 	if (!connected.length) return toast('No hay cuentas conectadas')
 	sheet('Nuevo chat', `
 		<div class="section">Enviar desde</div>
 		<div class="group"><div class="item"><select id="nc-from">${connected.map(a => `<option value="${a.id}">${esc(a.name)}${a.phone ? ' (+' + esc(a.phone) + ')' : ''}${a.kind === 'cloud' ? ' · API' : ''}</option>`).join('')}</select></div></div>
 		<div class="section">Número (10 dígitos o con código de país)</div>
-		<div class="group"><div class="item"><input type="tel" id="nc-phone" placeholder="Ej. 8112345678" inputmode="tel"></div></div>
+		<div class="group"><div class="item"><input type="tel" id="nc-phone" placeholder="Ej. 8112345678" inputmode="tel" value="${esc(prefill || '')}"></div></div>
 		<div id="nc-body"></div>
 		<div class="pad"><button class="btn primary" id="nc-go">Enviar</button></div>`, el => {
 		const accId = () => Number($('#nc-from', el).value)
@@ -1556,10 +1560,19 @@ function openNewSafeCampaign() {
 			const daily = Number($('#sf-daily', el).value) || 30
 			const msg = perline ? '' : $('#sf-msg', el).value
 			$('#sf-review', el).innerHTML = perline ? '' : reviewHTML(msg)
-			const days = accs ? Math.ceil(rows.length / (accs * daily)) : 0
+			// Lo que de verdad puede mandar hoy cada número marcado, según su salud y sus topes
+			const ramp = $('#sf-ramp', el).checked
+			const per = [...el.querySelectorAll('.sf-acc:checked')].map(i => account(Number(i.value))).filter(Boolean).map(a => {
+				const h = a.health
+				const cap = h?.restUntil ? (a.restAllow || 0) : h?.level === 'red' ? 0 : ramp && h ? Math.min(daily, h.suggestedDaily) : daily
+				return { a, cap }
+			})
+			const today = per.reduce((n, x) => n + x.cap, 0)
+			const days = today ? Math.ceil(rows.length / today) : 0
+			const perHtml = per.length ? `<br><span class="per-num">${per.map(x => `${accountTag(x.a.id)} <b>${x.cap}</b>`).join(' ')}</span>` : ''
 			const example = perline ? (rows[0]?.params[0] || '') : (msg && rows[0] ? spin(msg.replace(/\{\{(\d+)\}\}/g, (m, n) => rows[0].params[n - 1] || '')) : '')
 			$('#sf-count', el).innerHTML = rows.length
-				? `<b>${rows.length}</b> contactos · ${accs} número(s) × ${daily} al día = <b>${accs * daily} al día</b> · terminaría en unos <b>${days} día(s)</b>.${example ? `<br>Ejemplo del primero: <i>${esc(example)}</i>` : ''}`
+				? `<b>${rows.length}</b> contactos · hoy pueden salir <b>${today}</b> entre ${accs} número(s)${today ? ` · terminaría en unos <b>${days} día(s)</b> o menos (los topes suben con los días)` : ' · <b style="color:var(--danger)">ningún número marcado puede enviar hoy</b>'}.${perHtml}${example ? `<br>Ejemplo del primero: <i>${esc(example)}</i>` : ''}`
 				: (perline ? 'Pega una línea por contacto: el número y a un lado su mensaje.' : 'Pega la lista o carga un archivo. La primera columna es el teléfono (10 dígitos).')
 		}
 		$('#sf-perline', el).onchange = () => {
@@ -2366,27 +2379,36 @@ async function openPromises() {
 	sheet('Promesas de pago', '<div id="pr-body"><p class="hint">Cargando…</p></div>')
 	let rows = []
 	try { rows = await api('GET', '/promises') } catch (e) { const b = $('#pr-body'); if (b) b.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
-	const el = $('#pr-body'); if (!el) return
+	S.prom = { rows, acc: null }
+	renderPromises()
+}
+function renderPromises() {
+	const el = $('#pr-body'); if (!el || !S.prom) return
+	const accIds = [...new Set(S.prom.rows.map(p => p.accountId))]
+	const rows = S.prom.acc ? S.prom.rows.filter(p => p.accountId === S.prom.acc) : S.prom.rows
 	const now = new Date()
 	const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), d1 = d0 + 864e5
 	const money = n => n ? ' · $' + Number(n).toLocaleString('es-MX') : ''
 	const day = t => new Date(t).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })
-	const row = p => `<a class="item" href="#/chat/${enc(p.key)}"><span class="grow"><b>${esc(fmtPhone(p.phone))}</b>${p.name ? ` <span class="muted">${esc(p.name)}</span>` : ''}<small>${esc(day(p.at))}${money(p.amount)}${p.text ? ` · «${esc(p.text.slice(0, 70))}»` : ''}</small></span>${accountTag(p.accountId)}${IC.chevron}</a>`
+	// Etiquetas del chat con su color (sin repetir la de «Promesa de pago»)
+	const tags = p => (conv(p.key)?.labelIds || []).map(label).filter(l => l && !/^promesa de pago$/i.test(l.name)).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')
+	const row = p => `<a class="item" href="#/chat/${enc(p.key)}"><span class="grow"><b>${esc(fmtPhone(p.phone))}</b>${p.name ? ` <span class="muted">${esc(p.name)}</span>` : ''}<small>${esc(day(p.at))}${money(p.amount)}${p.text ? ` · «${esc(p.text.slice(0, 70))}»` : ''}</small><span class="tags">${accountTag(p.accountId)}${tags(p)}</span></span>${IC.chevron}</a>`
 	const pend = rows.filter(p => p.status === 'pending')
 	const groups = [
-		['Vencidas (no han dicho que pagaron)', pend.filter(p => p.at < d0)],
-		['Hoy', pend.filter(p => p.at >= d0 && p.at < d1)],
-		['Próximas', pend.filter(p => p.at >= d1)],
-		['Cumplidas (últimos 14 días)', rows.filter(p => p.status === 'kept').reverse()],
-		['Incumplidas (últimos 14 días)', rows.filter(p => p.status === 'broken').reverse()]
+		['Vencidas (no han dicho que pagaron)', pend.filter(p => p.at < d0), '#FF3B30'],
+		['Hoy', pend.filter(p => p.at >= d0 && p.at < d1), '#FF9500'],
+		['Próximas', pend.filter(p => p.at >= d1), '#0A84FF'],
+		['Cumplidas (últimos 14 días)', rows.filter(p => p.status === 'kept').reverse(), '#25D366'],
+		['Incumplidas (últimos 14 días)', rows.filter(p => p.status === 'broken').reverse(), '#8E8E93']
 	]
 	const total = pend.reduce((n, p) => n + (p.amount || 0), 0)
-	el.innerHTML = `<div class="stats-grid" style="padding-top:8px">
+	const chips = accIds.length > 1 ? `<div class="chips" style="padding:10px 16px 0;background:none"><button class="chip ${S.prom.acc ? '' : 'on'}" data-act="prom-acc" data-val="">Todos</button>${accIds.map(id => { const a = account(id); return `<button class="chip ${S.prom.acc === id ? 'on' : ''}" style="--c:${esc(a?.color || '#8E8E93')}" data-act="prom-acc" data-val="${id}">${esc(a?.name || '?')}</button>` }).join('')}</div>` : ''
+	el.innerHTML = chips + `<div class="stats-grid" style="padding-top:8px">
 			<div class="stat"><b>${groups[1][1].length}</b><small>para hoy</small></div>
 			<div class="stat"><b style="color:var(--danger)">${groups[0][1].length}</b><small>vencidas</small></div>
 			<div class="stat"><b>${total ? '$' + total.toLocaleString('es-MX') : pend.length}</b><small>${total ? 'prometido pendiente' : 'pendientes'}</small></div>
 		</div>` + (rows.length
-		? groups.filter(g => g[1].length).map(([t, list]) => `<div class="section">${t} (${list.length})</div><div class="group">${list.map(row).join('')}</div>`).join('')
+		? groups.filter(g => g[1].length).map(([t, list, color]) => `<div class="section"><i class="hdot" style="background:${color}"></i> ${t} (${list.length})</div><div class="group">${list.map(row).join('')}</div>`).join('')
 		: '<p class="hint">Todavía no hay promesas. Cuando un cliente escriba algo como «mañana le deposito», aparecerá aquí sola.</p>')
 }
 
@@ -2517,6 +2539,7 @@ document.addEventListener('click', async e => {
 			return window.open(url, '_blank')
 		}
 		case 'promises': return openPromises()
+		case 'prom-acc': S.prom.acc = Number(val) || null; return renderPromises()
 		case 'storage-save': {
 			const mo = Number($('#st-months').value) || 0
 			if (mo > 0 && mo !== (S.chatMonths || 0) && !confirm(`Se borrarán para siempre los chats (con sus mensajes) que lleven más de ${mo} mes(es) sin actividad. ¿Continuar?`)) return
@@ -2569,7 +2592,7 @@ document.addEventListener('click', async e => {
 		case 'f-unread': S.filter.unread = !S.filter.unread; return renderInbox(false)
 		case 'f-account': S.filter.account = S.filter.account === Number(val) ? null : Number(val); return renderInbox(false)
 		case 'f-label': S.filter.label = S.filter.label === Number(val) ? null : Number(val); return renderInbox(false)
-		case 'new-chat': return openNewChat()
+		case 'new-chat': return openNewChat(val)
 		case 'close-sheet': return closeSheet()
 		case 'labels': return openLabelsSheet()
 		case 'note': return openNote()
