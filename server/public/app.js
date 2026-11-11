@@ -312,6 +312,23 @@ function insertMsg(m) {
 	return true
 }
 
+// Sonido corto de mensaje nuevo (se puede apagar en Ajustes)
+let audioCtx
+function beep() {
+	if (store.get('sound', true) === false) return
+	try {
+		audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)()
+		if (audioCtx.state === 'suspended') audioCtx.resume()
+		const t = audioCtx.currentTime
+		for (const [f, at] of [[880, 0], [1175, 0.09]]) {
+			const o = audioCtx.createOscillator(), g = audioCtx.createGain()
+			o.type = 'sine'; o.frequency.value = f
+			g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(0.12, t + at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.22)
+			o.connect(g).connect(audioCtx.destination); o.start(t + at); o.stop(t + at + 0.25)
+		}
+	} catch {}
+}
+
 function handleEvent({ type, data }) {
 	switch (type) {
 		case 'hello':
@@ -333,6 +350,8 @@ function handleEvent({ type, data }) {
 		}
 		case 'message':
 			insertMsg(data)
+			// Sonido al llegar un mensaje nuevo de un cliente (con la app abierta)
+			if (!data.fromMe && Date.now() - data.ts < 60000 && !String(data.jid).endsWith('@g.us')) beep()
 			break
 		case 'message.status':
 			for (const list of Object.values(S.msgs)) {
@@ -352,6 +371,10 @@ function handleEvent({ type, data }) {
 			upsertConv(data)
 			updateBadge()
 			break
+		case 'campaign.removed':
+			S.campaigns = S.campaigns.filter(c => c.id !== data.id)
+			if (route().name === 'campaigns') renderCampaignList()
+			return
 		case 'campaign.update': {
 			if (!data) return
 			const i = S.campaigns.findIndex(c => c.id === data.id)
@@ -1314,6 +1337,7 @@ async function renderCampaigns(full) {
 			<div class="chips" style="padding:4px 16px 8px">${[[1, 'Hoy'], [7, '7 días'], [30, '30 días']].map(([d, t]) => `<button class="chip ${S.statsDays === d ? 'on' : ''}" data-act="stats-days" data-val="${d}">${t}</button>`).join('')}</div>
 			<div id="stats"><p class="hint">Cargando…</p></div>
 			<div id="camp-list"></div>
+			<p class="hint">Los envíos terminados o cancelados se borran solos, con su lista, un día después. Si quieres conservar el resultado, descarga el Excel antes.</p>
 			<p class="hint">Los envíos salen poco a poco y solo en el horario que elijas. En <b>modo seguro</b> cada número manda como máximo su límite diario, con pausas al azar entre mensajes, y deja de usarse si WhatsApp le rechaza mensajes. Quien responda «BAJA» no vuelve a recibir mensajes.</p></div>`
 		try { S.campaigns = await api('GET', '/campaigns') } catch (e) { toast(e.message) }
 		loadStats()
@@ -1389,6 +1413,7 @@ function renderCampaignList() {
 				${safe && (c.status === 'running' || c.status === 'paused') && n.pending ? `<button class="chip" style="--c:#C77700" data-act="camp-force" data-val="${c.id}">${c.forced ? 'Quitar urgente' : '⚡ Enviar ya (ignorar límites)'}</button>` : ''}
 				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
 				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
+				${c.status !== 'running' ? `<button class="chip" style="--c:var(--danger)" data-act="camp-del" data-val="${c.id}">Eliminar</button>` : ''}
 				${n.failed && c.status !== 'cancelled' ? `<button class="chip" data-act="camp-retry" data-val="${c.id}">↻ Reintentar fallidos</button>` : ''}
 				<a class="chip" style="--c:#1D6F42;text-decoration:none" href="/api/campaigns/${c.id}/export?token=${enc(S.token)}" download>📊 Excel</a>
 			</div>
@@ -2048,6 +2073,7 @@ function renderSettings() {
 			</div>
 			<p class="hint">Asigna etiquetas desde el menú ⋯ de cada chat y filtra por ellas en la bandeja.</p>
 
+			<div class="group" style="margin-top:14px"><div class="item"><span class="grow">Sonido de mensaje nuevo<small>Suena cuando llega un mensaje con la app abierta</small></span><label class="switch"><input type="checkbox" data-act="sound-toggle" ${store.get('sound', true) !== false ? 'checked' : ''}><i></i></label></div></div>
 			<div class="section">Asistente inteligente</div>
 			<div class="group"><div class="item"><span class="grow">Entender respuestas de clientes<small>Etiqueta, da de baja, crea recordatorios y sugiere respuestas</small></span><label class="switch"><input type="checkbox" data-act="smart-toggle" id="smart-cb" checked><i></i></label></div></div>
 			<p class="hint">Cuando un cliente contesta, la app lo entiende y actúa sola: «ya pagué» → etiqueta <b>Pagó</b>; «mañana le deposito» → <b>Promesa de pago</b> y recordatorio ese día; «número equivocado», «baja» o una queja → ya no recibe masivos; «¿a qué cuenta deposito?» → te sugiere tu respuesta de datos de pago. También detecta el monto prometido, si dice que no tiene dinero, si se niega, si pregunta su saldo o si está molesto; lleva el historial de promesas (si pasa un día de la fecha sin que diga que pagó, la marca <b>Promesa incumplida</b> y te avisa) y te deja una respuesta sugerida en cada caso. Además los masivos respetan la hora local del cliente (según su lada) y el horario legal de 7 a 22 h.</p>
@@ -2511,6 +2537,12 @@ document.addEventListener('click', async e => {
 			return
 		}
 		case 'camp-failed': return showFailed(Number(val))
+		case 'camp-del': {
+			if (!confirm('¿Eliminar este envío y su lista? No se puede deshacer.')) return
+			try { await api('DELETE', `/campaigns/${val}`); S.campaigns = S.campaigns.filter(x => x.id !== Number(val)); renderCampaignList() } catch (err) { toast(err.message) }
+			return
+		}
+		case 'sound-toggle': store.set('sound', el.checked); if (el.checked) beep(); return
 		case 'camp-retry': {
 			if (!confirm('¿Volver a enviar a los que fallaron? (No se reintentan los números sin WhatsApp)')) return
 			try {
@@ -2659,6 +2691,28 @@ document.addEventListener('keydown', e => {
 		e.preventDefault()
 		sendText()
 	}
+})
+
+// En computadora: pegar una captura (Ctrl+V) o arrastrar archivos al chat abierto
+function offerFiles(files) {
+	const list = [...files].slice(0, 10)
+	if (!list.length || !S.active || $('#sheet')) return false
+	const c = conv(S.active)
+	if (!confirm(`¿Enviar ${list.length === 1 ? (list[0].type.startsWith('image/') ? 'esta imagen' : `«${list[0].name}»`) : list.length + ' archivos'} a ${c ? convName(c) : 'este chat'}?`)) return true
+	;(async () => { for (const f of list) await sendFile(f) })()
+	return true
+}
+document.addEventListener('paste', e => {
+	const files = [...(e.clipboardData?.files || [])]
+	if (files.length && route().name === 'chat' && offerFiles(files)) e.preventDefault()
+})
+document.addEventListener('dragover', e => { if (route().name === 'chat' && e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); $('#msgs')?.classList.add('dropping') } })
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) $('#msgs')?.classList.remove('dropping') })
+document.addEventListener('drop', e => {
+	$('#msgs')?.classList.remove('dropping')
+	if (route().name !== 'chat' || !e.dataTransfer?.files?.length) return
+	e.preventDefault()
+	offerFiles(e.dataTransfer.files)
 })
 
 window.addEventListener('hashchange', () => {

@@ -390,6 +390,15 @@ app.post('/api/campaigns', route(req => {
 
 app.get('/api/campaigns/:cid/items', route(req => campaigns.items(Number(req.params.cid), req.query.status || null)))
 
+app.delete('/api/campaigns/:cid', route(req => {
+	const id = Number(req.params.cid)
+	const c = campaigns.get(id)
+	if (!c) throw Object.assign(new Error('Envío no encontrado'), { status: 404 })
+	if (c.status === 'running') throw new Error('Primero pausa o cancela el envío')
+	campaigns.remove(id)
+	return { ok: true }
+}))
+
 app.post('/api/campaigns/:cid/retry', route(req => {
 	const id = Number(req.params.cid)
 	if (!campaigns.get(id)) throw Object.assign(new Error('Envío no encontrado'), { status: 404 })

@@ -94,6 +94,11 @@ export class CampaignRunner {
 		this.nextAt = new Map()
 		// Respiro global: no deja que dos números envíen al mismo instante (se ve menos a "robot")
 		this.globalNextAt = 0
+		this.cursors = new Map()
+		this.lastBatch = new Map()
+		// Los envíos terminados o cancelados hace más de un día se borran solos (con su lista)
+		this.purgeOld()
+		setInterval(() => this.purgeOld(), 3600000).unref?.()
 		this.recover()
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
 	}
@@ -221,6 +226,22 @@ export class CampaignRunner {
 		return n
 	}
 
+	/** Borra un envío con toda su lista */
+	remove(id) {
+		db.prepare('DELETE FROM campaigns WHERE id = ?').run(id)
+		this.cursors.delete(id)
+		this.manager.emit('event', { type: 'campaign.removed', data: { id } })
+	}
+	purgeOld() {
+		try {
+			const cut = Date.now() - 864e5
+			const old = db.prepare(`SELECT c.id FROM campaigns c WHERE c.status IN ('done', 'cancelled')
+				AND COALESCE((SELECT MAX(sent_at) FROM campaign_items WHERE campaign_id = c.id), c.created_at) < ? AND c.created_at < ?`).all(cut, cut)
+			for (const { id } of old) this.remove(id)
+			if (old.length) note(null, 'campaigns-purged', String(old.length))
+		} catch (e) { note(null, 'campaign-error', e.message) }
+	}
+
 	/** Activa o quita el modo urgente de un envío ya creado */
 	setForced(id, on) {
 		db.prepare('UPDATE campaigns SET forced = ?, note = NULL WHERE id = ?').run(on ? 1 : 0, id)
@@ -282,10 +303,11 @@ export class CampaignRunner {
 		if (!(session instanceof CloudSession) || session.status !== 'connected') return
 		const limit = session.config.dailyLimit || 250
 		if (this.sentLast24h(c.account_id) >= limit) return this.setNote(c, 'limit')
-		const pendingItems = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 200").all(c.id)
-		if (!pendingItems.length) return this.setStatus(c.id, 'done')
+		if (!db.prepare("SELECT 1 FROM campaign_items WHERE campaign_id = ? AND status = 'pending' LIMIT 1").get(c.id)) return this.setStatus(c.id, 'done')
+		const pendingItems = this.pendingBatch(c.id)
 		const item = pendingItems.find(it => goodLocalTime(it.phone, c.start_hour, c.end_hour))
-		if (!item) return
+		if (!item) return this.advance(c.id, pendingItems)
+		this.cursors.delete(c.id)
 		if (c.skip_chats && chatAccounts(item.phone).has(c.account_id)) { this.skipForChat(item); return this.emit(c.id) }
 		db.prepare('UPDATE campaigns SET last_sent_at = ?, note = NULL WHERE id = ?').run(Date.now(), c.id)
 		try {
@@ -379,6 +401,7 @@ export class CampaignRunner {
 			ready.set(acc, session)
 		}
 		const anyAvailable = ready.size > 0
+		let noItem = 0
 		// Orden al azar: así no siempre envía primero el mismo número
 		for (const acc of [...ready.keys()].sort(() => Math.random() - 0.5)) {
 			const session = ready.get(acc)
@@ -388,7 +411,7 @@ export class CampaignRunner {
 			// Respiro global: si otro número envió hace un momento, este espera su turno (no todos a la vez)
 			if (now < this.globalNextAt) break
 			const item = this.pickItem(c, acc, ready)
-			if (!item) continue
+			if (!item) { noItem++; continue }
 			// Se reserva el contacto antes de enviar para no repetirlo
 			db.prepare("UPDATE campaign_items SET status = 'sending', sent_by = ?, sent_at = ? WHERE id = ?").run(acc, now, item.id)
 			const delay = (c.min_delay + Math.random() * (c.max_delay - c.min_delay)) * 1000
@@ -427,6 +450,8 @@ export class CampaignRunner {
 			this.globalNextAt = Date.now() + 8000 + Math.random() * 17000
 			break
 		}
+		// Ningún número listo encontró a quién escribirle en este bloque: la próxima vuelta revisa el siguiente
+		if (noItem && noItem === ready.size) this.advance(c.id, this.lastBatch.get(c.id) || [])
 		if (!anyAvailable) {
 			const connected = active.some(a => this.manager.sessions.get(a)?.status === 'connected')
 			this.setNote(c, connected ? 'limit-safe' : 'Esperando a que los números elegidos estén conectados')
@@ -444,7 +469,27 @@ export class CampaignRunner {
 	 * - No se le escribe a alguien que ya recibió un mensaje masivo en las últimas 24 h (de cualquier envío).
 	 */
 	pickItem(c, acc, ready) {
-		const cands = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 200").all(c.id)
+		const it = this.pickFrom(c, acc, ready, this.pendingBatch(c.id))
+		if (it) this.cursors.delete(c.id)
+		return it
+	}
+
+	// Los pendientes se revisan de 200 en 200. Si ninguno de un bloque puede salir ahora (por su horario
+	// local, porque ya recibió algo hoy o por tener chat), la siguiente vuelta revisa el bloque que sigue,
+	// para que una lista grande no se quede atorada en los primeros 200.
+	pendingBatch(id) {
+		const from = this.cursors.get(id) || 0
+		let rows = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' AND id > ? ORDER BY id LIMIT 200").all(id, from)
+		if (!rows.length && from) { this.cursors.delete(id); rows = db.prepare("SELECT * FROM campaign_items WHERE campaign_id = ? AND status = 'pending' ORDER BY id LIMIT 200").all(id) }
+		this.lastBatch.set(id, rows)
+		return rows
+	}
+	advance(id, rows) {
+		if (rows.length === 200) this.cursors.set(id, rows[rows.length - 1].id)
+		else this.cursors.delete(id)
+	}
+
+	pickFrom(c, acc, ready, cands) {
 		const recent = db.prepare("SELECT 1 FROM campaign_items WHERE phone = ? AND status IN ('sent', 'sending') AND sent_at > ? LIMIT 1")
 		const owners = db.prepare('SELECT account_id FROM chats WHERE jid IN (?, ?, ?) AND last_ts > 0')
 		const since = Date.now() - 864e5

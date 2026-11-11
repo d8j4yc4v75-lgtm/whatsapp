@@ -275,6 +275,26 @@ export function checkBrokenPromises(now = Date.now()) {
 }
 setInterval(() => { try { if (smartEnabled()) checkBrokenPromises() } catch {} }, 30 * 60e3).unref()
 
+// ---- Aviso diario: a las 9 am (México) cuántas promesas vencen hoy y cuánto suman ----
+export function promiseDigest(now = Date.now()) {
+	const mx = new Date(now + TZ_OFFSET_H * 3600e3)
+	if (mx.getUTCHours() < 9) return null
+	const dayKey = mx.toISOString().slice(0, 10)
+	if (db.prepare("SELECT value FROM app_settings WHERE key = 'promise_digest'").get()?.value === dayKey) return null
+	db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('promise_digest', ?)").run(dayKey)
+	const start = Date.UTC(mx.getUTCFullYear(), mx.getUTCMonth(), mx.getUTCDate()) - TZ_OFFSET_H * 3600e3
+	const today = db.prepare("SELECT COUNT(*) n, COALESCE(SUM(amount), 0) total FROM promises WHERE status = 'pending' AND at >= ? AND at < ?").get(start, start + 864e5)
+	const overdue = db.prepare("SELECT COUNT(*) n FROM promises WHERE status = 'pending' AND at < ?").get(start).n
+	if (!today.n && !overdue) return null
+	const parts = []
+	if (today.n) parts.push(`Hoy vence${today.n === 1 ? '' : 'n'} ${today.n} promesa${today.n === 1 ? '' : 's'}${today.total ? ' por $' + Math.round(today.total).toLocaleString('es-MX') : ''}`)
+	if (overdue) parts.push(`${overdue} vencida${overdue === 1 ? '' : 's'} sin pago`)
+	const msg = { title: '🤝 Promesas de pago', body: parts.join(' · ') }
+	sendPush({ ...msg, url: '/#/campaigns' })
+	return msg
+}
+setInterval(() => { try { if (smartEnabled()) promiseDigest() } catch {} }, 10 * 60e3).unref()
+
 // ---- Hora local del cliente según su lada (México) ----
 const LADA_TZ = [
 	[/^(664|665|686|646|661|616|658)/, 'America/Tijuana'], // Baja California
