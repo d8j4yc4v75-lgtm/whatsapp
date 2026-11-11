@@ -553,3 +553,9 @@ details summary { cursor: pointer; }
 .row .preview .ptick .read { color: var(--read); display: inline-flex; }
 .row .preview .ptick .pend .ic { width: 13px; height: 13px; display: block; }
 .row .preview .ptick .fail { color: var(--danger); font-weight: 600; font-size: 13px; margin-right: 2px; }
+
+/* En computadora (con mouse) sí se puede seleccionar y copiar parte de un mensaje */
+@media (hover: hover) and (pointer: fine) {
+	.msg { -webkit-user-select: text; user-select: text; }
+	.msg .text { cursor: text; }
+}

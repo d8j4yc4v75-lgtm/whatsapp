@@ -418,7 +418,10 @@ function render() {
 	else if (r.name === 'accounts') renderAccounts()
 	else if (r.name === 'account') renderAccount(Number(r.arg), changed)
 	else if (r.name === 'settings') { if (changed) renderSettings() }
-	else renderInbox(changed)
+	else {
+		renderInbox(changed)
+		if (changed && S.inboxScroll) $('#view').scrollTop = S.inboxScroll
+	}
 }
 
 function tabs(active) {
@@ -919,7 +922,11 @@ function bindMsgPress(box) {
 		if (timer && (Math.abs(e.touches[0].clientX - sx) > 8 || Math.abs(e.touches[0].clientY - sy) > 8)) { clearTimeout(timer); timer = null }
 	}, { passive: true })
 	box.addEventListener('touchend', () => { clearTimeout(timer); timer = null })
-	box.addEventListener('contextmenu', e => { const el = e.target.closest('.msg'); if (el) { e.preventDefault(); open(el) } })
+	box.addEventListener('contextmenu', e => {
+		const el = e.target.closest('.msg')
+		// Con texto seleccionado (en computadora) se deja el menú normal del navegador para copiar
+		if (el && !String(window.getSelection?.() || '').trim()) { e.preventDefault(); open(el) }
+	})
 }
 function openMsgMenu(m) {
 	S.menuMsg = m
@@ -2557,7 +2564,12 @@ document.addEventListener('keydown', e => {
 	}
 })
 
-window.addEventListener('hashchange', () => { if ($('#sheet')) closeSheet(); render() })
+window.addEventListener('hashchange', () => {
+	if ($('#sheet')) closeSheet()
+	// Recuerda en qué parte de la lista de chats estabas para volver ahí al regresar
+	if (lastRoute.startsWith('inbox:') && $('#view')) S.inboxScroll = $('#view').scrollTop
+	render()
+})
 
 document.addEventListener('visibilitychange', () => {
 	// iOS suspende la conexión en segundo plano: al volver se resincroniza
