@@ -6,8 +6,8 @@ import multer from 'multer'
 import { WebSocketServer } from 'ws'
 import { db } from './db.js'
 import { API_TOKEN, PORT } from './config.js'
-import { SessionManager, diag, note } from './sessions.js'
-import { VAPID_PUBLIC_KEY, saveSubscription } from './push.js'
+import { SessionManager, diag, note, accountHistory } from './sessions.js'
+import { VAPID_PUBLIC_KEY, saveSubscription, sendPush } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -203,6 +203,82 @@ app.post('/api/accounts/:id/logout', route(async req => {
 	await manager.get(id).logout()
 	return manager.accountInfo(id)
 }))
+
+// Historial de lo que le ha pasado a un número (conexiones, rechazos, avisos)
+app.get('/api/accounts/:id/history', route(req => accountHistory(accountParam(req))))
+
+// Borra los chats y archivos de un número que ya no está vinculado (la cuenta se conserva)
+app.delete('/api/accounts/:id/chats', route(req => {
+	const id = accountParam(req)
+	if (manager.accountInfo(id)?.status === 'connected') throw new Error('Solo se puede con números que no están conectados')
+	manager.clearChats(id)
+	return { ok: true }
+}))
+
+// ---- Avisos automáticos ----
+const getSetting = k => db.prepare('SELECT value FROM app_settings WHERE key = ?').get(k)?.value
+const putSetting = (k, v) => db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)').run(k, String(v))
+const mxNow = () => new Date(Date.now() + Number(process.env.TZ_OFFSET_HOURS || -6) * 3600e3)
+const alertsInfo = () => ({ waitingMinutes: Number(getSetting('waiting_minutes')) || 0, dailySummary: getSetting('daily_summary') !== '0' })
+app.get('/api/settings/alerts', route(() => alertsInfo()))
+app.put('/api/settings/alerts', route(req => {
+	if (req.body.waitingMinutes !== undefined) putSetting('waiting_minutes', Math.max(0, Math.min(720, Math.floor(Number(req.body.waitingMinutes) || 0))))
+	if (req.body.dailySummary !== undefined) putSetting('daily_summary', req.body.dailySummary ? '1' : '0')
+	return alertsInfo()
+}))
+
+// Clientes que llevan más de X minutos sin respuesta (un aviso por cada espera, de 8 a 22 h)
+const waitingNotified = new Map()
+export function waitingAlert(now = Date.now()) {
+	const min = alertsInfo().waitingMinutes
+	const h = mxNow().getUTCHours()
+	if (!min || h < 8 || h >= 22) return null
+	const rows = db.prepare(`
+		SELECT c.account_id, c.jid FROM chats c
+		WHERE c.last_ts > ? AND c.archived = 0 AND c.muted = 0 AND c.jid NOT LIKE '%@g.us'
+		AND c.jid NOT IN (SELECT phone || '@s.whatsapp.net' FROM accounts WHERE phone IS NOT NULL)`).all(now - 24 * 3600e3)
+	const last = db.prepare('SELECT ts, from_me FROM messages WHERE account_id = ? AND jid = ? ORDER BY ts DESC LIMIT 1')
+	const fresh = []
+	for (const r of rows) {
+		const m = last.get(r.account_id, r.jid)
+		const key = `${r.account_id}:${r.jid}`
+		if (!m || m.from_me || now - m.ts < min * 60000) continue
+		if (waitingNotified.get(key) === m.ts) continue
+		waitingNotified.set(key, m.ts)
+		fresh.push(key)
+	}
+	if (!fresh.length) return null
+	const msg = { title: '⏳ Clientes esperando respuesta', body: fresh.length === 1 ? `1 cliente lleva más de ${min} min sin respuesta` : `${fresh.length} clientes llevan más de ${min} min sin respuesta` }
+	sendPush({ ...msg, url: '/#/', jid: fresh.length === 1 ? fresh[0] : undefined, badge: manager.totalUnread() })
+	return msg
+}
+
+// Resumen de la mañana (9 am): cómo están tus números
+export function numbersSummary() {
+	const mx = mxNow()
+	const day = mx.toISOString().slice(0, 10)
+	if (!alertsInfo().dailySummary || mx.getUTCHours() < 9 || getSetting('numbers_summary') === day) return null
+	putSetting('numbers_summary', day)
+	const list = manager.accounts().filter(a => a.kind !== 'cloud')
+	if (!list.length) return null
+	const n = { ok: 0, rest: 0, blocked: 0, off: 0, other: 0 }
+	for (const a of list) {
+		if (a.status === 'blocked') n.blocked++
+		else if (a.status === 'logged_out' || a.status === 'disconnected') n.off++
+		else if (a.status !== 'connected') n.other++
+		else if (a.health?.restUntil) n.rest++
+		else n.ok++
+	}
+	const parts = [`${n.ok} listo${n.ok === 1 ? '' : 's'}`]
+	if (n.rest) parts.push(`${n.rest} descansando`)
+	if (n.blocked) parts.push(`${n.blocked} bloqueado${n.blocked === 1 ? '' : 's'}`)
+	if (n.off) parts.push(`${n.off} por vincular`)
+	if (n.other) parts.push(`${n.other} reconectando`)
+	const msg = { title: '📱 Tus números hoy', body: parts.join(' · ') }
+	sendPush({ ...msg, url: '/#/accounts' })
+	return msg
+}
+setInterval(() => { try { waitingAlert(); numbersSummary() } catch (e) { note(null, 'alert-error', e.message) } }, 5 * 60e3).unref()
 
 app.delete('/api/accounts/:id', route(async req => {
 	const id = accountParam(req)

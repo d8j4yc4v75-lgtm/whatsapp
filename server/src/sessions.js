@@ -60,6 +60,25 @@ export function note(accountId, event, detail) {
 	const clean = detail === undefined ? undefined : String(detail).replace(/\d{5,}/g, '###').slice(0, 300)
 	diag.push({ at: new Date().toISOString(), accountId, event, detail: clean })
 	if (diag.length > 200) diag.shift()
+	// Los eventos importantes de cada número se guardan (60 días) para ver después qué le pasó
+	if (accountId && HISTORY_EVENTS.has(event) && !(event === 'status' && !String(clean || '').startsWith('0'))) {
+		try { histInsert().run(accountId, Date.now(), event, clean ?? null) } catch {}
+	}
+}
+const HISTORY_EVENTS = new Set(['open', 'close', 'alert', 'status', 'optout', 'reserve-in', 'safe-disabled', 'rest', 'validate'])
+let histStmt
+function histInsert() {
+	if (!histStmt) {
+		db.exec('CREATE TABLE IF NOT EXISTS account_events (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, at INTEGER NOT NULL, event TEXT NOT NULL, detail TEXT)')
+		db.exec('CREATE INDEX IF NOT EXISTS idx_account_events ON account_events (account_id, at)')
+		db.prepare('DELETE FROM account_events WHERE at < ?').run(Date.now() - 60 * 864e5)
+		histStmt = db.prepare('INSERT INTO account_events (account_id, at, event, detail) VALUES (?, ?, ?, ?)')
+	}
+	return histStmt
+}
+export function accountHistory(accountId, limit = 60) {
+	histInsert()
+	return db.prepare('SELECT at, event, detail FROM account_events WHERE account_id = ? ORDER BY id DESC LIMIT ?').all(accountId, limit)
 }
 
 const toMs = ts => (ts ? Number(ts) * 1000 : Date.now())
@@ -758,6 +777,8 @@ export class Session {
 	}
 }
 
+const STAGGER_MS = () => process.env.NO_STAGGER ? 0 : 20000 + Math.random() * 40000
+
 export class SessionManager extends EventEmitter {
 	constructor() {
 		super()
@@ -765,6 +786,7 @@ export class SessionManager extends EventEmitter {
 	}
 
 	async startAll() {
+		let started = 0
 		for (const { id } of db.prepare('SELECT id FROM accounts').all()) {
 			// Solo se reconectan automáticamente las cuentas ya vinculadas
 			if (stmt.getAccount.get(id)?.kind === 'cloud') {
@@ -774,6 +796,11 @@ export class SessionManager extends EventEmitter {
 			const linked = hasAuth(id, path.join(AUTH_DIR, String(id)))
 			note(id, 'boot', linked ? 'linked' : 'not-linked')
 			if (linked) {
+				// Los números se conectan uno por uno, con 20–60 s entre cada uno (no todos en el mismo segundo)
+				if (started++ > 0) {
+					stmt.setAccount.run('reconnecting', null, id)
+					await new Promise(r => setTimeout(r, STAGGER_MS()))
+				}
 				await this.start(id).catch(e => logger.error(e))
 			} else {
 				stmt.setAccount.run('logged_out', null, id)
@@ -797,6 +824,18 @@ export class SessionManager extends EventEmitter {
 		const s = this.sessions.get(accountId)
 		if (!s) throw new Error('Esta cuenta no está conectada')
 		return s
+	}
+
+	/** Borra los chats, mensajes y archivos de un número (la cuenta se conserva) */
+	clearChats(accountId) {
+		db.transaction(() => {
+			db.prepare('DELETE FROM messages WHERE account_id = ?').run(accountId)
+			db.prepare('DELETE FROM chats WHERE account_id = ?').run(accountId)
+			for (const t of ['conversation_notes', 'reminders']) db.prepare(`DELETE FROM ${t} WHERE conv_key LIKE ?`).run(`${accountId}:%`)
+			db.prepare('DELETE FROM conversation_labels WHERE jid LIKE ?').run(`${accountId}:%`)
+		})()
+		fs.rmSync(path.join(MEDIA_DIR, String(accountId)), { recursive: true, force: true })
+		this.emit('event', { type: 'conversations.changed', data: {} })
 	}
 
 	async remove(accountId) {

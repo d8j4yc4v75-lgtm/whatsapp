@@ -516,7 +516,8 @@ function renderInbox(full) {
 			<div class="search"><input id="q" type="search" placeholder="Buscar" value="${esc(S.filter.q)}"></div>
 			<div class="chips" id="chips"></div>
 			<ul class="list" id="convs"></ul>
-			<div id="msg-results"></div>`
+			<div id="msg-results"></div>
+			<div id="selbar" class="selbar" hidden></div>`
 		$('#q').oninput = e => { S.filter.q = e.target.value; renderInboxList(); searchMessages() }
 		searchMessages()
 	}
@@ -530,6 +531,7 @@ function renderChips() {
 		`<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-val="${esc(val)}" ${color ? `style="--c:${esc(color)}"` : ''}>${esc(text)}</button>`
 	$('#chips').innerHTML = [
 		chip('f-all', '', 'Todos', !f.account && !f.label && !f.unread && !f.waiting && !f.reminders),
+		chip('sel-toggle', '', S.sel ? 'Cancelar selección' : 'Seleccionar', Boolean(S.sel), '#8E8E93'),
 		chip('f-archived', '', 'Archivados', f.archived),
 		chip('f-unread', '', 'No leídos', f.unread),
 		chip('f-waiting', '', `Sin responder${S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length ? ' (' + S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length + ')' : ''}`, f.waiting, '#E5484D'),
@@ -582,9 +584,47 @@ function renderInboxList() {
 	})
 	while (el.children.length > list.length) el.lastChild.remove()
 	el._rows = next
+	renderSelBar()
 }
+// Selección de varios chats para archivar, etiquetar, marcar leídos o eliminar de una vez
+function renderSelBar() {
+	const el = $('#selbar'); if (!el) return
+	el.hidden = !S.sel
+	if (!S.sel) return
+	const n = S.sel.size
+	el.innerHTML = `<b>${n} seleccionado${n === 1 ? '' : 's'}</b><span class="grow"></span>
+		<button class="chip" data-act="sel-all">Todos</button>
+		<button class="chip" data-act="sel-do" data-val="read" ${n ? '' : 'disabled'}>Leídos</button>
+		<button class="chip" data-act="sel-do" data-val="label" ${n ? '' : 'disabled'}>Etiquetar</button>
+		<button class="chip" data-act="sel-do" data-val="archive" ${n ? '' : 'disabled'}>${S.filter.archived ? 'Desarchivar' : 'Archivar'}</button>
+		<button class="chip" style="--c:var(--danger)" data-act="sel-do" data-val="delete" ${n ? '' : 'disabled'}>Eliminar</button>`
+}
+async function selDo(kind, labelId) {
+	const keys = [...S.sel]
+	if (!keys.length) return
+	if (kind === 'delete' && !confirm(`¿Eliminar ${keys.length} chat(s) con sus mensajes? No se puede deshacer.`)) return
+	if (kind === 'label' && !labelId) {
+		if (!S.labels.length) return toast('Primero crea etiquetas en Ajustes')
+		return sheet('Etiquetar seleccionados', `<div class="group" style="margin-top:12px">${S.labels.map(l => `<button class="btn" data-act="sel-label" data-val="${l.id}"><span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span></button>`).join('')}</div>`)
+	}
+	toast(`Aplicando a ${keys.length} chat(s)…`, 20000)
+	let fail = 0
+	for (const key of keys) {
+		try {
+			if (kind === 'read') await api('POST', `/conversations/${enc(key)}/read`)
+			else if (kind === 'archive') await api('POST', `/conversations/${enc(key)}/archive`, { archived: !S.filter.archived })
+			else if (kind === 'delete') await api('DELETE', `/conversations/${enc(key)}`)
+			else if (kind === 'label') await api('PUT', `/conversations/${enc(key)}/labels`, { labelIds: [...new Set([...(conv(key)?.labelIds || []), labelId])] })
+		} catch { fail++ }
+	}
+	S.sel = null
+	toast(fail ? `Listo, ${fail} no se pudieron` : 'Listo ✅')
+	loadConvList()
+}
+
 function convRowHtml(c, d) {
-	return `<a class="row ${c.key === S.active ? 'active' : ''}" href="#/chat/${enc(c.key)}">
+	return `<a class="row ${c.key === S.active ? 'active' : ''} ${S.sel?.has(c.key) ? 'picked' : ''}" data-key="${esc(c.key)}" href="#/chat/${enc(c.key)}">
+			${S.sel ? `<span class="pick ${S.sel.has(c.key) ? 'on' : ''}"></span>` : ''}
 			${avatarHtml(c)}
 			<div class="body">
 				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
@@ -1539,7 +1579,8 @@ function openNewSafeCampaign() {
 			btn.textContent = `Validando ${rows.length} números… (unos ${Math.max(1, Math.ceil(rows.length / 20 * 1.3 / 60))} min)`
 			try {
 				const accountIds = [...el.querySelectorAll('.sf-acc:checked')].map(i => Number(i.value))
-				const { valid, invalid } = await api('POST', '/validate-list', { phones: rows.map(r => r.phone), accountIds })
+				const { valid, invalid, unchecked } = await api('POST', '/validate-list', { phones: rows.map(r => r.phone), accountIds })
+				if (unchecked) setTimeout(() => toast(`${unchecked} números quedaron sin revisar (límite de consultas por número). Se dejaron en la lista.`, 8000), 3600)
 				const ok = new Set(valid)
 				// Se conservan solo las filas con WhatsApp (y las que no parecen teléfono, como encabezados, se quitan)
 				$('#sf-list', el).value = lines.filter(l => ok.has(phoneOfLine(l))).join('\n')
@@ -1837,6 +1878,28 @@ async function renderTemplateList(accountId, refresh) {
 	}
 }
 
+// ---------- Historial del número ----------
+const HIST = {
+	open: () => '🟢 Se conectó',
+	close: d => /^403/.test(d || '') ? '⛔ WhatsApp rechazó la conexión (403)' : /^401/.test(d || '') ? '🔒 WhatsApp cerró la sesión' : '⚪ Se desconectó' + (d ? ` (${String(d).split(' ')[0]})` : ''),
+	alert: d => d || 'Aviso',
+	status: () => '⚠️ WhatsApp rechazó un mensaje',
+	optout: () => '🚫 Un cliente pidió baja',
+	'reserve-in': () => '🔁 Entró como reserva en un envío',
+	'safe-disabled': () => '⏸️ Se apartó de un envío por rechazos',
+	validate: d => `🔎 Validó números de una lista (${d || ''})`
+}
+async function loadHistory(id) {
+	const el = $('#ac-history'); if (!el) return
+	let rows = []
+	try { rows = await api('GET', `/accounts/${id}/history`) } catch { return }
+	if (!$('#ac-history')) return
+	const when = t => new Date(t).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+	el.innerHTML = `<div class="section">Historial</div>` + (rows.length
+		? `<div class="group">${rows.slice(0, 40).map(r => `<div class="item"><span class="grow" style="font-size:15px">${esc((HIST[r.event] || (() => r.event))(r.detail))}</span><small style="display:inline;white-space:nowrap">${when(r.at)}</small></div>`).join('')}</div>`
+		: '<p class="hint">Aquí aparecerá lo que le pase a este número: conexiones, desconexiones, rechazos y avisos (se guarda 60 días).</p>')
+}
+
 // ---------- Perfil de WhatsApp (foto, nombre, info) ----------
 async function loadProfile(id) {
 	const el = $('#ac-profile'); if (!el) return
@@ -1916,6 +1979,7 @@ function renderAccount(id, full) {
 				<div id="ac-profile"></div>
 				<div id="ac-health"></div>
 				<div id="ac-reserve"></div>
+				<div id="ac-history"></div>
 				<div class="section">Personalizar</div>
 				<div class="group">
 					<div class="item"><span>Nombre</span><input type="text" id="ac-name" style="text-align:right"></div>
@@ -1927,6 +1991,7 @@ function renderAccount(id, full) {
 				<div style="height:30px"></div>
 			</div>`
 		$('#ac-name').value = a.name
+		loadHistory(a.id)
 		view.dataset.color = a.color
 		bindColorPicker(view, c => { view.dataset.color = c })
 	}
@@ -2016,6 +2081,7 @@ function renderAccount(id, full) {
 	const actions = []
 	const actionsEl = $('#ac-actions')
 	if (a.status === 'logged_out' || a.status === 'disconnected') actions.push('<button class="btn" data-act="ac-connect">Vincular este WhatsApp</button>')
+	if (['logged_out', 'disconnected', 'blocked'].includes(a.status)) actions.push('<button class="btn danger" data-act="ac-clear">Borrar los chats y archivos de este número</button>')
 	if (a.status === 'blocked') actions.push('<button class="btn" data-act="ac-connect">Reintentar conexión</button>')
 	if (a.status === 'connected') actions.push('<button class="btn danger" data-act="ac-logout">Cerrar sesión</button>')
 	actions.push('<button class="btn danger" data-act="ac-delete">Eliminar cuenta</button>')
@@ -2102,6 +2168,12 @@ function renderSettings() {
 			<p class="hint">Asigna etiquetas desde el menú ⋯ de cada chat y filtra por ellas en la bandeja.</p>
 
 			<div class="group" style="margin-top:14px"><div class="item"><span class="grow">Sonido de mensaje nuevo<small>Suena cuando llega un mensaje con la app abierta</small></span><label class="switch"><input type="checkbox" data-act="sound-toggle" ${store.get('sound', true) !== false ? 'checked' : ''}><i></i></label></div></div>
+			<div class="section">Avisos</div>
+			<div class="group">
+				<div class="item"><span class="grow">Cliente esperando respuesta<small>Avisar si lleva más de estos minutos sin contestarle (0 = apagado). De 8 a 22 h.</small></span><input type="number" id="al-wait" min="0" max="720" value="0" class="num"></div>
+				<div class="item"><span class="grow">Resumen de números a las 9 am<small>Cuántos están listos, descansando, bloqueados o por vincular</small></span><label class="switch"><input type="checkbox" id="al-daily" checked><i></i></label></div>
+				<button class="btn" data-act="alerts-save">Guardar avisos</button>
+			</div>
 			<div class="section">Asistente inteligente</div>
 			<div class="group"><div class="item"><span class="grow">Entender respuestas de clientes<small>Etiqueta, da de baja, crea recordatorios y sugiere respuestas</small></span><label class="switch"><input type="checkbox" data-act="smart-toggle" id="smart-cb" checked><i></i></label></div></div>
 			<p class="hint">Cuando un cliente contesta, la app lo entiende y actúa sola: «ya pagué» → etiqueta <b>Pagó</b>; «mañana le deposito» → <b>Promesa de pago</b> y recordatorio ese día; «número equivocado», «baja» o una queja → ya no recibe masivos; «¿a qué cuenta deposito?» → te sugiere tu respuesta de datos de pago. También detecta el monto prometido, si dice que no tiene dinero, si se niega, si pregunta su saldo o si está molesto; lleva el historial de promesas (si pasa un día de la fecha sin que diga que pagó, la marca <b>Promesa incumplida</b> y te avisa) y te deja una respuesta sugerida en cada caso. Además los masivos respetan la hora local del cliente (según su lada) y el horario legal de 7 a 22 h.</p>
@@ -2140,6 +2212,7 @@ function renderSettings() {
 		</div>`
 	$('#nl-name').value = prevLabel
 	loadWarmup()
+	api('GET', '/settings/alerts').then(r => { if ($('#al-wait')) { $('#al-wait').value = r.waitingMinutes; $('#al-daily').checked = r.dailySummary } }).catch(() => {})
 	api('GET', '/settings/storage').then(renderStorage).catch(() => {})
 	api('GET', '/settings/smart').then(r => { const cb = $('#smart-cb'); if (cb) cb.checked = r.enabled }).catch(() => {})
 	api('GET', '/settings/ai').then(r => { S.ai = r; const cb = $('#ai-review-cb'); if (cb) cb.checked = r.review }).catch(() => {})
@@ -2375,6 +2448,14 @@ function actionSheet(title, actions) {
 
 // ---------- Eventos ----------
 document.addEventListener('click', async e => {
+	// En modo selección, tocar un chat lo marca en vez de abrirlo
+	const picked = S.sel && e.target.closest('#convs a.row')
+	if (picked) {
+		e.preventDefault()
+		const k = picked.dataset.key
+		if (S.sel.has(k)) S.sel.delete(k); else S.sel.add(k)
+		return renderInboxList()
+	}
 	const el = e.target.closest('[data-act]')
 	if (!el) return
 	const act = el.dataset.act
@@ -2457,6 +2538,20 @@ document.addEventListener('click', async e => {
 		case 'go': return go(val)
 		case 'back': return history.length > 1 ? history.back() : go('#/')
 		case 'f-all': { const wasArch = S.filter.archived; S.filter.account = null; S.filter.label = null; S.filter.unread = false; S.filter.waiting = false; S.filter.reminders = false; S.filter.archived = false; return wasArch ? loadConvList() : renderInbox(false) }
+		case 'ac-clear': {
+			const id = Number(route().arg)
+			if (!confirm('Se borrarán para siempre los chats, mensajes y archivos de este número. La cuenta se conserva para volver a vincularla. ¿Continuar?')) return
+			try { await api('DELETE', `/accounts/${id}/chats`); toast('Chats borrados') } catch (err) { toast(err.message) }
+			return
+		}
+		case 'alerts-save': {
+			try { await api('PUT', '/settings/alerts', { waitingMinutes: Number($('#al-wait').value) || 0, dailySummary: $('#al-daily').checked }); toast('Guardado') } catch (err) { toast(err.message) }
+			return
+		}
+		case 'sel-toggle': S.sel = S.sel ? null : new Set(); return renderInbox(false)
+		case 'sel-all': { const all = filteredConvs().map(c => c.key); S.sel = new Set(S.sel.size === all.length ? [] : all); return renderInboxList() }
+		case 'sel-do': return selDo(val)
+		case 'sel-label': closeSheet(); return selDo('label', Number(val))
 		case 'f-archived': S.filter.archived = !S.filter.archived; S.filter.unread = false; S.filter.waiting = false; S.filter.reminders = false; return loadConvList()
 		case 'archive-conv': {
 			const c = conv(S.active); if (!c) return

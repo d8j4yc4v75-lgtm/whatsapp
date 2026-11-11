@@ -96,6 +96,7 @@ export class CampaignRunner {
 		this.globalNextAt = 0
 		this.cursors = new Map()
 		this.lastBatch = new Map()
+		this.why = new Map()
 		// Los envíos terminados o cancelados hace más de un día se borran solos (con su lista)
 		this.purgeOld()
 		setInterval(() => this.purgeOld(), 3600000).unref?.()
@@ -412,6 +413,7 @@ export class CampaignRunner {
 			if (now < this.globalNextAt) break
 			const item = this.pickItem(c, acc, ready)
 			if (!item) { noItem++; continue }
+			if (/^Esperando: \d/.test(c.note || '')) this.setNote(c, null)
 			// Se reserva el contacto antes de enviar para no repetirlo
 			db.prepare("UPDATE campaign_items SET status = 'sending', sent_by = ?, sent_at = ? WHERE id = ?").run(acc, now, item.id)
 			const delay = (c.min_delay + Math.random() * (c.max_delay - c.min_delay)) * 1000
@@ -451,7 +453,16 @@ export class CampaignRunner {
 			break
 		}
 		// Ningún número listo encontró a quién escribirle en este bloque: la próxima vuelta revisa el siguiente
-		if (noItem && noItem === ready.size) this.advance(c.id, this.lastBatch.get(c.id) || [])
+		if (noItem && noItem === ready.size) {
+			this.advance(c.id, this.lastBatch.get(c.id) || [])
+			// Se explica en la tarjeta por qué no está saliendo nada
+			const w = this.why.get(c.id) || {}
+			const parts = []
+			if (w.hour) parts.push(`${w.hour} fuera de horario en su zona`)
+			if (w.recent) parts.push(`${w.recent} ya recibieron un mensaje en las últimas 24 h`)
+			if (w.chat) parts.push(`${w.chat} ya tienen chat con el número disponible`)
+			if (parts.length) this.setNote(c, `Esperando: ${parts.join(' · ')} (de los pendientes revisados)`)
+		}
 		if (!anyAvailable) {
 			const connected = active.some(a => this.manager.sessions.get(a)?.status === 'connected')
 			this.setNote(c, connected ? 'limit-safe' : 'Esperando a que los números elegidos estén conectados')
@@ -490,6 +501,9 @@ export class CampaignRunner {
 	}
 
 	pickFrom(c, acc, ready, cands) {
+		const why = this.why.get(c.id) || { hour: 0, recent: 0, chat: 0 }
+		this.why.set(c.id, why)
+		why.hour = why.recent = why.chat = 0
 		const recent = db.prepare("SELECT 1 FROM campaign_items WHERE phone = ? AND status IN ('sent', 'sending') AND sent_at > ? LIMIT 1")
 		const owners = db.prepare('SELECT account_id FROM chats WHERE jid IN (?, ?, ?) AND last_ts > 0')
 		const since = Date.now() - 864e5
@@ -502,14 +516,14 @@ export class CampaignRunner {
 				// Todos los números del envío ya platicaron con este cliente → se brinca
 				if (senders.length && senders.every(a => withChat.has(a))) { this.skipForChat(it); continue }
 				// Este número ya platicó con él → se lo manda otro número del envío que no tenga chat
-				if (withChat.has(acc)) continue
-				if (!goodLocalTime(it.phone, c.start_hour, c.end_hour)) continue
-				if (!c.forced && recent.get(it.phone, since)) continue
+				if (withChat.has(acc)) { why.chat++; continue }
+				if (!goodLocalTime(it.phone, c.start_hour, c.end_hour)) { why.hour++; continue }
+				if (!c.forced && recent.get(it.phone, since)) { why.recent++; continue }
 				return it
 			}
 			// Solo a buena hora para el cliente: su hora local (según su lada) dentro del horario del envío y de 7 a 22 h
-			if (!goodLocalTime(it.phone, c.start_hour, c.end_hour)) continue
-			if (!c.forced && recent.get(it.phone, since)) continue
+			if (!goodLocalTime(it.phone, c.start_hour, c.end_hour)) { why.hour++; continue }
+			if (!c.forced && recent.get(it.phone, since)) { why.recent++; continue }
 			const digits = String(it.phone).replace(/\D/g, '')
 			const d = digits.slice(-10)
 			const own = owners.all(`${digits}@s.whatsapp.net`, `521${d}@s.whatsapp.net`, `52${d}@s.whatsapp.net`).map(r => r.account_id).filter(a => ready.has(a))

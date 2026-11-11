@@ -208,7 +208,18 @@ export function setupExtras({ app, route, manager }) {
 			.filter(([, s]) => !(s instanceof CloudSession) && s.status === 'connected' && s.sock)
 			.sort(([a], [b]) => (prefer.includes(b) ? 1 : 0) - (prefer.includes(a) ? 1 : 0))
 		if (!sessions.length) throw new Error('Necesitas al menos un número de WhatsApp normal conectado para validar la lista')
-		const sock = sessions[0][1].sock
+		// Se reparte entre los números conectados (máximo 300 consultas por número en cada validación)
+		const PER_NUMBER = 300
+		const used = new Map(sessions.map(([id]) => [id, 0]))
+		let turn = 0
+		const nextSock = () => {
+			for (let k = 0; k < sessions.length; k++) {
+				const [id, s] = sessions[(turn + k) % sessions.length]
+				if (used.get(id) < PER_NUMBER && s.sock) { turn = (turn + k + 1) % sessions.length; used.set(id, used.get(id) + 20); return s.sock }
+			}
+			return null
+		}
+		const unchecked = []
 		const valid = []
 		const invalid = []
 		const normalized = []
@@ -219,6 +230,9 @@ export function setupExtras({ app, route, manager }) {
 		for (let i = 0; i < normalized.length; i += 20) {
 			const chunk = normalized.slice(i, i + 20)
 			let found
+			const sock = nextSock()
+			// Se acabó el cupo de consultas: lo que falta se deja en la lista sin revisar
+			if (!sock) { for (const [orig] of chunk) { valid.push(orig); unchecked.push(orig) } continue }
 			try {
 				found = await sock.onWhatsApp(...chunk.map(([, n]) => n))
 			} catch (e) {
@@ -228,8 +242,8 @@ export function setupExtras({ app, route, manager }) {
 			for (const [orig, n] of chunk) (exists.has(n.slice(-10)) ? valid : invalid).push(orig)
 			if (i + 20 < normalized.length) await new Promise(r => setTimeout(r, 1200))
 		}
-		note(sessions[0][0], 'validate', `${valid.length}/${phones.length}`)
-		return { valid, invalid }
+		for (const [id, n] of used) if (n) note(id, 'validate', `${n} consultas`)
+		return { valid, invalid, unchecked: unchecked.length }
 	}))
 
 	// ---- Descanso de números ----
