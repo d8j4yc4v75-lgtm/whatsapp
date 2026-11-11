@@ -80,6 +80,43 @@ export function setMediaDays(days) {
 	return d
 }
 
+// Chats sin actividad: se borran después de X meses (0 = nunca). Así la base de datos no crece sin fin.
+export function chatMonths() {
+	const v = Number(db.prepare("SELECT value FROM app_settings WHERE key = 'chat_months'").get()?.value)
+	return v >= 1 && v <= 60 ? Math.floor(v) : 0
+}
+export function setChatMonths(months) {
+	const m = Math.max(0, Math.min(60, Math.floor(Number(months) || 0)))
+	db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('chat_months', ?)").run(String(m))
+	return m
+}
+function pruneChats() {
+	const months = chatMonths()
+	if (!months) return 0
+	const cut = Date.now() - months * 30 * DAY
+	// Se conservan los chats con recordatorio pendiente
+	const old = db.prepare(`
+		SELECT c.account_id, c.jid FROM chats c
+		WHERE c.last_ts < ? AND c.jid NOT LIKE '%@g.us'
+		AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.account_id = c.account_id AND m.jid = c.jid AND m.ts >= ?)
+		AND NOT EXISTS (SELECT 1 FROM reminders r WHERE r.conv_key = c.account_id || ':' || c.jid AND r.done = 0)
+		LIMIT 2000`).all(cut, cut)
+	const files = db.prepare('SELECT media_path FROM messages WHERE account_id = ? AND jid = ? AND media_path IS NOT NULL')
+	const run = db.transaction(rows => {
+		for (const { account_id, jid } of rows) {
+			const key = `${account_id}:${jid}`
+			for (const f of files.all(account_id, jid)) { try { fs.rmSync(f.media_path, { force: true }) } catch {} }
+			db.prepare('DELETE FROM messages WHERE account_id = ? AND jid = ?').run(account_id, jid)
+			db.prepare('DELETE FROM chats WHERE account_id = ? AND jid = ?').run(account_id, jid)
+			db.prepare('DELETE FROM conversation_notes WHERE conv_key = ?').run(key)
+			db.prepare('DELETE FROM reminders WHERE conv_key = ?').run(key)
+			db.prepare('DELETE FROM conversation_labels WHERE jid = ?').run(key)
+		}
+	})
+	run(old)
+	return old.length
+}
+
 export function cleanup() {
 	try {
 		// Copias de sesiones cerradas que guardaban versiones anteriores
@@ -91,6 +128,8 @@ export function cleanup() {
 		let removed = pruneMedia(mediaDays() * DAY)
 		if (freeRatio() < 0.2) removed += pruneMedia(DAY)
 		if (freeRatio() < 0.1) removed += pruneMedia(0)
+		const chats = pruneChats()
+		if (chats) note(null, 'cleanup', `chats ${chats}`)
 		db.pragma('wal_checkpoint(TRUNCATE)')
 		if (removed) note(null, 'cleanup', `media ${removed}`)
 	} catch (e) {

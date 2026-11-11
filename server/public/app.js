@@ -84,14 +84,14 @@ const avatarURL = c => `/api/avatar/${enc(c.key)}?token=${enc(S.token)}`
 // Silueta gris como la de WhatsApp cuando no hay foto
 const PH_PERSON = '<svg class="ph" viewBox="0 0 212 212" aria-hidden="true"><path fill="currentColor" d="M106 106c21 0 38-17 38-39s-17-39-38-39-38 17-38 39 17 39 38 39Zm0 14c-37 0-80 19-80 44v30h160v-30c0-25-43-44-80-44Z"/></svg>'
 const PH_GROUP = '<svg class="ph" viewBox="0 0 212 212" aria-hidden="true"><path fill="currentColor" d="M76 100c17 0 30-13 30-30S93 40 76 40 46 53 46 70s13 30 30 30Zm66 0c17 0 30-13 30-30s-13-30-30-30c-6 0-11 2-16 4 6 7 9 16 9 26s-3 19-9 26c5 3 10 4 16 4ZM76 114c-29 0-62 15-62 35v25h124v-25c0-20-33-35-62-35Zm66 0c-5 0-10 0-15 1 13 9 23 20 23 34v25h48v-25c0-20-29-35-56-35Z"/></svg>'
-function avatarHtml(c) {
-	const img = c.isGroup ? '' : `<img src="${avatarURL(c)}" alt="" onerror="this.remove()">`
+function avatarHtml(c, fresh) {
+	const img = c.isGroup || !(c.hasAvatar || fresh) ? '' : `<img src="${avatarURL(c)}${fresh ? '&fresh=1' : ''}" alt="" loading="lazy" onerror="this.remove()">`
 	return `<div class="avatar">${c.isGroup ? PH_GROUP : PH_PERSON}${img}</div>`
 }
 const totalUnread = () => S.convs.reduce((n, c) => n + (c.unread || 0), 0)
 
 function statusText(a) {
-	return { connected: 'Conectado', connecting: 'Conectando…', reconnecting: 'Reconectando…', qr: 'Esperando vinculación', logged_out: 'Sin vincular', error: 'Error de conexión' }[a.status] || 'Desconectado'
+	return { connected: 'Conectado', connecting: 'Conectando…', reconnecting: 'Reconectando…', qr: 'Esperando vinculación', logged_out: 'Sin vincular', blocked: 'Bloqueado por WhatsApp', error: 'Error de conexión' }[a.status] || 'Desconectado'
 }
 function statusColor(a) {
 	return a.status === 'connected' ? 'var(--accent)' : ['qr', 'connecting', 'reconnecting'].includes(a.status) ? '#f5a623' : 'var(--danger)'
@@ -565,17 +565,33 @@ function renderInboxList() {
 	if (!list.length) {
 		el.innerHTML = `<li class="empty"><div class="big">${S.accounts.length ? '📭' : '📱'}</div>
 			${S.accounts.length ? 'Sin conversaciones.' : 'Aún no hay cuentas. Ve a <a href="#/accounts">Cuentas</a> y vincula tu primer WhatsApp.'}</li>`
+		el._rows = null
 		return
 	}
-	el.innerHTML = list.map(c => `
-		<li><a class="row ${c.key === S.active ? 'active' : ''}" href="#/chat/${enc(c.key)}">
+	// Solo se vuelven a dibujar las filas que cambiaron (antes se rehacía toda la lista con cada mensaje)
+	if (!el._rows) el.textContent = ''
+	const prev = el._rows || new Map()
+	const next = new Map()
+	const d = drafts()
+	list.forEach((c, idx) => {
+		const html = convRowHtml(c, d)
+		let it = prev.get(c.key)
+		if (!it || it.html !== html) { const li = document.createElement('li'); li.innerHTML = html; it = { html, node: li } }
+		next.set(c.key, it)
+		if (el.children[idx] !== it.node) el.insertBefore(it.node, el.children[idx] || null)
+	})
+	while (el.children.length > list.length) el.lastChild.remove()
+	el._rows = next
+}
+function convRowHtml(c, d) {
+	return `<a class="row ${c.key === S.active ? 'active' : ''}" href="#/chat/${enc(c.key)}">
 			${avatarHtml(c)}
 			<div class="body">
 				<div class="top"><span class="name">${esc(convName(c))}</span><span class="time ${c.unread ? 'unread' : ''}">${c.lastTs ? timeLabel(c.lastTs) : ''}</span></div>
-				<div class="bottom"><span class="preview">${drafts()[c.key] && c.key !== S.active ? `<b class="draft">Borrador:</b> ${esc(drafts()[c.key])}</span><span hidden>` : ''}${c.lastFromMe ? (c.lastStatus != null ? `<span class="ptick">${ticks(c.lastStatus)}</span>` : 'Tú: ') : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
+				<div class="bottom"><span class="preview">${d[c.key] && c.key !== S.active ? `<b class="draft">Borrador:</b> ${esc(d[c.key])}</span><span hidden>` : ''}${c.lastFromMe ? (c.lastStatus != null ? `<span class="ptick">${ticks(c.lastStatus)}</span>` : 'Tú: ') : ''}${esc(c.lastText)}</span>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div>
 				<div class="tags">${accountTag(c.accountId)}${c.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}${c.reminder ? `<span class="tag" style="--c:#7C5CFF">${esc(reminderLabel(c.reminder.at))}</span>` : ''}${c.note ? '<span class="tag" style="--c:#B7791F">Nota</span>' : ''}${S.filter.waiting ? `<span class="tag" style="--c:#E5484D">${waitingLabel(c.lastTs)}</span>` : ''}</div>
 			</div>
-		</a></li>`).join('')
+		</a>`
 }
 
 // ---------- Chat ----------
@@ -624,7 +640,7 @@ async function renderChat(jid, full) {
 function renderChatHeader() {
 	const c = conv(S.active)
 	$('#c-title').textContent = c ? convName(c) : fmtPhone(jidOf(S.active).split('@')[0])
-	const av = $('#c-avatar'); if (av && c) av.innerHTML = avatarHtml(c)
+	const av = $('#c-avatar'); if (av && c && av.dataset.key !== c.key) { av.dataset.key = c.key; av.innerHTML = avatarHtml(c, true) }
 	updateBadge()
 	const parts = []
 	if (c?.name) parts.push(c.name) // si WhatsApp tiene un nombre guardado, va de subtítulo
@@ -1452,7 +1468,7 @@ function openNewCampaign() {
 }
 
 function openNewSafeCampaign() {
-	const normal = S.accounts.filter(a => a.kind !== 'cloud')
+	const normal = S.accounts.filter(a => a.kind !== 'cloud' && !['logged_out', 'blocked'].includes(a.status))
 	if (!normal.length) return toast('Primero vincula un número de WhatsApp en Cuentas')
 	sheet('Envío en modo seguro', `
 		<div class="section">Nombre del envío</div>
@@ -1674,10 +1690,21 @@ async function showFailed(id) {
 }
 
 // ---------- Cuentas ----------
+// Aviso de números que necesitan atención
+function accountsBanner() {
+	const off = S.accounts.filter(a => a.kind !== 'cloud' && ['logged_out', 'disconnected'].includes(a.status))
+	const blocked = S.accounts.filter(a => a.status === 'blocked')
+	const out = []
+	if (blocked.length) out.push(`<div class="notice danger"><b>⛔ ${blocked.length === 1 ? '1 número bloqueado' : blocked.length + ' números bloqueados'} por WhatsApp</b>${blocked.map(a => esc(a.name)).join(', ')}. WhatsApp rechaza su conexión; revisa la app de WhatsApp en ese teléfono. Ya no se reintenta solo.</div>`)
+	if (off.length) out.push(`<div class="notice"><b>${off.length === 1 ? '1 número necesita' : off.length + ' números necesitan'} vincularse</b>${off.map(a => esc(a.name)).join(', ')}. Toca cada uno para vincularlo de nuevo, o elimínalo si ya no lo usas.</div>`)
+	return out.join('')
+}
+
 function renderAccounts() {
 	$('#view').innerHTML = `
 		${largeBar('Cuentas', `<button class="icon-btn" data-act="add-account" aria-label="Agregar">${IC.plus}</button>`)}
 		<div class="settings" style="min-height:100%">
+		${accountsBanner()}
 		${S.accounts.length ? `<div class="section">Tus WhatsApp (${S.accounts.length})</div><div class="group">${S.accounts.map(a => `
 			<a class="item" href="#/account/${a.id}">
 				<span class="swatch" style="--c:${esc(a.color)};width:16px;height:16px;border:0"></span>
@@ -1989,6 +2016,7 @@ function renderAccount(id, full) {
 	const actions = []
 	const actionsEl = $('#ac-actions')
 	if (a.status === 'logged_out' || a.status === 'disconnected') actions.push('<button class="btn" data-act="ac-connect">Vincular este WhatsApp</button>')
+	if (a.status === 'blocked') actions.push('<button class="btn" data-act="ac-connect">Reintentar conexión</button>')
 	if (a.status === 'connected') actions.push('<button class="btn danger" data-act="ac-logout">Cerrar sesión</button>')
 	actions.push('<button class="btn danger" data-act="ac-delete">Eliminar cuenta</button>')
 	if (actionsEl.dataset.sig !== a.status) {
@@ -2127,11 +2155,14 @@ function renderSettings() {
 
 function renderStorage(st) {
 	const el = $('#storage-box'); if (!el) return
+	S.chatMonths = st.chatMonths || 0
 	const used = st.totalMb ? Math.round((1 - st.freeMb / st.totalMb) * 100) : null
 	el.innerHTML = `
 		<div class="item"><span class="grow">Fotos, audios y documentos</span><span class="muted">${st.mediaMb >= 1024 ? (st.mediaMb / 1024).toFixed(1) + ' GB' : Math.round(st.mediaMb) + ' MB'}</span></div>
 		${used != null ? `<div class="item"><span class="grow">Disco usado</span><span class="${used >= 80 ? '' : 'muted'}" ${used >= 80 ? 'style="color:var(--danger)"' : ''}>${used}%</span></div>` : ''}
 		<div class="item"><span class="grow">Borrar archivos después de (días)</span><input type="number" id="st-days" min="1" max="365" value="${st.days}" class="num"></div>
+		<div class="item"><span class="grow">Mensajes y chats guardados</span><span class="muted">${Math.round(st.dbMb || 0)} MB</span></div>
+		<div class="item"><span class="grow">Borrar chats sin actividad después de (meses)<small>0 = nunca. No borra chats con recordatorio pendiente.</small></span><input type="number" id="st-months" min="0" max="60" value="${st.chatMonths || 0}" class="num"></div>
 		<button class="btn" data-act="storage-save">Guardar</button>`
 }
 
@@ -2406,7 +2437,10 @@ document.addEventListener('click', async e => {
 		}
 		case 'promises': return openPromises()
 		case 'storage-save': {
-			try { renderStorage(await api('PUT', '/settings/storage', { days: Number($('#st-days').value) })); toast('Guardado') } catch (err) { toast(err.message) }
+			const mo = Number($('#st-months').value) || 0
+			if (mo > 0 && mo !== (S.chatMonths || 0) && !confirm(`Se borrarán para siempre los chats (con sus mensajes) que lleven más de ${mo} mes(es) sin actividad. ¿Continuar?`)) return
+			S.chatMonths = mo
+			try { renderStorage(await api('PUT', '/settings/storage', { days: Number($('#st-days').value), chatMonths: Number($('#st-months').value) || 0 })); toast('Guardado') } catch (err) { toast(err.message) }
 			return
 		}
 		case 'chat-menu': {

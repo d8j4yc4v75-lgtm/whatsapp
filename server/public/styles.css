@@ -579,3 +579,7 @@ mark { background: color-mix(in srgb, #ffcc00 45%, transparent); color: inherit;
 }
 
 .msgs.dropping { outline: 3px dashed var(--accent); outline-offset: -10px; }
+
+.notice { margin: 12px 16px 0; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; background: color-mix(in srgb, var(--warn) 14%, var(--card)); }
+.notice b { display: block; margin-bottom: 2px; }
+.notice.danger { background: color-mix(in srgb, var(--danger) 13%, var(--card)); }

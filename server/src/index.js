@@ -18,7 +18,7 @@ import { WarmupManager, library as warmupLibrary } from './warmup.js'
 import { smartEnabled, setSmartEnabled } from './smart.js'
 import { correctorStatus, correctorSave, rewrite } from './corrector.js'
 import { setupExtras } from './extras.js'
-import { diskInfo, startMaintenance, mediaDays, setMediaDays } from './maintenance.js'
+import { diskInfo, startMaintenance, mediaDays, setMediaDays, chatMonths, setChatMonths } from './maintenance.js'
 
 const STARTED_AT = new Date().toISOString()
 const manager = new SessionManager()
@@ -186,6 +186,8 @@ app.get('/api/cloud/setup', route(req => ({
 
 app.post('/api/accounts/:id/connect', route(async req => {
 	const id = accountParam(req)
+	const s = manager.sessions.get(id)
+	if (s) s.forbidden = 0 // reintento pedido por ti: vuelve a contar desde cero
 	await manager.start(id)
 	return manager.accountInfo(id)
 }))
@@ -282,7 +284,7 @@ app.delete('/api/conversations/:key', route(req => {
 // Foto de perfil del contacto (redirige a la imagen del CDN de WhatsApp)
 app.get('/api/avatar/:key', route(async (req, res) => {
 	const { accountId, jid } = convKey(req.params.key)
-	const url = await manager.avatarUrl(accountId, jid)
+	const url = await manager.avatarUrl(accountId, jid, req.query.fresh === '1')
 	if (!url) { res.status(404).end(); return }
 	res.redirect(url)
 }))
@@ -367,9 +369,14 @@ app.get('/api/promises', route(() => {
 }))
 
 // ---- Almacenamiento: cuántos días se guardan fotos, audios y documentos ----
-const storageInfo = () => { const d = diskInfo(); return { days: mediaDays(), mediaMb: d.parts.media?.mb || 0, freeMb: d.freeMb, totalMb: d.totalMb } }
+const storageInfo = () => { const d = diskInfo(); return { days: mediaDays(), chatMonths: chatMonths(), mediaMb: d.parts.media?.mb || 0, dbMb: d.parts['multiwa.db']?.mb || 0, freeMb: d.freeMb, totalMb: d.totalMb } }
 app.get('/api/settings/storage', route(() => storageInfo()))
-app.put('/api/settings/storage', route(req => { setMediaDays(req.body.days); return storageInfo() }))
+app.put('/api/settings/storage', route(req => {
+	if (req.body.chatMonths !== undefined) setChatMonths(req.body.chatMonths)
+	if (req.body.days !== undefined) setMediaDays(req.body.days)
+	manager.emit('event', { type: 'conversations.changed', data: {} })
+	return storageInfo()
+}))
 
 app.get('/api/campaigns', route(() => campaigns.list()))
 

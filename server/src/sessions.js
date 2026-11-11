@@ -343,6 +343,17 @@ export class Session {
 				this.setStatus('logged_out')
 				return
 			}
+			// WhatsApp rechaza la conexión (403): la cuenta está bloqueada o restringida. Tras varios intentos
+			// seguidos se deja de insistir, para no seguir tocando a WhatsApp desde el mismo servidor.
+			if (code === 403) {
+				this.forbidden = (this.forbidden || 0) + 1
+				if (this.forbidden >= 5) {
+					this.setStatus('blocked')
+					const name = stmt.getAccount.get(this.accountId)?.name || 'Un número'
+					this.alert(`⛔ ${name}: WhatsApp rechaza la conexión`, 'La cuenta parece bloqueada o restringida. Revisa WhatsApp en ese teléfono; ya no se seguirá intentando sola.')
+					return
+				}
+			} else this.forbidden = 0
 			this.setStatus('reconnecting')
 			const delay = code === DisconnectReason.restartRequired ? 0 : Math.min(30000, 2000 * 2 ** this.retries++)
 			setTimeout(() => !this.stopped && this.start().catch(e => note(this.accountId, 'start-error', e.message)), delay)
@@ -866,7 +877,12 @@ export class SessionManager extends EventEmitter {
 			WHERE ${where.join(' AND ')}
 			ORDER BY c.last_ts DESC
 			LIMIT ${Number(limit)}`).all(params)
-		return rows.map(r => this.formatConversation(r))
+		// Etiquetas, notas y recordatorios se leen una sola vez para toda la lista (antes: 5 consultas por chat)
+		const ctx = { labels: new Map(), notes: new Map(), reminders: new Map() }
+		for (const l of db.prepare('SELECT jid, label_id FROM conversation_labels').all()) { const a = ctx.labels.get(l.jid); if (a) a.push(l.label_id); else ctx.labels.set(l.jid, [l.label_id]) }
+		for (const n of db.prepare('SELECT conv_key, text FROM conversation_notes').all()) ctx.notes.set(n.conv_key, n)
+		for (const r of db.prepare('SELECT conv_key, at, text FROM reminders WHERE done = 0 ORDER BY at DESC').all()) ctx.reminders.set(r.conv_key, r)
+		return rows.map(r => this.formatConversation(r, ctx))
 	}
 
 	conversation(accountId, jid) {
@@ -937,21 +953,28 @@ export class SessionManager extends EventEmitter {
 	}
 
 	// Devuelve la URL de la foto de perfil, guardándola en caché un día
-	async avatarUrl(accountId, jid) {
+	async avatarUrl(accountId, jid, fresh) {
 		const row = db.prepare('SELECT avatar_url, avatar_ts FROM chats WHERE account_id = ? AND jid = ?').get(accountId, jid)
-		if (row && row.avatar_ts && Date.now() - row.avatar_ts < 864e5) return row.avatar_url || null
+		// La lista de chats solo usa la foto ya guardada. A WhatsApp se le pregunta únicamente al abrir
+		// el chat, una vez al día por contacto y con al menos 4 s entre consultas de un mismo número
+		// (pedir cientos de fotos de desconocidos de golpe es una señal que WhatsApp vigila).
+		if (!fresh || (row && row.avatar_ts && Date.now() - row.avatar_ts < 864e5)) return row?.avatar_url || null
+		this.avatarAt = this.avatarAt || new Map()
+		if (Date.now() - (this.avatarAt.get(accountId) || 0) < 4000) return row?.avatar_url || null
+		this.avatarAt.set(accountId, Date.now())
 		const s = this.sessions.get(accountId)
 		const url = s ? await s.profilePictureUrl(jid).catch(() => null) : null
 		try { db.prepare('UPDATE chats SET avatar_url = ?, avatar_ts = ? WHERE account_id = ? AND jid = ?').run(url, Date.now(), accountId, jid) } catch {}
 		return url
 	}
 
-	formatConversation(r) {
+	formatConversation(r, ctx) {
 		const key = `${r.account_id}:${r.jid}`
-		const last = db.prepare('SELECT * FROM messages WHERE account_id = ? AND jid = ? ORDER BY ts DESC LIMIT 1').get(r.account_id, r.jid)
-		const labels = db.prepare('SELECT label_id FROM conversation_labels WHERE jid = ?').all(key).map(l => l.label_id)
-		const note = db.prepare('SELECT text FROM conversation_notes WHERE conv_key = ?').get(key)
-		const reminder = db.prepare('SELECT at, text FROM reminders WHERE conv_key = ? AND done = 0 ORDER BY at LIMIT 1').get(key)
+		this.lastStmt = this.lastStmt || db.prepare('SELECT id, ts, type, text, file_name, from_me, status, deleted FROM messages WHERE account_id = ? AND jid = ? ORDER BY ts DESC LIMIT 1')
+		const last = this.lastStmt.get(r.account_id, r.jid)
+		const labels = ctx ? (ctx.labels.get(key) || []) : db.prepare('SELECT label_id FROM conversation_labels WHERE jid = ?').all(key).map(l => l.label_id)
+		const note = ctx ? ctx.notes.get(key) : db.prepare('SELECT text FROM conversation_notes WHERE conv_key = ?').get(key)
+		const reminder = ctx ? ctx.reminders.get(key) : db.prepare('SELECT at, text FROM reminders WHERE conv_key = ? AND done = 0 ORDER BY at LIMIT 1').get(key)
 		return {
 			key,
 			accountId: r.account_id,
