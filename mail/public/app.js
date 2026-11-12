@@ -695,6 +695,12 @@ function openNewCampaign() {
 			<label class="btn">📄 Cargar archivo CSV<input type="file" id="cp-file" accept=".csv,.txt,text/csv" hidden></label>
 		</div>
 		<p class="hint" id="cp-count"></p>
+		<div class="section">Así le llegará al primer contacto</div>
+		<div class="viewer-card">
+			<div class="viewer-head" id="cp-vhead"></div>
+			<iframe id="cp-view" sandbox="allow-same-origin" title="Vista previa del correo"></iframe>
+		</div>
+		<p class="hint">Se actualiza solo mientras escribes. Usa los datos de la primera fila de tu lista; lo que quede como {{algo}} es una columna que no existe en la lista.</p>
 		<div class="section">Ritmo y horario</div>
 		<div class="group">
 			<div class="item"><span class="grow">Máximo por buzón al día</span><input type="number" id="cp-daily" value="40" min="1" max="200" style="text-align:right;max-width:80px"></div>
@@ -716,8 +722,40 @@ function openNewCampaign() {
 				? `<b>${rows.length}</b> contactos · ${accs} buzón(es) × ${daily} al día = <b>${accs * daily} al día</b> · ~<b>${days} día(s)</b>.${headers.length ? `<br>Columnas: ${headers.map(h => '{{' + esc(h) + '}}').join(', ')}` : ''}${rows[0] ? `<br>Asunto de ejemplo: <i>${esc(fillPrev($('#cp-subject', el).value))}</i>` : ''}`
 				: 'Pega la lista o carga un CSV. La 1.ª fila son los encabezados (nombre, total…) y la 1.ª columna el correo.'
 		}
-		el.querySelectorAll('input,textarea').forEach(i => { i.addEventListener('input', count); i.addEventListener('change', count) })
-		$('#cp-file', el).onchange = async e => { const f = e.target.files[0]; if (f) { $('#cp-list', el).value = await f.text(); count() } }
+		// Visor en vivo: el correo ya armado con los datos del primer contacto
+		let viewTimer
+		const view = () => {
+			clearTimeout(viewTimer)
+			viewTimer = setTimeout(() => {
+				const frame = $('#cp-view', el); if (!frame) return
+				const { headers, rows } = parseCsv($('#cp-list', el).value)
+				const first = rows[0]
+				const p0 = first?.params || []
+				const missing = new Set()
+				const f = t => String(t).replace(/\{\{\s*([\w.áéíóúñ-]+)\s*\}\}/gi, (m, k) => {
+					if (/^\d+$/.test(k)) return p0[k - 1] ?? (missing.add(m), m)
+					const j = headers.findIndex(h => h.toLowerCase() === k.toLowerCase())
+					return j >= 0 ? (p0[j] ?? '') : (missing.add(m), m)
+				})
+				const body = $('#cp-body', el).value
+				const subject = f($('#cp-subject', el).value)
+				const isHtml = /<[a-z!][\s\S]*>/i.test(body)
+				const from = account(Number(el.querySelector('.cp-acc:checked')?.value))
+				const html = !body.trim() ? '<p style="font:15px -apple-system,sans-serif;color:#8a8a8e;margin:14px">Escribe el mensaje para verlo aquí.</p>'
+					: isHtml ? f(body)
+						: `<pre style="font:15px/1.45 -apple-system,Helvetica,Arial,sans-serif;white-space:pre-wrap;margin:14px;color:#111">${esc(f(body))}</pre>`
+				$('#cp-vhead', el).innerHTML = `
+					<div><span>De</span>${from ? esc(from.name) + ' &lt;' + esc(from.email) + '&gt;' : '—'}</div>
+					<div><span>Para</span>${first ? esc(first.email) : '<i>(agrega tu lista para ver un contacto real)</i>'}</div>
+					<div><span>Asunto</span><b>${esc(subject) || '<i style="font-weight:400">(sin asunto)</i>'}</b></div>
+					${missing.size ? `<div class="viewer-warn">⚠︎ No encontré en tu lista: ${[...missing].map(esc).join(', ')}</div>` : ''}`
+				frame.srcdoc = `<!doctype html><meta charset="utf-8"><base target="_blank"><body style="margin:0;background:#fff">${html}</body>`
+				frame.onload = () => { try { frame.style.height = Math.min(900, Math.max(160, frame.contentDocument.documentElement.scrollHeight + 4)) + 'px' } catch {} }
+			}, 250)
+		}
+		el.querySelectorAll('input,textarea').forEach(i => { i.addEventListener('input', () => { count(); view() }); i.addEventListener('change', () => { count(); view() }) })
+		view()
+		$('#cp-file', el).onchange = async e => { const f = e.target.files[0]; if (f) { $('#cp-list', el).value = await f.text(); count(); view() } }
 		count()
 		$('#cp-go', el).onclick = async () => {
 			const rows = parseList($('#cp-list', el).value)
