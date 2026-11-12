@@ -109,7 +109,16 @@ const accountParam = req => {
 	return id
 }
 
-app.get('/api/info', route(() => ({ unread: manager.totalUnread(), persistent: persistent() })))
+// Dirección de la app de correos (se muestra en la pestaña «Correos»)
+const mailUrl = () => db.prepare("SELECT value FROM app_settings WHERE key = 'mail_url'").get()?.value || process.env.MAIL_URL || ''
+app.get('/api/info', route(() => ({ unread: manager.totalUnread(), persistent: persistent(), mailUrl: mailUrl() })))
+app.put('/api/settings/mail-url', route(req => {
+	let u = String(req.body.url || '').trim()
+	if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u
+	if (u) { try { u = new URL(u).origin } catch { throw new Error('Esa dirección no es válida') } }
+	db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('mail_url', ?)").run(u)
+	return { mailUrl: u }
+}))
 
 app.post('/api/password', route(req => {
 	changePassword(req.body.password)

@@ -180,6 +180,7 @@ const IC = {
 	doc: svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'),
 	template: svg('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
 	chevron: svg('<path d="m9 6 6 6-6 6"/>', 'chev'),
+	mail: svg('<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7.5 8 6 8-6"/>'),
 	copy: svg('<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>'),
 	pencil: svg('<path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/><path d="m14.5 5.5 3 3"/>'),
 	ban: svg('<circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/>'),
@@ -455,17 +456,41 @@ function render() {
 	else if (r.name === 'accounts') renderAccounts()
 	else if (r.name === 'account') renderAccount(Number(r.arg), changed)
 	else if (r.name === 'settings') { if (changed) renderSettings() }
+	else if (r.name === 'mail') { if (changed) renderMail() }
 	else {
 		renderInbox(changed)
 		if (changed && S.inboxScroll) $('#view').scrollTop = S.inboxScroll
 	}
 }
 
+// ---------- Correos: la app de correos dentro de esta misma app ----------
+async function renderMail() {
+	const view = $('#view')
+	view.innerHTML = '<div class="empty">Cargando…</div>'
+	if (S.mailUrl === undefined) { try { S.mailUrl = (await api('GET', '/info')).mailUrl || '' } catch { S.mailUrl = '' } }
+	if (route().name !== 'mail') return
+	if (S.mailUrl) {
+		view.innerHTML = `<iframe class="mail-frame" src="${esc(S.mailUrl)}" title="Correos" allow="clipboard-write"></iframe>`
+		view.classList.add('has-frame')
+		return
+	}
+	view.innerHTML = `
+		${largeBar('Correos')}
+		<div class="settings" style="min-height:100%">
+			<p class="hint" style="padding-top:0">Aquí se abre tu app de correos (bandeja, cuentas y envíos con plantilla) sin salir de esta app. Pega una sola vez la liga de tu app de correos.</p>
+			<div class="group">
+				<div class="item"><input type="text" id="mail-url" placeholder="https://mail-….up.railway.app" autocapitalize="off" autocomplete="off" inputmode="url"></div>
+				<button class="btn" data-act="mail-save">Guardar</button>
+			</div>
+			<p class="hint">La primera vez te pedirá la contraseña de la app de correos (es aparte de la de WhatsApp).</p>
+		</div>`
+}
+
 function tabs(active) {
 	const t = (name, icon, text, href) =>
 		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') ? 'active' : ''}">${icon}<span>${text}</span>${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
 	const sends = S.accounts.length ? t('campaigns', IC.send, 'Envíos', '#/campaigns') : ''
-	return `<nav class="tabs">${t('inbox', IC.chats, 'Chats', '#/')}${sends}${t('accounts', IC.phone, 'Cuentas', '#/accounts')}${t('settings', IC.gear, 'Ajustes', '#/settings')}</nav>`
+	return `<nav class="tabs">${t('inbox', IC.chats, 'Chats', '#/')}${sends}${t('mail', IC.mail, 'Correos', '#/mail')}${t('accounts', IC.phone, 'Cuentas', '#/accounts')}${t('settings', IC.gear, 'Ajustes', '#/settings')}</nav>`
 }
 
 // ---------- Bandeja ----------
@@ -2181,6 +2206,12 @@ function renderSettings() {
 			<p class="hint">Asigna etiquetas desde el menú ⋯ de cada chat y filtra por ellas en la bandeja.</p>
 
 			<div class="group" style="margin-top:14px"><div class="item"><span class="grow">Sonido de mensaje nuevo<small>Suena cuando llega un mensaje con la app abierta</small></span><label class="switch"><input type="checkbox" data-act="sound-toggle" ${store.get('sound', true) !== false ? 'checked' : ''}><i></i></label></div></div>
+			<div class="section">Correos</div>
+			<div class="group">
+				<div class="item"><span>Liga</span><input type="text" id="st-mail" placeholder="https://mail-….up.railway.app" autocapitalize="off" autocomplete="off" style="text-align:right"></div>
+				<button class="btn" data-act="mail-save">Guardar</button>
+			</div>
+			<p class="hint">Dirección de tu app de correos; se abre en la pestaña «Correos». Déjala vacía para quitarla.</p>
 			<div class="section">Avisos</div>
 			<div class="group">
 				<div class="item"><span class="grow">Cliente esperando respuesta<small>Avisar si lleva más de estos minutos sin contestarle (0 = apagado). De 8 a 22 h.</small></span><input type="number" id="al-wait" min="0" max="720" value="0" class="num"></div>
@@ -2225,6 +2256,7 @@ function renderSettings() {
 		</div>`
 	$('#nl-name').value = prevLabel
 	loadWarmup()
+	api('GET', '/info').then(r => { S.mailUrl = r.mailUrl || ''; if ($('#st-mail')) $('#st-mail').value = S.mailUrl }).catch(() => {})
 	api('GET', '/settings/alerts').then(r => { if ($('#al-wait')) { $('#al-wait').value = r.waitingMinutes; $('#al-daily').checked = r.dailySummary } }).catch(() => {})
 	api('GET', '/settings/storage').then(renderStorage).catch(() => {})
 	api('GET', '/settings/smart').then(r => { const cb = $('#smart-cb'); if (cb) cb.checked = r.enabled }).catch(() => {})
@@ -2539,6 +2571,10 @@ document.addEventListener('click', async e => {
 			return window.open(url, '_blank')
 		}
 		case 'promises': return openPromises()
+		case 'mail-save': {
+			try { S.mailUrl = (await api('PUT', '/settings/mail-url', { url: ($('#mail-url') || $('#st-mail')).value })).mailUrl; toast('Guardado'); if (route().name === 'mail') renderMail() } catch (err) { toast(err.message) }
+			return
+		}
 		case 'prom-acc': S.prom.acc = Number(val) || null; return renderPromises()
 		case 'storage-save': {
 			const mo = Number($('#st-months').value) || 0

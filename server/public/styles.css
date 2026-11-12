@@ -594,3 +594,8 @@ mark { background: color-mix(in srgb, #ffcc00 45%, transparent); color: inherit;
 
 .row .name .cname { font-weight: 400; color: var(--muted); font-size: 14px; }
 .per-num { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; }
+
+/* Pestaña Correos: la app de correos ocupa toda la vista */
+.view.has-frame { overflow: hidden; padding-top: var(--safe-top); background: var(--bg); }
+.mail-frame { width: 100%; height: 100%; border: 0; display: block; }
+@media (min-width: 900px) { #app > .view.has-frame { max-width: none; } }
