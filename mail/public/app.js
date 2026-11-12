@@ -1,4 +1,9 @@
 'use strict'
+// BASE: dónde está montada la app ('' sola, '/correo' dentro de la app de WhatsApp). EMBED: se ve dentro de otra app.
+const BASE = location.pathname.replace(/\/(index\.html)?$/, '')
+const EMBED = window.self !== window.top
+const TOP = EMBED ? window.top : window
+if (EMBED) document.documentElement.classList.add('embedded')
 const $ = (sel, el = document) => el.querySelector(sel)
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const enc = encodeURIComponent
@@ -24,7 +29,7 @@ function toast(text, ms = 3500) {
 async function api(method, path, body) {
 	const opts = { method, headers: { Authorization: 'Bearer ' + S.token } }
 	if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body) }
-	const res = await fetch('/api' + path, opts)
+	const res = await fetch(BASE + '/api' + path, opts)
 	const data = await res.json().catch(() => ({}))
 	if (res.status === 401) { logout(); throw new Error('Sesión expirada') }
 	if (!res.ok) throw new Error(data.error || 'Error ' + res.status)
@@ -66,10 +71,10 @@ function updateBadge() {
 
 // ---------- Acceso ----------
 async function showLogin() {
-	const { hasPassword } = await fetch('/auth/status').then(r => r.json())
+	const { hasPassword } = await fetch(BASE + '/auth/status').then(r => r.json())
 	$('#app').innerHTML = `
 		<form class="login" id="login">
-			<img src="/icons/icon-192.png" alt="">
+			<img src="${BASE}/icons/icon-192.png" alt="">
 			<h1>MultiMail</h1>
 			<p>${hasPassword ? 'Escribe tu contraseña para entrar.' : 'Bienvenido. Crea una contraseña para proteger tu correo (mínimo 6 caracteres).'}</p>
 			<input type="password" id="pw" placeholder="Contraseña" autocomplete="${hasPassword ? 'current-password' : 'new-password'}" required minlength="6">
@@ -80,7 +85,7 @@ async function showLogin() {
 		e.preventDefault()
 		const pw = $('#pw').value
 		if (!hasPassword && pw !== $('#pw2').value) return toast('Las contraseñas no coinciden')
-		const res = await fetch(hasPassword ? '/auth/login' : '/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) })
+		const res = await fetch(BASE + (hasPassword ? '/auth/login' : '/auth/setup'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) })
 		const data = await res.json().catch(() => ({}))
 		if (!res.ok) return toast(data.error || 'Error')
 		S.token = data.token; store.set('token', S.token); boot()
@@ -97,7 +102,7 @@ async function reloadThreads() { S.threads = await api('GET', '/threads'); updat
 
 function connectWS() {
 	if (S.ws && S.ws.readyState <= 1) return
-	const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?token=${enc(S.token)}`)
+	const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${BASE}/ws?token=${enc(S.token)}`)
 	S.ws = ws
 	ws.onopen = () => { S.wsOk = true; refreshDot() }
 	ws.onclose = () => { S.wsOk = false; refreshDot(); if (S.ws === ws && S.token) setTimeout(() => { if (S.ws === ws) resync() }, 3000) }
@@ -252,7 +257,7 @@ function mailHTML(m) {
 	const body = m.html
 		? `<iframe data-html="${esc(m.html)}" scrolling="no"></iframe>`
 		: `<div class="text">${esc(m.text || m.snippet || '')}</div>`
-	const atts = m.attachments.map(at => `<a class="attach" href="/api/attachments/${m.accountId}/${m.uid}/${at.index}?token=${enc(S.token)}" target="_blank">📎 ${esc(at.name)}</a>`).join('')
+	const atts = m.attachments.map(at => `<a class="attach" href="${BASE}/api/attachments/${m.accountId}/${m.uid}/${at.index}?token=${enc(S.token)}" target="_blank">📎 ${esc(at.name)}</a>`).join('')
 	return `<div class="mail" style="--c:${esc(a?.color || '#8E8E93')}">
 		<div class="head"><div class="who"><b>${esc(who)}</b><small>${esc(m.subject)}</small><small>para ${esc((m.to || []).join(', ') || '—')}</small></div><span class="when">${d.toLocaleDateString('es', { day: 'numeric', month: 'short' })} ${d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</span></div>
 		<div class="content">${body}${atts}</div>
@@ -377,7 +382,7 @@ function openAddAccount() {
 		</div>
 		<div class="pad"><button class="btn primary" id="aa-go">Conectar</button></div>`, el => {
 		bindColor(el, c => { color = c })
-		const oauthGo = p => { location.href = `/oauth/${p}/start?token=${enc(S.token)}` }
+		const oauthGo = p => { TOP.location.href = `${BASE}/oauth/${p}/start?token=${enc(S.token)}` }
 		api('GET', '/oauth/status').then(st => {
 			const ready = st.google || st.microsoft
 			if (!ready) $('#aa-oauth-hint', el).innerHTML = 'Falta un ajuste único de ~10 min. Ve a <b>Ajustes › Conectar con Google/Microsoft</b> y pega las claves (te guío ahí).'
@@ -571,7 +576,7 @@ const OAUTH_HELP = {
 }
 function openOauthSetup(provider) {
 	const h = OAUTH_HELP[provider]; if (!h) return
-	const redirect = `${location.origin}/oauth/${provider}/callback`
+	const redirect = `${location.origin}${BASE}/oauth/${provider}/callback`
 	sheet(h.title, `
 		<div class="pad">
 			<ol style="padding-left:20px;line-height:1.5;font-size:15px">${h.steps.map(s => `<li style="margin-bottom:8px">${s}</li>`).join('')}</ol>
@@ -807,9 +812,9 @@ document.addEventListener('click', async e => {
 			return
 		}
 		case 'ac-save': case 'ac-reconnect': case 'ac-delete': return accountAction(act)
-		case 'push': return enablePush()
+		case 'push': return EMBED ? toast('Los avisos de correos llegan con las notificaciones de esta app: actívalas en la pestaña Ajustes de abajo.', 7000) : enablePush()
 		case 'oauth-setup': return openOauthSetup(val)
-		case 'ac-oauth': location.href = `/oauth/${val}/start?token=${enc(S.token)}`; return
+		case 'ac-oauth': TOP.location.href = `${BASE}/oauth/${val}/start?token=${enc(S.token)}`; return
 		case 'add-label': {
 			const name = $('#nl-name').value.trim(); if (!name) return toast('Escribe un nombre')
 			try { S.labels.push(await api('POST', '/labels', { name, color: $('#view').dataset.labelColor })); S.labels.sort((a, b) => a.name.localeCompare(b.name)); renderSettings() } catch (err) { toast(err.message) }
@@ -830,7 +835,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'open' && e.data.url) location.href = e.data.url })
 
 async function boot() {
-	if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {})
+	if (!EMBED && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {})
 	if (!S.token) return showLogin()
 	try { await loadAll() } catch (e) {
 		if (!S.token) return

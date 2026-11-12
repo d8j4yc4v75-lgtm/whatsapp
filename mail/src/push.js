@@ -26,7 +26,12 @@ export function saveSubscription(sub) {
 		.run(sub.endpoint, JSON.stringify(sub), Date.now())
 }
 
+// Dentro de la app de WhatsApp los avisos salen por las notificaciones de esa app
+let external = null
+export function setPushSender(fn) { external = fn }
+
 export function sendPush({ title, body, jid, url, badge }) {
+	if (external) return external({ title, body })
 	const subs = db.prepare('SELECT endpoint, data FROM push_subscriptions').all()
 	const payload = JSON.stringify({ title, body, jid, url, badge })
 	for (const s of subs) {

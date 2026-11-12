@@ -117,3 +117,8 @@ a { color: var(--accent); }
 .install { margin: 10px 12px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); font-size: 14px; }
 .install b { display: block; margin-bottom: 4px; }
 [hidden] { display: none !important; }
+
+/* Dentro de la app de WhatsApp: las pestañas de correos van arriba (abajo están las de la app) */
+.embedded .tabs { order: -1; border-top: 0; border-bottom: 1px solid var(--line); padding-bottom: 0; }
+.embedded .tabs a { padding: 6px 0 5px; }
+.embedded .tabs a span { font-size: 18px; display: inline; margin-right: 4px; }

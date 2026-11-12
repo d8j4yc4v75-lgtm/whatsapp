@@ -74,7 +74,7 @@ app.get('/api/guess', route(async req => {
 
 // ---- Conectar con Google / Microsoft (OAuth) ----
 const baseUrl = req => process.env.APP_URL?.replace(/\/$/, '') || `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
-const redirectUri = (req, provider) => `${baseUrl(req)}/oauth/${provider}/callback`
+const redirectUri = (req, provider) => `${baseUrl(req)}${req.baseUrl || ''}/oauth/${provider}/callback`
 
 app.get('/api/oauth/status', route(() => Object.fromEntries(Object.keys(OAUTH).map(p => [p, oauthConfigured(p)]))))
 app.post('/api/oauth/config', route(req => {
@@ -88,7 +88,7 @@ app.get('/oauth/:provider/start', (req, res) => {
 	try {
 		if (tokenOf(req) !== API_TOKEN) throw new Error('Token inválido')
 		res.redirect(startAuth(req.params.provider, redirectUri(req, req.params.provider)))
-	} catch (e) { res.status(400).send(oauthPage(`No se pudo iniciar: ${e.message}`)) }
+	} catch (e) { res.status(400).send(oauthPage(`No se pudo iniciar: ${e.message}`, false, req)) }
 })
 app.get('/oauth/:provider/callback', async (req, res) => {
 	try {
@@ -110,15 +110,17 @@ app.get('/oauth/:provider/callback', async (req, res) => {
 		await manager.boxes.get(id)?.stop(); manager.boxes.delete(id)
 		manager.start(id).catch(() => {})
 		manager.emit('event', { type: 'account.update', data: manager.accountInfo(id) })
-		res.send(oauthPage(`✅ ${r.email} conectada. Ya puedes cerrar esta pestaña.`, true))
-	} catch (e) { res.status(400).send(oauthPage(`❌ ${e.message}`)) }
+		res.send(oauthPage(`✅ ${r.email} conectada.`, true, req))
+	} catch (e) { res.status(400).send(oauthPage(`❌ ${e.message}`, false, req)) }
 })
-function oauthPage(msg, ok) {
+function oauthPage(msg, ok, req) {
+	// Dentro de la app de WhatsApp se regresa a su pestaña «Correos»
+	const back = req?.baseUrl ? '/#/mail' : '/'
 	return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Conectar correo</title>
 <body style="font-family:-apple-system,system-ui,sans-serif;background:#f2f2f7;color:#111;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:24px;text-align:center">
 <div style="background:#fff;padding:28px 24px;border-radius:16px;max-width:360px"><p style="font-size:17px;margin:0 0 16px">${msg}</p>
-<a href="/" style="display:inline-block;background:#007AFF;color:#fff;text-decoration:none;padding:12px 20px;border-radius:12px">Volver a la app</a></div>
-${ok ? '<script>setTimeout(()=>{try{location.href="/"}catch{}} ,1500)</script>' : ''}</body>`
+<a href="${back}" style="display:inline-block;background:#007AFF;color:#fff;text-decoration:none;padding:12px 20px;border-radius:12px">Volver a la app</a></div>
+${ok ? '<script>setTimeout(()=>{try{location.href="${back}"}catch{}} ,1500)</script>' : ''}</body>`
 }
 
 // ---- Cuentas ----
@@ -291,39 +293,49 @@ app.get('/api/push/key', route(() => ({ key: VAPID_PUBLIC_KEY })))
 app.post('/api/push/subscribe', route(req => { saveSubscription(req.body); return { ok: true } }))
 
 // ---- WebSocket ----
-const server = http.createServer(app)
 const wss = new WebSocketServer({ noServer: true })
-const onUpgrade = (req, socket, head) => {
-	const url = new URL(req.url, 'http://localhost')
-	if (url.pathname !== '/ws' || url.searchParams.get('token') !== API_TOKEN) return socket.destroy()
-	wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws))
-}
-server.on('upgrade', onUpgrade)
-if (PORT !== 3000) { const extra = http.createServer(app); extra.on('upgrade', onUpgrade); extra.on('error', () => {}); extra.listen(3000, '0.0.0.0') }
-
 wss.on('connection', ws => {
 	ws.isAlive = true
 	ws.on('pong', () => { ws.isAlive = true })
 	ws.send(JSON.stringify({ type: 'hello', data: { accounts: manager.accounts() } }))
 })
-setInterval(() => { for (const ws of wss.clients) { if (!ws.isAlive) { ws.terminate(); continue } ws.isAlive = false; ws.ping() } }, 25000)
+setInterval(() => { for (const ws of wss.clients) { if (!ws.isAlive) { ws.terminate(); continue } ws.isAlive = false; ws.ping() } }, 25000).unref()
 manager.on('event', evt => {
 	if (!evt.data) return
 	const payload = JSON.stringify(evt)
 	for (const ws of wss.clients) if (ws.readyState === 1) ws.send(payload)
 })
 
-process.on('uncaughtException', e => console.error(e))
-process.on('unhandledRejection', e => console.error(e))
+// ---- Para usarse dentro de la app de WhatsApp (misma contraseña, mismo servidor) ----
+export const mailApp = app
+export function mailUpgrade(req, socket, head) {
+	const url = new URL(req.url, 'http://localhost')
+	if (url.searchParams.get('token') !== API_TOKEN) return socket.destroy()
+	wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws))
+}
+export const startMail = () => manager.startAll()
+export const stopMail = async () => { for (const b of manager.boxes.values()) await b.stop() }
+export { setPushSender } from './push.js'
 
-server.listen(PORT, '0.0.0.0', async () => {
-	const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address)
-	console.log('\nMultiMail servidor activo')
-	for (const ip of ips) console.log(`  URL: http://${ip}:${PORT}`)
-	console.log('  Abre esa dirección en Safari y crea tu contraseña.\n')
-	await manager.startAll()
-})
-
-const shutdown = async () => { for (const b of manager.boxes.values()) await b.stop(); process.exit(0) }
-process.on('SIGINT', shutdown)
-process.on('SIGTERM', shutdown)
+// ---- Como app aparte (node src/index.js) ----
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	const server = http.createServer(app)
+	const onUpgrade = (req, socket, head) => {
+		if (new URL(req.url, 'http://localhost').pathname !== '/ws') return socket.destroy()
+		mailUpgrade(req, socket, head)
+	}
+	server.on('upgrade', onUpgrade)
+	if (PORT !== 3000) { const extra = http.createServer(app); extra.on('upgrade', onUpgrade); extra.on('error', () => {}); extra.listen(3000, '0.0.0.0') }
+	process.on('uncaughtException', e => console.error(e))
+	process.on('unhandledRejection', e => console.error(e))
+	server.listen(PORT, '0.0.0.0', async () => {
+		const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address)
+		console.log('\nMultiMail servidor activo')
+		for (const ip of ips) console.log(`  URL: http://${ip}:${PORT}`)
+		console.log('  Abre esa dirección en Safari y crea tu contraseña.\n')
+		await startMail()
+	})
+	const shutdown = async () => { await stopMail(); process.exit(0) }
+	process.on('SIGINT', shutdown)
+	process.on('SIGTERM', shutdown)
+}

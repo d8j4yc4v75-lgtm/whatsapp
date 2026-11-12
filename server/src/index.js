@@ -10,7 +10,8 @@ import { SessionManager, diag, note, accountHistory } from './sessions.js'
 import { VAPID_PUBLIC_KEY, saveSubscription, sendPush } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import fs from 'node:fs'
 import { hasFfmpeg, toM4a, toMp4, toOpus } from './ffmpeg.js'
 import { CloudSession, validSignature, webhookVerifyToken } from './cloud.js'
 import { CampaignRunner } from './campaigns.js'
@@ -28,6 +29,19 @@ const warmup = new WarmupManager(manager)
 process.on('uncaughtException', e => { note(null, 'uncaught', e.stack || e.message); console.error(e) })
 process.on('unhandledRejection', e => { note(null, 'unhandled', e?.stack || e); console.error(e) })
 const app = express()
+
+// ---- Correos: la app de correos corre dentro de este mismo servidor, en /correo ----
+// (misma contraseña y mismo disco; si algo falla al cargarla, WhatsApp sigue funcionando)
+let mail = null
+try {
+	const here = path.dirname(fileURLToPath(import.meta.url))
+	const file = [path.join(here, '..', 'mail', 'src', 'index.js'), path.join(here, '..', '..', 'mail', 'src', 'index.js')].find(f => fs.existsSync(f))
+	if (file) {
+		mail = await import(pathToFileURL(file).href)
+		mail.setPushSender(({ title, body }) => sendPush({ title: `✉️ ${title}`, body, url: '/#/mail' }))
+		app.use('/correo', mail.mailApp)
+	}
+} catch (e) { mail = null; console.error('No se pudo cargar la app de correos:', e.message) }
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 64 * 1024 * 1024 } })
 
 app.use(express.json({ limit: '5mb', verify: (req, res, buf) => { req.rawBody = buf } }))
@@ -110,7 +124,7 @@ const accountParam = req => {
 }
 
 // Dirección de la app de correos (se muestra en la pestaña «Correos»)
-const mailUrl = () => db.prepare("SELECT value FROM app_settings WHERE key = 'mail_url'").get()?.value || process.env.MAIL_URL || ''
+const mailUrl = () => mail ? '/correo/' : (db.prepare("SELECT value FROM app_settings WHERE key = 'mail_url'").get()?.value || process.env.MAIL_URL || '')
 app.get('/api/info', route(() => ({ unread: manager.totalUnread(), persistent: persistent(), mailUrl: mailUrl() })))
 app.put('/api/settings/mail-url', route(req => {
 	let u = String(req.body.url || '').trim()
@@ -654,6 +668,7 @@ const wss = new WebSocketServer({ noServer: true })
 
 const onUpgrade = (req, socket, head) => {
 	const url = new URL(req.url, 'http://localhost')
+	if (mail && url.pathname === '/correo/ws') return mail.mailUpgrade(req, socket, head)
 	if (url.pathname !== '/ws' || url.searchParams.get('token') !== API_TOKEN) {
 		socket.destroy()
 		return
@@ -697,11 +712,13 @@ server.listen(PORT, '0.0.0.0', async () => {
 	for (const ip of ips) console.log(`  URL: http://${ip}:${PORT}`)
 	console.log(`  Abre esa dirección en Safari y crea tu contraseña.\n`)
 	startMaintenance()
+	mail?.startMail().catch(e => note(null, 'mail-error', e.message))
 	await manager.startAll()
 })
 
 const shutdown = async () => {
 	for (const s of manager.sessions.values()) await s.stop()
+	await mail?.stopMail().catch(() => {})
 	process.exit(0)
 }
 process.on('SIGINT', shutdown)

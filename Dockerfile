@@ -10,6 +10,9 @@ WORKDIR /app
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev
 COPY server/ ./
+# La app de correos corre dentro del mismo servidor (pestaña «Correos»)
+COPY mail/src ./mail/src
+COPY mail/public ./mail/public
 
 # Sesiones, mensajes y archivos; en Railway se monta aquí un volumen
 ENV DATA_DIR=/data

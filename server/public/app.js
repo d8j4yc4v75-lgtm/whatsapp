@@ -2206,12 +2206,6 @@ function renderSettings() {
 			<p class="hint">Asigna etiquetas desde el menú ⋯ de cada chat y filtra por ellas en la bandeja.</p>
 
 			<div class="group" style="margin-top:14px"><div class="item"><span class="grow">Sonido de mensaje nuevo<small>Suena cuando llega un mensaje con la app abierta</small></span><label class="switch"><input type="checkbox" data-act="sound-toggle" ${store.get('sound', true) !== false ? 'checked' : ''}><i></i></label></div></div>
-			<div class="section">Correos</div>
-			<div class="group">
-				<div class="item"><span>Liga</span><input type="text" id="st-mail" placeholder="https://mail-….up.railway.app" autocapitalize="off" autocomplete="off" style="text-align:right"></div>
-				<button class="btn" data-act="mail-save">Guardar</button>
-			</div>
-			<p class="hint">Dirección de tu app de correos; se abre en la pestaña «Correos». Déjala vacía para quitarla.</p>
 			<div class="section">Avisos</div>
 			<div class="group">
 				<div class="item"><span class="grow">Cliente esperando respuesta<small>Avisar si lleva más de estos minutos sin contestarle (0 = apagado). De 8 a 22 h.</small></span><input type="number" id="al-wait" min="0" max="720" value="0" class="num"></div>
@@ -2256,7 +2250,6 @@ function renderSettings() {
 		</div>`
 	$('#nl-name').value = prevLabel
 	loadWarmup()
-	api('GET', '/info').then(r => { S.mailUrl = r.mailUrl || ''; if ($('#st-mail')) $('#st-mail').value = S.mailUrl }).catch(() => {})
 	api('GET', '/settings/alerts').then(r => { if ($('#al-wait')) { $('#al-wait').value = r.waitingMinutes; $('#al-daily').checked = r.dailySummary } }).catch(() => {})
 	api('GET', '/settings/storage').then(renderStorage).catch(() => {})
 	api('GET', '/settings/smart').then(r => { const cb = $('#smart-cb'); if (cb) cb.checked = r.enabled }).catch(() => {})
