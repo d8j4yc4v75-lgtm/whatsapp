@@ -43,9 +43,12 @@ app.post('/auth/login', async (req, res) => {
 	try { res.json({ token: await login(req.body.password) }) } catch (e) { res.status(e.status || 400).json({ error: e.message }) }
 })
 
+// Dentro de la app de WhatsApp, ella decide qué llaves valen (una por dispositivo)
+let tokenCheck = t => t === API_TOKEN
+export function setTokenCheck(fn) { tokenCheck = fn }
 const tokenOf = req => req.get('authorization')?.replace(/^Bearer\s+/i, '') || req.query.token
 app.use('/api', (req, res, next) => {
-	if (tokenOf(req) !== API_TOKEN) return res.status(401).json({ error: 'Token inválido' })
+	if (!tokenCheck(tokenOf(req))) return res.status(401).json({ error: 'Token inválido' })
 	next()
 })
 
@@ -86,7 +89,7 @@ app.post('/api/oauth/config', route(req => {
 // El navegador abre esta URL (con el token en la query) y la app lo manda a Google/Microsoft
 app.get('/oauth/:provider/start', (req, res) => {
 	try {
-		if (tokenOf(req) !== API_TOKEN) throw new Error('Token inválido')
+		if (!tokenCheck(tokenOf(req))) throw new Error('Token inválido')
 		res.redirect(startAuth(req.params.provider, redirectUri(req, req.params.provider)))
 	} catch (e) { res.status(400).send(oauthPage(`No se pudo iniciar: ${e.message}`, false, req)) }
 })
@@ -310,7 +313,7 @@ manager.on('event', evt => {
 export const mailApp = app
 export function mailUpgrade(req, socket, head) {
 	const url = new URL(req.url, 'http://localhost')
-	if (url.searchParams.get('token') !== API_TOKEN) return socket.destroy()
+	if (!tokenCheck(url.searchParams.get('token'))) return socket.destroy()
 	wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws))
 }
 export const startMail = () => manager.startAll()

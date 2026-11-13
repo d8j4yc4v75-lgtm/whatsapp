@@ -239,7 +239,8 @@ async function showLogin() {
 	}
 }
 
-function logout() {
+function logout(tell) {
+	if (tell && S.token) fetch('/api/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + S.token }, keepalive: true }).catch(() => {})
 	S.token = null
 	store.set('token', null)
 	S.ws?.close()
@@ -2182,6 +2183,43 @@ async function accountAction(act) {
 }
 
 // ---------- Ajustes ----------
+// ---------- Dispositivos con la sesión abierta ----------
+function seenAgo(ts) {
+	const m = Math.floor((Date.now() - ts) / 60000)
+	if (m < 1) return 'hace un momento'
+	if (m < 60) return `hace ${m} min`
+	const h = Math.floor(m / 60)
+	if (h < 24) return `hace ${h} h`
+	const d = Math.floor(h / 24)
+	return d === 1 ? 'ayer' : `hace ${d} días`
+}
+async function loadDevices() {
+	const el = $('#devices-box'); if (!el) return
+	let r
+	try { r = await api('GET', '/devices') } catch { return }
+	if (!$('#devices-box')) return
+	const others = r.devices.filter(d => !d.current)
+	el.innerHTML = r.devices.map(d => `
+		<div class="item">
+			<span class="dot" style="background:${d.online ? '#34c759' : '#c7c7cc'};flex:none"></span>
+			<div class="grow"><div>${esc(d.name || 'Dispositivo')}${d.current ? ' <span class="sub">(este)</span>' : ''}</div>
+			<div class="sub">${d.online ? 'En línea ahora' : 'Visto ' + seenAgo(d.lastSeen)}${d.ip ? ' · ' + esc(d.ip) : ''}</div></div>
+			${d.current ? '' : `<button class="chip" style="--c:#ff3b30" data-act="dev-close" data-val="${d.id}">Cerrar</button>`}
+		</div>`).join('')
+		+ (others.length || r.legacy ? '<button class="btn danger" data-act="dev-close-others">Cerrar sesión en los demás dispositivos</button>' : '')
+	$('#devices-hint').textContent = r.legacy
+		? 'Los dispositivos que entraron antes y no han vuelto a abrir la app aún no salen en la lista; «Cerrar sesión en los demás» también los saca. Para volver a entrar se necesita la contraseña.'
+		: 'Verde: tiene la app abierta ahora. Al cerrar una sesión, ese dispositivo vuelve a pedir la contraseña.'
+}
+// Llave propia para este dispositivo (los que entraron antes compartían una sola)
+async function upgradeDevice() {
+	try {
+		const r = await api('POST', '/devices/upgrade')
+		if (r.token) { S.token = r.token; store.set('token', S.token); return true }
+	} catch {}
+	return false
+}
+
 function renderSettings() {
 	const view = $('#view')
 	const perm = 'Notification' in window ? Notification.permission : 'unsupported'
@@ -2246,9 +2284,14 @@ function renderSettings() {
 				<button class="btn" data-act="change-pw">Cambiar contraseña</button>
 				<button class="btn danger" data-act="logout">Salir en este dispositivo</button>
 			</div>
+
+			<div class="section">Dispositivos con la sesión abierta</div>
+			<div class="group" id="devices-box"><div class="item"><span class="sub">Cargando…</span></div></div>
+			<p class="hint" id="devices-hint"></p>
 			<div style="height:30px"></div>
 		</div>`
 	$('#nl-name').value = prevLabel
+	loadDevices()
 	loadWarmup()
 	api('GET', '/settings/alerts').then(r => { if ($('#al-wait')) { $('#al-wait').value = r.waitingMinutes; $('#al-daily').checked = r.dailySummary } }).catch(() => {})
 	api('GET', '/settings/storage').then(renderStorage).catch(() => {})
@@ -2862,7 +2905,17 @@ document.addEventListener('click', async e => {
 			try { await api('POST', '/password', { password: pw }); toast('Contraseña cambiada') } catch (err) { toast(err.message) }
 			return
 		}
-		case 'logout': return confirm('¿Salir de MultiWA en este dispositivo?') && logout()
+		case 'logout': return confirm('¿Salir de MultiWA en este dispositivo?') && logout(true)
+		case 'dev-close': {
+			if (!confirm('¿Cerrar la sesión de ese dispositivo?')) return
+			try { await api('DELETE', '/devices/' + val); toast('Sesión cerrada') } catch (err) { toast(err.message) }
+			return loadDevices()
+		}
+		case 'dev-close-others': {
+			if (!confirm('¿Cerrar la sesión en todos los demás dispositivos? Tendrán que poner la contraseña otra vez.')) return
+			try { await api('POST', '/devices/logout-others'); toast('Listo: solo este dispositivo sigue dentro') } catch (err) { toast(err.message) }
+			return loadDevices()
+		}
 	}
 })
 
@@ -2926,6 +2979,7 @@ async function boot() {
 		$('#app').innerHTML = `<div class="empty"><div class="big">⚠️</div>No se pudo conectar con el servidor.<br><br><button class="btn primary" onclick="location.reload()">Reintentar</button></div>`
 		return
 	}
+	await upgradeDevice()
 	lastRoute = ''
 	render()
 	connectWS()

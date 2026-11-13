@@ -9,6 +9,7 @@ import { API_TOKEN, PORT } from './config.js'
 import { SessionManager, diag, note, accountHistory } from './sessions.js'
 import { VAPID_PUBLIC_KEY, saveSubscription, sendPush } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
+import { checkToken, createDevice, listDevices, pruneDevices, removeDevice, removeOthers, touch, touchNow } from './devices.js'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import fs from 'node:fs'
@@ -38,6 +39,7 @@ try {
 	const file = [path.join(here, '..', 'mail', 'src', 'index.js'), path.join(here, '..', '..', 'mail', 'src', 'index.js')].find(f => fs.existsSync(f))
 	if (file) {
 		mail = await import(pathToFileURL(file).href)
+		mail.setTokenCheck(t => !!checkToken(t))
 		mail.setPushSender(({ title, body }) => sendPush({ title: `✉️ ${title}`, body, url: '/#/mail' }))
 		app.use('/correo', mail.mailApp)
 	}
@@ -94,14 +96,17 @@ app.post('/webhook', (req, res) => {
 // ---- Acceso con contraseña ----
 app.get('/auth/status', (req, res) => res.json({ hasPassword: hasPassword() }))
 app.post('/auth/setup', express.json(), async (req, res) => {
-	try { res.json({ token: setupPassword(req.body.password) }) } catch (e) { res.status(400).json({ error: e.message }) }
+	try { setupPassword(req.body.password); res.json({ token: createDevice(req) }) } catch (e) { res.status(400).json({ error: e.message }) }
 })
 app.post('/auth/login', async (req, res) => {
-	try { res.json({ token: await login(req.body.password) }) } catch (e) { res.status(e.status || 400).json({ error: e.message }) }
+	try { await login(req.body.password); res.json({ token: createDevice(req) }) } catch (e) { res.status(e.status || 400).json({ error: e.message }) }
 })
 
 app.use('/api', (req, res, next) => {
-	if (tokenOf(req) !== API_TOKEN) return res.status(401).json({ error: 'Token inválido' })
+	const who = checkToken(tokenOf(req))
+	if (!who) return res.status(401).json({ error: 'Token inválido' })
+	req.deviceId = who.id
+	touch(who.id, req)
 	next()
 })
 
@@ -133,6 +138,31 @@ app.put('/api/settings/mail-url', route(req => {
 	db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('mail_url', ?)").run(u)
 	return { mailUrl: u }
 }))
+
+// ---- Dispositivos con la sesión abierta ----
+const onlineDevices = () => new Set([...wss.clients].filter(ws => ws.readyState === 1 && ws.deviceId).map(ws => ws.deviceId))
+const kick = ids => { for (const ws of wss.clients) if (ids.includes(ws.deviceId)) ws.close(4001, 'sesion cerrada') }
+app.get('/api/devices', route(req => listDevices(req.deviceId, onlineDevices())))
+// Los dispositivos que entraron antes de esta función cambian su llave por una propia
+app.post('/api/devices/upgrade', route(req => req.deviceId ? { ok: true } : { token: createDevice(req) }))
+app.post('/api/devices/logout-others', route(req => {
+	if (!req.deviceId) throw new Error('Vuelve a abrir la app e inténtalo de nuevo')
+	const ids = removeOthers(req.deviceId)
+	for (const ws of wss.clients) if (ws.deviceId !== req.deviceId) ws.close(4001, 'sesion cerrada')
+	return { ok: true, closed: ids.length }
+}))
+app.post('/api/logout', route(req => {
+	if (req.deviceId) { removeDevice(req.deviceId); kick([req.deviceId]) }
+	return { ok: true }
+}))
+app.delete('/api/devices/:id', route(req => {
+	const id = Number(req.params.id)
+	if (!removeDevice(id)) throw Object.assign(new Error('Ese dispositivo ya no tiene sesión'), { status: 404 })
+	kick([id])
+	return { ok: true }
+}))
+pruneDevices()
+setInterval(pruneDevices, 864e5).unref()
 
 app.post('/api/password', route(req => {
 	changePassword(req.body.password)
@@ -669,11 +699,12 @@ const wss = new WebSocketServer({ noServer: true })
 const onUpgrade = (req, socket, head) => {
 	const url = new URL(req.url, 'http://localhost')
 	if (mail && url.pathname === '/correo/ws') return mail.mailUpgrade(req, socket, head)
-	if (url.pathname !== '/ws' || url.searchParams.get('token') !== API_TOKEN) {
+	const who = url.pathname === '/ws' ? checkToken(url.searchParams.get('token')) : null
+	if (!who) {
 		socket.destroy()
 		return
 	}
-	wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws))
+	wss.handleUpgrade(req, socket, head, ws => { ws.deviceId = who.id; touchNow(who.id); wss.emit('connection', ws) })
 }
 server.on('upgrade', onUpgrade)
 
@@ -687,7 +718,8 @@ if (PORT !== 3000) {
 
 wss.on('connection', ws => {
 	ws.isAlive = true
-	ws.on('pong', () => { ws.isAlive = true })
+	ws.on('pong', () => { ws.isAlive = true; touch(ws.deviceId) })
+	ws.on('close', () => touchNow(ws.deviceId))
 	ws.send(JSON.stringify({ type: 'hello', data: { accounts: manager.accounts() } }))
 })
 
