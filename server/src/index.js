@@ -5,7 +5,7 @@ import express from 'express'
 import multer from 'multer'
 import { WebSocketServer } from 'ws'
 import { db } from './db.js'
-import { API_TOKEN, PORT } from './config.js'
+import { API_TOKEN, PORT, DATA_DIR } from './config.js'
 import { SessionManager, diag, note, accountHistory } from './sessions.js'
 import { VAPID_PUBLIC_KEY, saveSubscription, sendPush } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
@@ -411,11 +411,31 @@ app.delete('/api/conversations/:key', route(req => {
 }))
 
 // Foto de perfil del contacto (redirige a la imagen del CDN de WhatsApp)
+// Fotos de perfil: se guarda la imagen (el enlace de WhatsApp caduca a los pocos días y la foto dejaba de verse)
+const AVATAR_DIR = path.join(DATA_DIR, 'avatars')
+fs.mkdirSync(AVATAR_DIR, { recursive: true })
+const fetchImg = async url => {
+	try {
+		const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
+		if (!r.ok || !/^image\//.test(r.headers.get('content-type') || 'image/')) return null
+		const buf = Buffer.from(await r.arrayBuffer())
+		return buf.length > 100 ? buf : null
+	} catch { return null }
+}
 app.get('/api/avatar/:key', route(async (req, res) => {
 	const { accountId, jid } = convKey(req.params.key)
-	const url = await manager.avatarUrl(accountId, jid, req.query.fresh === '1')
-	if (!url) { res.status(404).end(); return }
-	res.redirect(url)
+	const file = path.join(AVATAR_DIR, `${accountId}_${jid.replace(/[^\w.-]/g, '_')}.jpg`)
+	const fresh = req.query.fresh === '1'
+	const has = fs.existsSync(file)
+	const send = () => res.type('image/jpeg').set('Cache-Control', 'private, max-age=21600').sendFile(file)
+	if (has && !fresh) return send()
+	let url = await manager.avatarUrl(accountId, jid, fresh)
+	let buf = url ? await fetchImg(url) : null
+	// Enlace guardado ya caducado: se pide uno nuevo a WhatsApp (respeta la pausa entre consultas)
+	if (!buf && url) { url = await manager.avatarUrl(accountId, jid, true, true); buf = url ? await fetchImg(url) : null }
+	if (buf) { fs.writeFileSync(file, buf); return send() }
+	if (has) return send()
+	res.status(404).end()
 }))
 
 app.put('/api/conversations/:key/labels', route(req => {

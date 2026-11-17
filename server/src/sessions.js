@@ -793,7 +793,7 @@ export class Session {
 	}
 }
 
-const STAGGER_MS = () => process.env.NO_STAGGER ? 0 : 20000 + Math.random() * 40000
+const STAGGER_MS = () => process.env.NO_STAGGER ? 0 : 8000 + Math.random() * 12000
 
 export class SessionManager extends EventEmitter {
 	constructor() {
@@ -812,7 +812,7 @@ export class SessionManager extends EventEmitter {
 			const linked = hasAuth(id, path.join(AUTH_DIR, String(id)))
 			note(id, 'boot', linked ? 'linked' : 'not-linked')
 			if (linked) {
-				// Los números se conectan uno por uno, con 20–60 s entre cada uno (no todos en el mismo segundo)
+				// Los números se conectan uno por uno, con 8–20 s entre cada uno (no todos en el mismo segundo)
 				if (started++ > 0) {
 					stmt.setAccount.run('reconnecting', null, id)
 					await new Promise(r => setTimeout(r, STAGGER_MS()))
@@ -1008,12 +1008,12 @@ export class SessionManager extends EventEmitter {
 	}
 
 	// Devuelve la URL de la foto de perfil, guardándola en caché un día
-	async avatarUrl(accountId, jid, fresh) {
+	async avatarUrl(accountId, jid, fresh, force) {
 		const row = db.prepare('SELECT avatar_url, avatar_ts FROM chats WHERE account_id = ? AND jid = ?').get(accountId, jid)
 		// La lista de chats solo usa la foto ya guardada. A WhatsApp se le pregunta únicamente al abrir
 		// el chat, una vez al día por contacto y con al menos 4 s entre consultas de un mismo número
 		// (pedir cientos de fotos de desconocidos de golpe es una señal que WhatsApp vigila).
-		if (!fresh || (row && row.avatar_ts && Date.now() - row.avatar_ts < 864e5)) return row?.avatar_url || null
+		if (!fresh || (!force && row && row.avatar_ts && Date.now() - row.avatar_ts < 864e5)) return row?.avatar_url || null
 		this.avatarAt = this.avatarAt || new Map()
 		if (Date.now() - (this.avatarAt.get(accountId) || 0) < 4000) return row?.avatar_url || null
 		this.avatarAt.set(accountId, Date.now())

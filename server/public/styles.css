@@ -781,3 +781,14 @@ mark { background: color-mix(in srgb, #ffcc00 45%, transparent); color: inherit;
 .sel-pop button:disabled { opacity: .45; }
 select option { background: var(--card); color: var(--text); }
 .sticker-miss { display: inline-block; padding: 8px 12px; border-radius: 14px; background: var(--in-bubble); color: var(--meta); font-size: 14px; }
+/* Botón + y ⋯ más discretos; barra de desplazamiento delgada */
+.bar.large .icon-btn { width: 36px; height: 36px; min-width: 36px; min-height: 36px; }
+.bar.large .icon-btn .ic { width: 20px; height: 20px; }
+.icon-btn.fab .ic { stroke-width: 2.2; }
+#ws-dot { top: 1px; right: 1px; width: 7px; height: 7px; }
+@media (hover: hover) and (pointer: fine) {
+	.view { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 40%, transparent) transparent; }
+	.view::-webkit-scrollbar { width: 6px; }
+	.view::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 40%, transparent); border-radius: 3px; }
+	.view::-webkit-scrollbar-track { background: transparent; }
+}
