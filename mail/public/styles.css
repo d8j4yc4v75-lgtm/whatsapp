@@ -147,3 +147,87 @@ a { color: var(--accent); }
 .split > .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg2); }
 .split > .pane > .empty { margin: auto; }
 .row.active { background: var(--accent-soft); }
+
+/* =========================================================
+   Liquid Glass (estilo iOS 26)
+   ========================================================= */
+:root {
+	--glass: rgba(255, 255, 255, 0.58); --glass-strong: rgba(250, 250, 252, 0.8);
+	--glass-blur: blur(22px) saturate(190%);
+	--glass-edge: inset 0 1px 0.5px rgba(255, 255, 255, 0.95), inset 0 -0.5px 0.5px rgba(255, 255, 255, 0.45), inset 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+	--glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+	--lens: rgba(118, 118, 128, 0.14);
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--glass: rgba(44, 52, 62, 0.5); --glass-strong: rgba(24, 34, 46, 0.8);
+		--glass-edge: inset 0 1px 0.5px rgba(255, 255, 255, 0.2), inset 0 -0.5px 0.5px rgba(255, 255, 255, 0.08), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+		--glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.3);
+		--lens: rgba(255, 255, 255, 0.12);
+	}
+}
+.bar { background: var(--glass-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border-bottom: 0; box-shadow: 0 0.5px 0 var(--line); position: sticky; top: 0; z-index: 5; }
+.bar .icon-btn {
+	background: var(--glass); box-shadow: var(--glass-edge), 0 2px 10px rgba(0, 0, 0, 0.06); border-radius: 999px;
+	min-width: 40px; min-height: 40px; font-size: 18px; transition: transform 0.18s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.bar .icon-btn:active { transform: scale(0.92); background: var(--lens); }
+.sheet .bar .icon-btn { font-size: 15px; padding: 0 14px; }
+
+/* Pestañas flotantes (sola) o en cápsula arriba (dentro de la app de WhatsApp) */
+#app { position: relative; }
+.tabs {
+	position: absolute; z-index: 8; left: 50%; transform: translateX(-50%); bottom: calc(8px + var(--safe-bottom));
+	width: min(calc(100% - 24px), 480px); padding: 5px; gap: 2px; border: 0; border-radius: 999px;
+	background: var(--glass); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow);
+}
+.tabs a { border-radius: 999px; padding: 6px 0 5px; transition: background 0.25s, transform 0.18s cubic-bezier(0.3, 1.4, 0.5, 1); }
+.tabs a.active { background: var(--lens); }
+.tabs a:active { transform: scale(0.94); }
+#app:has(> .tabs) > .view, #app:has(> .tabs) .split > .view { padding-bottom: calc(84px + var(--safe-bottom)); }
+#app:has(> .tabs) .selbar { bottom: calc(76px + var(--safe-bottom)); }
+.embedded .tabs { position: relative; left: auto; bottom: auto; transform: none; order: -1; margin: 8px auto 4px; width: min(calc(100% - 20px), 560px); padding: 3px; flex-shrink: 0; }
+.embedded #app:has(> .tabs) > .view, .embedded #app:has(> .tabs) .split > .view { padding-bottom: 12px; }
+.embedded #app:has(> .tabs) .selbar { bottom: 0; }
+.embedded .tabs a { padding: 6px 0; }
+.toast { border-radius: 999px; background: rgba(28, 28, 30, 0.72); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.25), var(--glass-shadow); bottom: calc(96px + var(--safe-bottom)); }
+
+/* Buscador, filtros y tarjetas */
+.search { background: transparent; }
+.search input { border-radius: 999px; height: 40px; padding: 0 16px; background: var(--lens); }
+.chip { border-radius: 999px; box-shadow: var(--glass-edge); transition: transform 0.18s cubic-bezier(0.3, 1.4, 0.5, 1); }
+.chip:active { transform: scale(0.94); }
+.group { margin: 0 14px; border: 0; border-radius: 24px; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); }
+.group + .group { margin-top: 12px; }
+.mail { border-radius: 22px; border-top: 0; border-right: 0; border-bottom: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+.mail .content iframe { border-radius: 14px; }
+.btn.primary { border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent); background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 55%); }
+.group .btn.primary { border-radius: 0; box-shadow: none; }
+.install, .viewer-card { border-radius: 20px; }
+
+/* Botones de responder: cápsulas de vidrio */
+.thread-actions { background: transparent; border-top: 0; }
+.thread-actions .btn { border-radius: 999px !important; box-shadow: var(--glass-edge), 0 2px 10px rgba(0, 0, 0, 0.06); background-color: var(--glass-strong) !important; -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); }
+.thread-actions .btn.primary { background-color: var(--accent) !important; color: #fff; }
+
+/* Hojas flotantes */
+.sheet-bg { background: rgba(0, 0, 0, 0.25); }
+.sheet { margin: 0 6px 6px; width: calc(100% - 12px); border-radius: 34px; background: color-mix(in srgb, var(--bg2) 86%, transparent); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), 0 -10px 40px rgba(0, 0, 0, 0.18); }
+.sheet .bar { border-radius: 34px 34px 0 0; padding-top: 14px; }
+@media (min-width: 700px) { .sheet-bg { align-items: center; justify-content: center; } .sheet { max-width: 600px; margin: 0; max-height: 88dvh; } }
+.selbar { margin: 0 10px; border-radius: 26px; border-top: 0; background: var(--glass-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-shadow); }
+.compose textarea { background: transparent; }
+@media (prefers-reduced-transparency: reduce) { .tabs, .bar, .sheet, .selbar { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: var(--card); } }
+/* PC en dos columnas: las pestañas van debajo, sin tapar los botones del correo */
+#app:has(> .split) > .tabs { position: relative; left: auto; bottom: auto; transform: none; margin: 6px auto calc(6px + var(--safe-bottom)); flex-shrink: 0; }
+#app:has(> .split) .split > .view { padding-bottom: 12px; }
+#app:has(> .split) .selbar { bottom: 0; }
+.bar .title small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar .title .tags { flex-wrap: nowrap; overflow: hidden; }
+.bar .title .tags .tag { white-space: nowrap; }
+.thread-actions .btn { white-space: nowrap; padding: 11px 8px; }
+@media (max-width: 600px) {
+	.bar { gap: 6px; padding-left: 10px; padding-right: 10px; }
+	.bar .icon-btn { min-width: 36px; min-height: 36px; font-size: 16px; padding: 4px; }
+	.thread-actions .btn { font-size: 15px; }
+}
