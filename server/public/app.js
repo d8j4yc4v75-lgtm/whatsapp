@@ -167,6 +167,7 @@ const IC = {
 	gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
 	compose: svg('<path d="M11 4H5.5A2.5 2.5 0 0 0 3 6.5v12A2.5 2.5 0 0 0 5.5 21h12a2.5 2.5 0 0 0 2.5-2.5V13"/><path d="M18.4 2.6a2 2 0 0 1 2.9 2.9L12 14.8l-3.8.9.9-3.8Z"/>'),
 	plus: svg('<path d="M12 5v14M5 12h14"/>'),
+	dots: svg('<circle cx="5.5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.6" fill="currentColor" stroke="none"/>'),
 	back: svg('<path d="M15 19 8 12l7-7"/>', 'back-ic'),
 	more: svg('<circle cx="12" cy="12" r="9"/><circle cx="8" cy="12" r=".6" fill="currentColor"/><circle cx="12" cy="12" r=".6" fill="currentColor"/><circle cx="16" cy="12" r=".6" fill="currentColor"/>'),
 	mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>'),
@@ -537,10 +538,11 @@ function renderInbox(full) {
 	const view = $('#view')
 	if (full) {
 		view.innerHTML = `
-			${largeBar('Chats', `<button class="icon-btn" data-act="new-chat" aria-label="Nuevo chat">${IC.compose}</button>`, `<i class="dot ${S.wsOk ? 'on' : ''}" id="ws-dot" title="Conexión con el servidor"></i>`)}
+			${largeBar('Chats', `<button class="icon-btn fab" data-act="new-chat" aria-label="Nuevo chat">${IC.plus}</button>`, `<button class="icon-btn" data-act="inbox-menu" aria-label="Más opciones">${IC.dots}<i class="dot ${S.wsOk ? 'on' : ''}" id="ws-dot" title="Conexión con el servidor"></i></button>`)}
 			${!isStandalone() && /iPhone|iPad/.test(navigator.userAgent) ? `<div class="install"><b>Instala la app</b>Toca <b style="display:inline">Compartir ⬆︎</b> y luego <b style="display:inline">«Añadir a pantalla de inicio»</b>. Así se abre como app y recibe notificaciones.</div>` : ''}
 			<div class="search"><input id="q" type="search" placeholder="Buscar" value="${esc(S.filter.q)}"></div>
 			<div class="chips" id="chips"></div>
+			<button class="arch-row" id="arch-row" data-act="f-archived">${IC.archive}<span>Archivados</span></button>
 			<ul class="list" id="convs"></ul>
 			<div id="msg-results"></div>
 			<div id="selbar" class="selbar" hidden></div>`
@@ -557,8 +559,8 @@ function renderChips() {
 		`<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-val="${esc(val)}" ${color ? `style="--c:${esc(color)}"` : ''}>${esc(text)}</button>`
 	$('#chips').innerHTML = [
 		chip('f-all', '', 'Todos', !f.account && !f.label && !f.unread && !f.waiting && !f.reminders),
-		chip('sel-toggle', '', S.sel ? 'Cancelar selección' : 'Seleccionar', Boolean(S.sel), '#8E8E93'),
-		chip('f-archived', '', 'Archivados', f.archived),
+		S.sel ? chip('sel-toggle', '', 'Cancelar selección', true, '#8E8E93') : '',
+		f.archived ? chip('f-archived', '', 'Archivados ✕', true) : '',
 		chip('f-unread', '', 'No leídos', f.unread),
 		chip('f-waiting', '', `Sin responder${S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length ? ' (' + S.convs.filter(c => !c.lastFromMe && !c.isGroup && c.lastTs).length + ')' : ''}`, f.waiting, '#E5484D'),
 		chip('f-reminders', '', `Recordatorios${S.convs.filter(c => c.reminder).length ? ' (' + S.convs.filter(c => c.reminder).length + ')' : ''}`, f.reminders, '#7C5CFF'),
@@ -594,6 +596,8 @@ function searchMessages() {
 function renderInboxList() {
 	const list = filteredConvs()
 	const el = $('#convs')
+	const f = S.filter, ar = $('#arch-row')
+	if (ar) ar.hidden = Boolean(f.archived || f.q.trim() || f.unread || f.waiting || f.reminders || f.account || f.label)
 	if (!list.length) {
 		el.innerHTML = `<li class="empty"><div class="big">${S.accounts.length ? '📭' : '📱'}</div>
 			${S.accounts.length ? 'Sin conversaciones.' : 'Aún no hay cuentas. Ve a <a href="#/accounts">Cuentas</a> y vincula tu primer WhatsApp.'}</li>`
@@ -673,7 +677,7 @@ async function renderChat(jid, full) {
 				<button class="icon-btn back" data-act="back" aria-label="Atrás">${IC.back}<i class="badge" id="back-badge" hidden></i></button>
 				<span id="c-avatar" class="c-avatar" data-act="contact-info"></span>
 				<div class="title" data-act="contact-info"><b id="c-title"></b><small id="c-sub"></small></div>
-				<button class="icon-btn" data-act="chat-menu" aria-label="Más opciones">${IC.more}</button>
+				<button class="icon-btn" data-act="chat-menu" aria-label="Más opciones">${IC.dots}</button>
 			</header>
 			<div id="c-banners"></div>
 			<div class="msgs" id="msgs"><div class="empty">Cargando…</div></div>
@@ -2631,6 +2635,12 @@ document.addEventListener('click', async e => {
 			])
 		}
 		case 'go': return go(val)
+		case 'inbox-menu': return actionSheet(S.wsOk ? 'Conectado al servidor' : 'Sin conexión con el servidor', [
+			{ act: 'new-chat', text: 'Nuevo chat', icon: IC.compose },
+			{ act: 'sel-toggle', text: S.sel ? 'Cancelar selección' : 'Seleccionar chats', icon: IC.check || '' },
+			{ act: 'f-archived', text: S.filter.archived ? 'Salir de Archivados' : 'Archivados', icon: IC.archive },
+			{ act: 'go', val: '#/settings', text: 'Ajustes', icon: IC.gear }
+		])
 		case 'back': return history.length > 1 ? history.back() : go('#/')
 		case 'f-all': { const wasArch = S.filter.archived; S.filter.account = null; S.filter.label = null; S.filter.unread = false; S.filter.waiting = false; S.filter.reminders = false; S.filter.archived = false; return wasArch ? loadConvList() : renderInbox(false) }
 		case 'ac-clear': {

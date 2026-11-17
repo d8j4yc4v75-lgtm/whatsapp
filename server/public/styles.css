@@ -707,3 +707,68 @@ mark { background: color-mix(in srgb, #ffcc00 45%, transparent); color: inherit;
 @media (prefers-reduced-transparency: reduce) {
 	.tabs, .bar:not(.large), .sheet, .as-group, .compose-row textarea, .selbar { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: var(--card); }
 }
+
+/* ===== Como WhatsApp en iPhone (iOS 26) ===== */
+@media (prefers-color-scheme: dark) {
+	:root { --in-bubble: #242626; --out-bubble: #144d37; --chat-bg: #0b0b0b; --chip-on-bg: #103529; --chip-on: #25d366; --bg: #000; }
+}
+/* Encabezado de Chats: ⋯ a la izquierda, + verde a la derecha */
+.bar.large .icon-btn { width: 44px; height: 44px; min-width: 44px; padding: 0; }
+.bar.large .icon-btn .ic { width: 24px; height: 24px; }
+.icon-btn.fab { background: var(--accent) !important; color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 2px 8px color-mix(in srgb, var(--accent) 25%, transparent) !important; }
+.icon-btn.fab .ic { stroke-width: 2.4; }
+@media (prefers-color-scheme: dark) { .icon-btn.fab { color: #0b0b0b; } }
+#ws-dot { position: absolute; top: 3px; right: 3px; margin: 0; width: 9px; height: 9px; border: 2px solid var(--bg); box-sizing: content-box; }
+#ws-dot.on { background: var(--accent); }
+.large-title { padding-top: 4px; }
+
+/* Buscador y filtros como en WhatsApp */
+.search input { height: 44px; font-size: 17px; background-color: var(--fill); box-shadow: none; }
+.chip { background: transparent; border: 1px solid var(--line); box-shadow: none; color: var(--text); font-weight: 500; padding: 7px 14px; font-size: 15px; }
+.chip.on { background: var(--chip-on-bg); color: var(--chip-on); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.chip[style*="--c"] { color: var(--c); }
+.chip[style*="--c"].on { border-color: color-mix(in srgb, var(--c) 45%, transparent); }
+
+/* Fila «Archivados» arriba de los chats */
+.arch-row { display: flex; align-items: center; gap: 30px; width: 100%; border: 0; background: none; text-align: left; padding: 12px 16px 12px 34px; color: var(--text); font-size: 17px; font-weight: 600; }
+.arch-row .ic { width: 22px; height: 22px; color: var(--muted); }
+.arch-row:active { background: var(--fill); }
+.avatar { width: 56px; height: 56px; }
+.row .name { font-size: 17.5px; }
+@media (prefers-color-scheme: dark) { .row .badge, .tabs .badge, .badge { color: #000; } }
+
+/* Barra de pestañas: activa con burbuja oscura */
+@media (prefers-color-scheme: dark) {
+	.tabs { background: rgba(28, 28, 30, 0.62); }
+	.tabs a { color: #fff; }
+	.tabs a.active { background: rgba(0, 0, 0, 0.55); color: #fff; box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12); }
+	.tabs a.active .ic { color: #fff; }
+}
+.tabs a span { font-weight: 600; }
+
+/* Chat: encabezado flotante, botones redondos de vidrio */
+.chat-bar { background: color-mix(in srgb, var(--chat-bg) 72%, transparent) !important; box-shadow: none !important; padding-top: calc(10px + var(--safe-top)); padding-bottom: 10px; }
+.chat-bar .icon-btn { width: 44px; height: 44px; min-width: 44px; padding: 0 !important; }
+.chat-bar .icon-btn.back .ic { width: 24px; height: 24px; margin: 0; }
+.chat-bar .icon-btn.back .badge { position: absolute; top: -4px; right: -6px; background: var(--fill); color: var(--text); }
+.chat-bar .c-avatar { margin-left: 4px; }
+.chat-bar .title b { font-size: 17px; }
+
+/* Burbujas más redondas */
+.msg { border-radius: 18px; padding: 7px 11px 8px 12px; box-shadow: none; }
+.msg.tail { border-bottom-left-radius: 5px; }
+.msg.me.tail { border-bottom-left-radius: 18px; border-bottom-right-radius: 5px; }
+.msg.media { padding: 4px; }
+.msg img, .msg video { border-radius: 14px; }
+.day { background: color-mix(in srgb, var(--card) 70%, transparent); }
+
+/* Barra de escribir: + suelto, cápsula oscura y micrófono verde */
+.composer { background: var(--chat-bg) !important; background-image: none !important; padding: 6px 10px calc(8px + var(--safe-bottom)); }
+.round.ghost { background: none !important; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; color: var(--text); }
+.round.ghost .ic { width: 28px; height: 28px; stroke-width: 1.7; }
+.round.mic, .round:not(.ghost):not(.rec) { background: var(--accent) !important; color: #fff; width: 42px; height: 42px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3) !important; }
+@media (prefers-color-scheme: dark) { .round.mic, .round:not(.ghost):not(.rec) { color: #0b0b0b; } }
+.compose-row { align-items: center; gap: 8px; }
+.compose-row textarea { background: var(--fill) !important; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; min-height: 42px; border-radius: 21px; padding: 10px 16px; }
+@media (prefers-color-scheme: dark) { .compose-row textarea { background: #262626 !important; } }
+.as-group { background: color-mix(in srgb, var(--card) 92%, transparent) !important; }
