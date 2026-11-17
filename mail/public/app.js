@@ -143,7 +143,7 @@ function render() {
 	if (!S.token) return
 	const r = route(); const key = r.name + ':' + r.arg; const changed = key !== lastRoute; lastRoute = key
 	if (r.name !== 't' && S.active) S.active = null
-	if (r.name === 't') return renderThread(r.arg, changed)
+	if (r.name === 't') return changed || !$('#thread') ? renderThread(r.arg, true) : undefined
 	if (r.name === 'compose') return renderCompose(r.arg, changed)
 	if (changed || !$('#view')) $('#app').innerHTML = `<main class="view" id="view"></main>${tabs(r.name)}`
 	updateBadge()
@@ -235,20 +235,37 @@ async function openThread(key, silent) {
 	const { accountId, threadKey } = { accountId: accOfKey(key), threadKey: key.slice(key.indexOf(':') + 1) }
 	let data
 	try { data = await api('GET', `/threads/${enc(key)}`) } catch (e) { if (!silent) toast(e.message); return }
+	// Si no llegó nada nuevo, no se vuelve a dibujar (evita parpadeo y que brinque el scroll)
+	const sig = data.messages.map(m => m.uid + ':' + m.ts).join(',')
+	if (silent && S.threadSig === key + sig && $('#thread')) return
+	const wasUnread = !!S.threads?.find?.(t => t.key === key)?.unread
+	S.threadSig = key + sig
 	S.threadData = data
 	upsertThread(data.thread)
 	const t = $('#t-title'); if (t) t.textContent = data.thread.subject
 	const sub = $('#t-sub'); if (sub) sub.textContent = `${accountTag ? '' : ''}${account(accountId)?.name || ''}${data.thread.labelIds.length ? ' · ' + data.thread.labelIds.map(label).filter(Boolean).map(l => l.name).join(', ') : ''}`
 	const box = $('#thread'); if (!box) return
+	const keep = silent ? box.scrollTop : null
 	box.innerHTML = data.messages.map(m => mailHTML(m)).join('')
 	box.querySelectorAll('iframe[data-html]').forEach(f => {
 		const doc = f.contentDocument
 		doc.open(); doc.write(`<!doctype html><meta name="viewport" content="width=device-width"><base target="_blank"><style>body{font:15px -apple-system,sans-serif;margin:8px;color:#111;word-wrap:break-word}img{max-width:100%;height:auto}</style>${f.dataset.html}`); doc.close()
-		const fit = () => { f.style.height = Math.min(1600, doc.body.scrollHeight + 20) + 'px' }
-		setTimeout(fit, 60); doc.querySelectorAll('img').forEach(im => im.addEventListener('load', fit))
+		// Alto completo del correo; la rueda del mouse sobre el correo mueve la conversación
+		const fit = () => { const h = doc.documentElement.scrollHeight + 4; if (Math.abs(parseFloat(f.style.height || 0) - h) > 2) f.style.height = h + 'px' }
+		fit(); setTimeout(fit, 60); setTimeout(fit, 600); doc.querySelectorAll('img').forEach(im => im.addEventListener('load', fit))
+		doc.addEventListener('wheel', e => { box.scrollBy(0, e.deltaY) }, { passive: true })
 	})
-	box.scrollTop = box.scrollHeight
-	if (!silent) api('POST', `/threads/${enc(key)}/read`).catch(() => {})
+	// Al entrar se muestra el inicio del último correo (lo que contestaron)
+	if (keep != null) box.scrollTop = keep
+	else {
+		// Se reacomoda mientras cargan los correos de arriba, hasta que el usuario mueva la pantalla
+		let moved = false
+		const stop = () => { moved = true }
+		box.addEventListener('wheel', stop, { once: true, passive: true }); box.addEventListener('touchstart', stop, { once: true, passive: true })
+		const toLast = () => { const last = box.lastElementChild; if (!moved && last) box.scrollTop += last.getBoundingClientRect().top - box.getBoundingClientRect().top - 8 }
+		toLast(); setTimeout(toLast, 80); setTimeout(toLast, 700)
+	}
+	if (!silent && (wasUnread || data.thread.unread)) api('POST', `/threads/${enc(key)}/read`).catch(() => {})
 }
 function mailHTML(m) {
 	const a = account(m.accountId)

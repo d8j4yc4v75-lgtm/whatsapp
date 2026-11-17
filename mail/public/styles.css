@@ -71,7 +71,8 @@ a { color: var(--accent); }
 .mail .head small { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mail .when { font-size: 12px; color: var(--muted); flex-shrink: 0; }
 .mail .content { padding: 0 12px 12px; }
-.mail .content iframe { width: 100%; border: 0; background: #fff; border-radius: 8px; }
+.mail { flex-shrink: 0; }
+.mail .content iframe { width: 100%; border: 0; background: #fff; border-radius: 8px; display: block; }
 .mail .text { white-space: pre-wrap; word-wrap: break-word; }
 .attach { display: inline-flex; gap: 6px; align-items: center; margin: 6px 6px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--bg2); text-decoration: none; color: inherit; font-size: 13px; }
 .thread-actions { display: flex; gap: 8px; padding: 8px 10px calc(10px + var(--safe-bottom)); background: var(--bg2); border-top: 1px solid var(--line); }
