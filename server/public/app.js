@@ -966,7 +966,7 @@ function msgContent(m) {
 		case 'image':
 			return `<img src="${mediaURL(m)}" loading="lazy" data-act="view-img" alt="Foto">${cap}`
 		case 'sticker':
-			return `<img class="sticker" src="${mediaURL(m)}" loading="lazy" alt="Sticker">`
+			return `<img class="sticker" src="${mediaURL(m)}" loading="lazy" alt="Sticker" onerror="this.outerHTML='<span class=&quot;sticker-miss&quot;>🏷️ Sticker</span>'">`
 		case 'video':
 			return `<video src="${mediaURL(m)}#t=0.1" controls playsinline preload="metadata"></video>${cap}`
 		case 'audio':
@@ -2993,6 +2993,48 @@ async function boot() {
 	lastRoute = ''
 	render()
 	connectWS()
+}
+
+// ---------- Listas desplegables en PC ----------
+// La lista nativa de Windows se veía en blanco y enorme dentro de las ventanas de vidrio: en PC se usa una propia
+function closeSelectPop() { document.getElementById('sel-pop')?.remove(); document.removeEventListener('mousedown', selPopOutside, true) }
+function selPopOutside(e) { if (!e.target.closest('#sel-pop') && !e.target.closest('select')) closeSelectPop() }
+function openSelectPop(sel) {
+	closeSelectPop()
+	const r = sel.getBoundingClientRect()
+	const pop = document.createElement('div')
+	pop.className = 'sel-pop'; pop.id = 'sel-pop'; pop._sel = sel
+	pop.innerHTML = [...sel.options].map((o, i) => `<button type="button" class="${o.selected ? 'on' : ''}" data-i="${i}" ${o.disabled ? 'disabled' : ''}>${esc(o.textContent)}</button>`).join('')
+	document.body.appendChild(pop)
+	const want = Math.min(pop.scrollHeight, 340)
+	const below = innerHeight - r.bottom - 10
+	const down = below >= Math.min(want, 180) || below >= r.top
+	pop.style.left = Math.max(8, Math.min(r.left, innerWidth - Math.max(r.width, 220) - 8)) + 'px'
+	pop.style.width = Math.max(r.width, 220) + 'px'
+	pop.style.maxHeight = Math.min(want, down ? below : r.top - 10) + 'px'
+	pop.style.top = (down ? r.bottom + 4 : r.top - 4 - Math.min(want, r.top - 10)) + 'px'
+	pop.querySelector('.on')?.scrollIntoView({ block: 'nearest' })
+	pop.onclick = ev => {
+		const b = ev.target.closest('button[data-i]'); if (!b) return
+		sel.selectedIndex = Number(b.dataset.i)
+		sel.dispatchEvent(new Event('input', { bubbles: true }))
+		sel.dispatchEvent(new Event('change', { bubbles: true }))
+		closeSelectPop(); sel.focus()
+	}
+	setTimeout(() => document.addEventListener('mousedown', selPopOutside, true))
+}
+if (matchMedia('(hover: hover) and (pointer: fine)').matches) {
+	document.addEventListener('mousedown', e => {
+		const sel = e.target.closest('select')
+		if (!sel || sel.disabled || sel.multiple || e.button !== 0) return
+		e.preventDefault()
+		const open = document.getElementById('sel-pop')
+		if (open && open._sel === sel) return closeSelectPop()
+		sel.focus(); openSelectPop(sel)
+	}, true)
+	document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSelectPop() })
+	addEventListener('resize', closeSelectPop)
+	document.addEventListener('scroll', e => { if (!e.target.closest?.('#sel-pop')) closeSelectPop() }, true)
 }
 
 boot()

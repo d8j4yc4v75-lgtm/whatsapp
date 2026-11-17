@@ -772,3 +772,12 @@ mark { background: color-mix(in srgb, #ffcc00 45%, transparent); color: inherit;
 .compose-row textarea { background: var(--fill) !important; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; min-height: 42px; border-radius: 21px; padding: 10px 16px; }
 @media (prefers-color-scheme: dark) { .compose-row textarea { background: #262626 !important; } }
 .as-group { background: color-mix(in srgb, var(--card) 92%, transparent) !important; }
+
+/* Lista desplegable propia (PC) */
+.sel-pop { position: fixed; z-index: 60; overflow-y: auto; padding: 6px; border-radius: 16px; background: var(--card); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28), 0 0 0 0.5px var(--line); animation: fade 0.12s ease-out; }
+.sel-pop button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 9px 12px 9px 30px; border-radius: 10px; font-size: 15px; position: relative; cursor: pointer; }
+.sel-pop button:hover { background: var(--lens, rgba(118,118,128,.14)); }
+.sel-pop button.on::before { content: "✓"; position: absolute; left: 10px; color: var(--accent); font-weight: 700; }
+.sel-pop button:disabled { opacity: .45; }
+select option { background: var(--card); color: var(--text); }
+.sticker-miss { display: inline-block; padding: 8px 12px; border-radius: 14px; background: var(--in-bubble); color: var(--meta); font-size: 14px; }

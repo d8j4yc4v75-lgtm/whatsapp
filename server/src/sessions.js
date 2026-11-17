@@ -154,6 +154,13 @@ export function canonicalJid(jid, alt) {
 	return jid
 }
 
+// Stickers animados nuevos (Lottie) vienen envueltos en lottieStickerMessage
+function unwrapMsg(content) {
+	let c = normalizeMessageContent(content)
+	for (let i = 0; i < 3 && c?.lottieStickerMessage?.message; i++) c = normalizeMessageContent(c.lottieStickerMessage.message)
+	return c
+}
+
 function describe(content) {
 	const type = getContentType(content)
 	if (!type) return null
@@ -515,7 +522,7 @@ export class Session {
 		if (!key?.remoteJid || !m.message) return
 		const remote = jidNormalizedUser(key.remoteJid)
 		if (isJidBroadcast(remote) || isJidNewsletter(remote)) return
-		const content = normalizeMessageContent(m.message)
+		const content = unwrapMsg(m.message)
 		if (!content) return
 
 		const proto = content.protocolMessage
@@ -620,6 +627,15 @@ export class Session {
 		if (row.media_path && fs.existsSync(row.media_path)) return row
 		if (!row.raw) throw new Error('El mensaje no tiene multimedia')
 		const msg = JSON.parse(row.raw, BufferJSON.reviver)
+		msg.message = unwrapMsg(msg.message)
+		// Sticker animado Lottie: el navegador no lo puede mostrar; se usa su imagen PNG
+		const st = msg.message?.stickerMessage
+		if (st && (st.isLottie || /application\/was/.test(st.mimetype || '')) && st.pngThumbnail?.length) {
+			const file = this.writeMedia(id, Buffer.from(st.pngThumbnail), 'image/png', null)
+			db.prepare('UPDATE messages SET media_path = ?, media_mime = ? WHERE account_id = ? AND id = ?').run(file, 'image/png', this.accountId, id)
+			this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(stmt.getMessage.get(this.accountId, id)) })
+			return stmt.getMessage.get(this.accountId, id)
+		}
 		const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
 			logger,
 			reuploadRequest: this.sock?.updateMediaMessage
