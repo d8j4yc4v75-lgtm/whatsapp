@@ -792,3 +792,38 @@ select option { background: var(--card); color: var(--text); }
 	.view::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 40%, transparent); border-radius: 3px; }
 	.view::-webkit-scrollbar-track { background: transparent; }
 }
+
+/* ===== Tamaños y posiciones como WhatsApp en iPhone ===== */
+/* Botones de arriba: 44 px en celular (en PC más chicos) */
+.bar.large .bar-row { min-height: 52px; padding: 0 6px; }
+.bar.large .icon-btn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+.bar.large .icon-btn .ic { width: 22px; height: 22px; }
+#ws-dot { top: 2px; right: 2px; width: 8px; height: 8px; }
+@media (hover: hover) and (pointer: fine) {
+	.bar.large .icon-btn { width: 34px; height: 34px; min-width: 34px; min-height: 34px; }
+	.bar.large .icon-btn .ic { width: 18px; height: 18px; }
+}
+.large-title { font-size: 34px; line-height: 40px; padding: 2px 16px 10px; }
+/* Buscador y filtros */
+.search { padding: 0 16px 12px; }
+.search input { height: 42px; padding-left: 38px; background-position: 13px center; }
+.chips { padding: 0 16px 8px; gap: 8px; }
+.chip { padding: 6px 13px; font-size: 15px; line-height: 20px; }
+/* Fila «Archivados»: texto gris normal, icono alineado con las fotos */
+.arch-row { gap: 0; padding: 10px 16px; font-weight: 400; color: var(--muted); font-size: 17px; }
+.arch-row .ic { width: 52px; margin-right: 12px; color: var(--muted); }
+/* Filas de chat más compactas: foto 52 px y una sola línea de vista previa */
+.avatar { width: 52px; height: 52px; }
+.row { gap: 12px; }
+.row .body { padding: 11px 16px 11px 0; }
+.row .name { font-size: 17px; }
+.row .time { font-size: 15px; }
+.row .preview { font-size: 16px; -webkit-line-clamp: 1; line-clamp: 1; }
+.row .bottom { margin-top: 1px; }
+.row .tags { margin-top: 3px; gap: 4px; }
+.row .tags .tag { font-size: 11px; padding: 1px 7px; }
+/* Barra de pestañas: más alta, iconos y textos como en WhatsApp */
+.tabs { padding: 6px; bottom: calc(6px + var(--safe-bottom)); width: min(calc(100% - 32px), 520px); }
+.tabs a { padding: 7px 0 6px; gap: 2px; font-size: 11px; }
+.tabs a .ic { width: 27px; height: 27px; }
+:has(> .tabs) > .view { padding-bottom: calc(92px + var(--safe-bottom)); }
