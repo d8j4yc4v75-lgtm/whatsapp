@@ -8,6 +8,7 @@ import { db } from './db.js'
 import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 import { optOut } from './campaigns.js'
+import { classify, freshText, isBounce, promisedDate, amountOf } from './classify.js'
 import { imapAccessToken, apiSend, OAUTH } from './oauth.js'
 
 export const ATTACH_DIR = path.join(DATA_DIR, 'attachments')
@@ -28,6 +29,9 @@ const stmt = {
 	insert: db.prepare(`INSERT OR REPLACE INTO messages
 		(account_id, uid, message_id, thread_key, folder, from_name, from_addr, to_addrs, cc_addrs, subject, snippet, body_text, body_html, ts, seen, flagged, answered, from_me, has_attachments, attachments)
 		VALUES (@account_id, @uid, @message_id, @thread_key, @folder, @from_name, @from_addr, @to_addrs, @cc_addrs, @subject, @snippet, @body_text, @body_html, @ts, @seen, @flagged, @answered, @from_me, @has_attachments, @attachments)`),
+	setIntent: db.prepare('UPDATE messages SET intent = ? WHERE account_id = ? AND uid = ? AND folder = ?'),
+	promise: db.prepare('INSERT OR REPLACE INTO mail_promises (account_id, thread_key, email, due_at, due_text, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+	clearPromise: db.prepare('DELETE FROM mail_promises WHERE account_id = ? AND thread_key = ?'),
 	setSeen: db.prepare('UPDATE messages SET seen = ? WHERE account_id = ? AND uid = ? AND folder = ?'),
 	get: db.prepare('SELECT * FROM messages WHERE account_id = ? AND uid = ? AND folder = ?')
 }
@@ -98,24 +102,56 @@ class Mailbox {
 			const me = this.account.email.toLowerCase()
 			let changed = false
 			let newest = null
+			const bounces = []
 			for await (const msg of client.fetch(`${from}:*`, { uid: true, envelope: true, flags: true, bodyStructure: true, source: true })) {
 				const prev = stmt.exists.get(this.accountId, msg.uid, 'INBOX')
 				const parsed = await simpleParser(msg.source).catch(() => null)
 				if (!parsed) continue
 				const row = this.toRow(msg, parsed, me)
+				// «Mail Delivery Failed» y similares: se borran solos
+				if (isBounce(row)) { bounces.push(msg.uid); if (prev) { db.prepare('DELETE FROM messages WHERE account_id = ? AND uid = ? AND folder = ?').run(this.accountId, msg.uid, 'INBOX'); changed = true } continue }
+				const keptIntent = prev ? db.prepare('SELECT intent FROM messages WHERE account_id = ? AND uid = ? AND folder = ?').get(this.accountId, msg.uid, 'INBOX')?.intent : null
 				stmt.insert.run(row)
 				changed = true
+				if (!row.from_me) {
+					// Qué contestó: solo el texto nuevo, sin el correo citado
+					const fresh = freshText(row.body_text || (row.body_html || '').replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' '))
+					const intent = prev ? keptIntent : classify(fresh)
+					if (intent) stmt.setIntent.run(intent, this.accountId, msg.uid, 'INBOX')
+					if (!prev && intent === 'promesa') {
+						const when = promisedDate(fresh)
+						if (when) stmt.promise.run(this.accountId, row.thread_key, row.from_addr, when.at, when.text, amountOf(fresh), Date.now())
+					}
+					if (!prev && intent === 'pagado') stmt.clearPromise.run(this.accountId, row.thread_key)
+				}
 				if (!prev && !row.from_me) {
 					// Baja automática: el destinatario pide no recibir más correos
 					if (/\bbaja\b|darme de baja|no.*(correo|mensaje)|unsubscribe/i.test(`${row.subject} ${row.body_text || ''}`.slice(0, 500))) optOut(row.from_addr)
 					if (!row.seen) newest = row
 				}
 			}
+			if (bounces.length) await this.moveToTrash(bounces, true).catch(() => {})
 			if (changed) this.manager.emit('event', { type: 'inbox.changed', data: { accountId: this.accountId } })
 			if (newest) this.notify(newest)
 		} finally {
 			lock.release()
 		}
+	}
+
+	// Manda correos a la papelera del buzón (Gmail/Outlook/…). locked: ya se tiene el candado de INBOX
+	async moveToTrash(uids, locked) {
+		if (!this.client || !uids.length) return
+		if (!this.trashPath) {
+			const boxes = await this.client.list().catch(() => [])
+			this.trashPath = boxes.find(b => b.specialUse === '\\Trash')?.path
+				|| boxes.find(b => /^(\[gmail\]\/)?(trash|papelera|deleted items|elementos eliminados)$/i.test(b.path))?.path || null
+		}
+		const lock = locked ? null : await this.client.getMailboxLock('INBOX')
+		try {
+			const range = uids.join(',')
+			if (this.trashPath) await this.client.messageMove(range, this.trashPath, { uid: true })
+			else await this.client.messageDelete(range, { uid: true })
+		} finally { lock?.release() }
 	}
 
 	toRow(msg, parsed, me) {
@@ -300,6 +336,7 @@ export class MailManager extends EventEmitter {
 	}
 
 	async startAll() {
+		this.cleanup()
 		for (const { id } of db.prepare('SELECT id FROM accounts').all()) {
 			await this.start(id).catch(() => {})
 		}
@@ -310,6 +347,50 @@ export class MailManager extends EventEmitter {
 		if (!b) { b = new Mailbox(this, accountId); this.boxes.set(accountId, b) }
 		if (!b.client) await b.start()
 		return b
+	}
+
+	// Al arrancar: quita rebotes ya guardados y clasifica respuestas viejas
+	cleanup() {
+		const del = db.prepare('DELETE FROM messages WHERE account_id = ? AND uid = ? AND folder = ?')
+		const set = db.prepare('UPDATE messages SET intent = ? WHERE account_id = ? AND uid = ? AND folder = ?')
+		db.transaction(() => {
+			for (const r of db.prepare('SELECT account_id, uid, folder, thread_key, from_addr, subject, body_text, body_html, intent, ts FROM messages WHERE from_me = 0 ORDER BY ts').all()) {
+				if (isBounce(r)) { del.run(r.account_id, r.uid, r.folder); continue }
+				if (r.intent == null) {
+					const fresh = freshText(r.body_text || String(r.body_html || '').replace(/<br\s*\/?>|<\/p>|<\/div>/gi, '\n').replace(/<[^>]+>/g, ' '))
+					const intent = classify(fresh)
+					set.run(intent || '', r.account_id, r.uid, r.folder)
+					// Promesas de correos que ya estaban guardados: la fecha se cuenta desde que llegó el correo
+					const when = intent === 'promesa' && promisedDate(fresh, r.ts)
+					if (when && when.at > Date.now() - 30 * 864e5) stmt.promise.run(r.account_id, r.thread_key, r.from_addr, when.at, when.text, amountOf(fresh), r.ts)
+					if (intent === 'pagado') stmt.clearPromise.run(r.account_id, r.thread_key)
+				}
+			}
+		})()
+	}
+
+	// Archivar / borrar / marcar no leído (varios hilos a la vez)
+	setArchived(accountId, threadKey, on) {
+		db.prepare('INSERT INTO thread_state (account_id, thread_key, archived_at) VALUES (?, ?, ?) ON CONFLICT(account_id, thread_key) DO UPDATE SET archived_at = excluded.archived_at')
+			.run(accountId, threadKey, on ? Date.now() : null)
+	}
+	async deleteThread(accountId, threadKey) {
+		const uids = db.prepare("SELECT uid FROM messages WHERE account_id = ? AND thread_key = ? AND folder = 'INBOX'").all(accountId, threadKey).map(r => r.uid)
+		db.prepare('INSERT INTO thread_state (account_id, thread_key, deleted_at) VALUES (?, ?, ?) ON CONFLICT(account_id, thread_key) DO UPDATE SET deleted_at = excluded.deleted_at')
+			.run(accountId, threadKey, Date.now())
+		db.prepare('DELETE FROM messages WHERE account_id = ? AND thread_key = ?').run(accountId, threadKey)
+		db.prepare('DELETE FROM mail_promises WHERE account_id = ? AND thread_key = ?').run(accountId, threadKey)
+		await this.boxes.get(accountId)?.moveToTrash(uids).catch(() => {})
+	}
+	async markThread(accountId, threadKey, seen) {
+		const box = this.boxes.get(accountId)
+		const rows = seen
+			? db.prepare('SELECT uid FROM messages WHERE account_id = ? AND thread_key = ? AND seen = 0 AND from_me = 0').all(accountId, threadKey)
+			: db.prepare('SELECT uid FROM messages WHERE account_id = ? AND thread_key = ? AND from_me = 0 ORDER BY ts DESC LIMIT 1').all(accountId, threadKey)
+		for (const { uid } of rows) {
+			if (box) await box.markRead(uid, seen).catch(() => {})
+			else db.prepare('UPDATE messages SET seen = ? WHERE account_id = ? AND uid = ?').run(seen ? 1 : 0, accountId, uid)
+		}
 	}
 
 	get(accountId) {
@@ -367,12 +448,12 @@ export class MailManager extends EventEmitter {
 		return base
 	}
 
-	threads({ accountId, labelId, unread, q, limit = 200 }) {
-		const where = []
+	threads({ accountId, labelId, unread, q, limit = 400 }) {
+		const where = ['NOT EXISTS (SELECT 1 FROM thread_state s WHERE s.account_id = m.account_id AND s.thread_key = m.thread_key AND s.deleted_at IS NOT NULL AND s.deleted_at >= m.ts)']
 		const params = {}
 		if (accountId) { where.push('m.account_id = @accountId'); params.accountId = accountId }
 		if (labelId) { where.push('m.thread_key IN (SELECT thread_key FROM message_labels WHERE label_id = @labelId)'); params.labelId = labelId }
-		if (q) { where.push('(m.subject LIKE @q OR m.from_name LIKE @q OR m.from_addr LIKE @q OR m.snippet LIKE @q)'); params.q = `%${q}%` }
+		if (q) { where.push('(m.subject LIKE @q OR m.from_name LIKE @q OR m.from_addr LIKE @q OR m.snippet LIKE @q OR m.body_text LIKE @q OR m.to_addrs LIKE @q)'); params.q = `%${q}%` }
 		const rows = db.prepare(`
 			SELECT m.account_id, m.thread_key,
 				MAX(m.ts) AS last_ts,
@@ -389,7 +470,20 @@ export class MailManager extends EventEmitter {
 	formatThread(accountId, threadKey, agg) {
 		const last = db.prepare('SELECT * FROM messages WHERE account_id = ? AND thread_key = ? ORDER BY ts DESC LIMIT 1').get(accountId, threadKey)
 		const labels = db.prepare('SELECT label_id FROM message_labels WHERE thread_key = ?').all(threadKey).map(l => l.label_id)
+		const lastIn = db.prepare('SELECT from_addr, ts, intent FROM messages WHERE account_id = ? AND thread_key = ? AND from_me = 0 ORDER BY ts DESC LIMIT 1').get(accountId, threadKey)
+		const intent = db.prepare('SELECT intent FROM messages WHERE account_id = ? AND thread_key = ? AND from_me = 0 AND intent IS NOT NULL AND length(intent) > 0 ORDER BY ts DESC LIMIT 1').get(accountId, threadKey)?.intent || null
+		// Respondió a un envío masivo: le escribimos desde un envío y contestó después
+		const camp = lastIn && db.prepare(`SELECT c.id, c.name FROM campaign_items i JOIN campaigns c ON c.id = i.campaign_id
+			WHERE i.email = ? AND i.status = 'sent' AND i.sent_at <= ? ORDER BY i.sent_at DESC LIMIT 1`).get(lastIn.from_addr, lastIn.ts)
+		const st = db.prepare('SELECT archived_at FROM thread_state WHERE account_id = ? AND thread_key = ?').get(accountId, threadKey)
+		const pr = db.prepare('SELECT due_at AS at, due_text AS text, amount FROM mail_promises WHERE account_id = ? AND thread_key = ?').get(accountId, threadKey)
+		const lastTs = agg?.last_ts || last?.ts || 0
 		return {
+			email: lastIn?.from_addr || null,
+			campaign: camp ? { id: camp.id, name: camp.name } : null,
+			intent,
+			promise: pr || null,
+			archived: Boolean(st?.archived_at && st.archived_at >= lastTs),
 			key: `${accountId}:${encodeURIComponent(threadKey)}`,
 			accountId,
 			threadKey,

@@ -13,6 +13,7 @@ import { OAUTH, oauthConfigured, saveClient, startAuth, finishAuth } from './oau
 import { VAPID_PUBLIC_KEY, saveSubscription } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 import { MailCampaignRunner, optOut, isEmail } from './campaigns.js'
+import { freshText } from './classify.js'
 
 const STARTED_AT = new Date().toISOString()
 const manager = new MailManager()
@@ -209,6 +210,21 @@ app.post('/api/threads/:key/read', route(async req => {
 	return { ok: true }
 }))
 
+// Varios hilos a la vez: archivar, desarchivar, borrar, leído, no leído
+app.post('/api/threads/bulk', route(async req => {
+	const action = String(req.body.action || '')
+	const keys = (req.body.keys || []).slice(0, 500)
+	if (!['archive', 'unarchive', 'delete', 'read', 'unread'].includes(action)) throw new Error('Acción no válida')
+	for (const key of keys) {
+		let p; try { p = threadParam(key) } catch { continue }
+		if (action === 'archive' || action === 'unarchive') manager.setArchived(p.accountId, p.threadKey, action === 'archive')
+		else if (action === 'delete') await manager.deleteThread(p.accountId, p.threadKey)
+		else await manager.markThread(p.accountId, p.threadKey, action === 'read')
+	}
+	manager.emit('event', { type: 'inbox.changed', data: {} })
+	return { ok: true, n: keys.length }
+}))
+
 app.put('/api/threads/:key/labels', route(req => {
 	const { accountId, threadKey } = threadParam(req.params.key)
 	const ids = (req.body.labelIds || []).map(Number).filter(Boolean)
@@ -273,6 +289,42 @@ app.post('/api/campaigns', route(req => {
 	for (const id of ids) if (!db.prepare('SELECT 1 FROM accounts WHERE id = ?').get(id)) throw new Error('Cuenta no encontrada')
 	return campaigns.create({ ...req.body, accountIds: ids })
 }))
+// Excel (CSV) del envío: a quién, estado, quién respondió y qué dijo
+app.get('/api/campaigns/:cid/export', route((req, res) => {
+	const c = campaigns.get(Number(req.params.cid))
+	if (!c) throw Object.assign(new Error('Envío no encontrado'), { status: 404 })
+	const NAMES = { pending: 'Pendiente', sending: 'Enviando', sent: 'Enviado', failed: 'Falló', skipped: 'Baja' }
+	const INT = { queja: 'Queja', baja: 'Pidió baja', equivocado: 'Persona equivocada', pagado: 'Dice que pagó', promesa: 'Promesa de pago', datos_pago: 'Pide datos de pago', negociar: 'Quiere negociar', se_niega: 'Se niega a pagar', sin_dinero: 'Sin dinero', saldo: 'Pregunta saldo', molesto: 'Molesto' }
+	const accName = id => db.prepare('SELECT email FROM accounts WHERE id = ?').get(id)?.email || ''
+	const cell = v => { const t = String(v ?? ''); return /[",\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t }
+	const when = ts => ts ? new Date(ts).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' }) : ''
+	const lines = [['Correo', ...c.headers, 'Estado', 'Error', 'Enviado', 'Desde', 'Respondió', 'Fecha respuesta', 'Qué dijo', 'Respuesta'].map(cell).join(',')]
+	for (const it of campaigns.items(c.id)) {
+		const rep = it.sent_at ? db.prepare('SELECT ts, intent, snippet, body_text FROM messages WHERE from_addr = ? AND from_me = 0 AND ts >= ? ORDER BY ts DESC LIMIT 1').get(it.email, it.sent_at) : null
+		const params = c.headers.length ? c.headers.map((_, i) => it.params[i] ?? '') : it.params
+		lines.push([it.email, ...params, NAMES[it.status] || it.status, it.error || '', when(it.sent_at), it.sent_by ? accName(it.sent_by) : '',
+			rep ? 'Sí' : 'No', rep ? when(rep.ts) : '', rep?.intent ? INT[rep.intent] || rep.intent : '', rep ? freshText(rep.body_text || rep.snippet).replace(/\s+/g, ' ').slice(0, 300) : ''].map(cell).join(','))
+	}
+	const name = String(c.name || 'envio').replace(/[^\w\sáéíóúñ-]/gi, '').trim() || 'envio'
+	res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+	res.setHeader('Content-Disposition', `attachment; filename="${name}.csv"`)
+	res.send('\ufeff' + lines.join('\r\n'))
+}))
+
+// ---- Plantillas ----
+app.get('/api/templates', route(() => db.prepare('SELECT id, name, subject, body, updated_at AS updatedAt FROM mail_templates ORDER BY name').all()))
+app.post('/api/templates', route(req => {
+	const name = String(req.body.name || '').trim().slice(0, 80)
+	if (!name) throw new Error('Ponle nombre a la plantilla')
+	const subject = String(req.body.subject || ''), body = String(req.body.body || '')
+	if (!body.trim()) throw new Error('La plantilla está vacía')
+	const ex = db.prepare('SELECT id FROM mail_templates WHERE lower(name) = lower(?)').get(name)
+	if (ex) db.prepare('UPDATE mail_templates SET subject = ?, body = ?, updated_at = ? WHERE id = ?').run(subject, body, Date.now(), ex.id)
+	else db.prepare('INSERT INTO mail_templates (name, subject, body, updated_at) VALUES (?, ?, ?, ?)').run(name, subject, body, Date.now())
+	return db.prepare('SELECT id, name, subject, body FROM mail_templates WHERE lower(name) = lower(?)').get(name)
+}))
+app.delete('/api/templates/:id', route(req => { db.prepare('DELETE FROM mail_templates WHERE id = ?').run(Number(req.params.id)); return { ok: true } }))
+
 app.get('/api/campaigns/:cid/items', route(req => campaigns.items(Number(req.params.cid), req.query.status || null)))
 app.post('/api/campaigns/:cid/retry', route(req => {
 	const id = Number(req.params.cid)

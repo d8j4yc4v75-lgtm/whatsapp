@@ -45,7 +45,7 @@ export const isAngry = text => ANGRY.test(norm(text))
 const WORDNUM = { cien: 100, doscientos: 200, trescientos: 300, cuatrocientos: 400, quinientos: 500, seiscientos: 600, setecientos: 700, ochocientos: 800, novecientos: 900, mil: 1000 }
 /** Monto que menciona el cliente: «$1,500», «500 pesos», «2 mil», «quinientos» */
 export function amountOf(text) {
-	const raw = String(text || '')
+	const raw = String(text || '').replace(/(\d)[,.](?=\d{3}\b)/g, '$1') // 1,500 → 1500
 	const t = norm(raw.replace(/\$/g, ' $ '))
 	let m = raw.match(/\$\s?(\d{1,3}(?:[,.]\d{3})+|\d+)(?:\.\d{1,2})?/)
 	if (m) return Number(m[1].replace(/[,.]/g, ''))

@@ -119,3 +119,36 @@ for (const sql of [
 db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`)
 export const getSetting = k => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value ?? null
 export const setSetting = (k, v) => db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(k, v == null ? null : String(v))
+
+// Intención de la respuesta (pagó, promesa…), archivados/borrados, plantillas, promesas y envíos programados
+for (const sql of [
+	'ALTER TABLE messages ADD COLUMN intent TEXT',
+	'ALTER TABLE campaigns ADD COLUMN start_at INTEGER',
+	'CREATE INDEX IF NOT EXISTS idx_mitems_email ON campaign_items (email, status)'
+]) { try { db.exec(sql) } catch {} }
+db.exec(`
+CREATE TABLE IF NOT EXISTS thread_state (
+  account_id INTEGER NOT NULL,
+  thread_key TEXT NOT NULL,
+  archived_at INTEGER,
+  deleted_at INTEGER,
+  PRIMARY KEY (account_id, thread_key)
+);
+CREATE TABLE IF NOT EXISTS mail_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mail_promises (
+  account_id INTEGER NOT NULL,
+  thread_key TEXT NOT NULL,
+  email TEXT,
+  due_at INTEGER NOT NULL,
+  due_text TEXT,
+  amount INTEGER,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (account_id, thread_key)
+);
+`)

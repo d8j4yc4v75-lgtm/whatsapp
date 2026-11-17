@@ -23,7 +23,7 @@ export class MailCampaignRunner {
 		this.timer = setInterval(() => this.tick().catch(() => {}), 5000)
 	}
 
-	create({ name, accountIds, subject, body, headers, perHour, dailyPerAccount, startHour, endHour, minDelay, maxDelay, rows }) {
+	create({ name, accountIds, subject, body, headers, perHour, dailyPerAccount, startHour, endHour, minDelay, maxDelay, rows, startAt }) {
 		if (!Array.isArray(accountIds) || !accountIds.length) throw new Error('Elige al menos una cuenta para enviar')
 		if (!String(subject || '').trim()) throw new Error('Escribe el asunto')
 		if (!String(body || '').trim()) throw new Error('Escribe el mensaje')
@@ -44,12 +44,13 @@ export class MailCampaignRunner {
 		const maxD = Math.max(minD, clamp(maxDelay, 10, 7200, 180))
 		const id = db.transaction(() => {
 			const { lastInsertRowid } = db.prepare(`INSERT INTO campaigns
-				(name, accounts, subject, body, headers, per_hour, daily_per_account, start_hour, end_hour, min_delay, max_delay, status, created_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)`).run(
+				(name, accounts, subject, body, headers, per_hour, daily_per_account, start_hour, end_hour, min_delay, max_delay, status, created_at, start_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`).run(
 				String(name || subject).slice(0, 80), JSON.stringify(accountIds.map(Number)),
 				String(subject).slice(0, 300), String(body), JSON.stringify(Array.isArray(headers) ? headers : []),
 				clamp(perHour, 1, 200, 20), clamp(dailyPerAccount, 1, 200, 40),
-				clamp(startHour, 0, 23, 9), clamp(endHour, 1, 24, 19), minD, maxD, Date.now())
+				clamp(startHour, 0, 23, 9), clamp(endHour, 1, 24, 19), minD, maxD, Date.now(),
+				Number(startAt) > Date.now() ? Number(startAt) : null)
 			const ins = db.prepare('INSERT INTO campaign_items (campaign_id, email, params, status, error) VALUES (?, ?, ?, ?, ?)')
 			for (const it of items) ins.run(lastInsertRowid, it.email, JSON.stringify(it.params), it.skipped ? 'skipped' : 'pending', it.skipped ? 'Pidió baja' : null)
 			return Number(lastInsertRowid)
@@ -65,7 +66,7 @@ export class MailCampaignRunner {
 		return {
 			id: c.id, name: c.name, accountIds: JSON.parse(c.accounts), subject: c.subject, body: c.body, headers: JSON.parse(c.headers || '[]'),
 			perHour: c.per_hour, dailyPerAccount: c.daily_per_account, startHour: c.start_hour, endHour: c.end_hour,
-			minDelay: c.min_delay, maxDelay: c.max_delay, status: c.status, note: c.note, createdAt: c.created_at,
+			minDelay: c.min_delay, maxDelay: c.max_delay, status: c.status, note: c.note, createdAt: c.created_at, startAt: c.start_at || null,
 			counts: { pending: counts.pending || 0, sent: counts.sent || 0, failed: counts.failed || 0, skipped: counts.skipped || 0 }
 		}
 	}
@@ -99,6 +100,11 @@ export class MailCampaignRunner {
 		try {
 			const hour = hourNow()
 			for (const c of db.prepare("SELECT * FROM campaigns WHERE status = 'running'").all()) {
+				// Programado: espera a la fecha y hora elegidas
+				if (c.start_at && Date.now() < c.start_at) {
+					this.setNote(c, 'Programado para el ' + new Date(c.start_at).toLocaleString('es-MX', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))
+					continue
+				}
 				const inWindow = c.start_hour <= c.end_hour ? hour >= c.start_hour && hour < c.end_hour : hour >= c.start_hour || hour < c.end_hour
 				if (!inWindow) {
 					const pend = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE campaign_id = ? AND status = 'pending'").get(c.id).n

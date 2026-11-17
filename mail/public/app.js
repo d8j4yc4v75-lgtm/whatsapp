@@ -17,9 +17,21 @@ const isStandalone = () => window.navigator.standalone === true || matchMedia('(
 const S = {
 	token: store.get('token', null),
 	accounts: [], threads: [], labels: [], campaigns: [],
-	filter: { account: null, label: null, unread: false, q: '' },
-	wsOk: false, ws: null, active: null, statsLoaded: false
+	filter: { account: null, label: null, unread: false, q: '', view: 'all', intent: null },
+	wsOk: false, ws: null, active: null, statsLoaded: false,
+	sel: new Set(), selMode: false, search: null, templates: []
 }
+
+// Qué contestó el cliente (se detecta solo)
+const INTENTS = {
+	pagado: ['💰', 'Pagó', '#25D366'], promesa: ['🤝', 'Promesa', '#FF9500'], negociar: ['💬', 'Negociar', '#AF52DE'],
+	datos_pago: ['🏦', 'Pide datos de pago', '#0A84FF'], saldo: ['🧾', 'Pregunta saldo', '#00B8D9'], sin_dinero: ['🪙', 'Sin dinero', '#A2845E'],
+	se_niega: ['✋', 'Se niega', '#C0392B'], queja: ['⚠️', 'Queja', '#FF3B30'], equivocado: ['❓', 'Persona equivocada', '#FF2D55'],
+	baja: ['🚫', 'Pidió baja', '#8E8E93'], molesto: ['😠', 'Molesto', '#FF6B35']
+}
+const intentTag = k => INTENTS[k] ? `<span class="tag solid" style="--c:${INTENTS[k][2]}">${INTENTS[k][0]} ${INTENTS[k][1]}</span>` : ''
+const promiseTag = p => p ? `<span class="tag" style="--c:#FF9500">🤝 ${esc(p.text)}${p.amount ? ' · $' + Number(p.amount).toLocaleString('es-MX') : ''}</span>` : ''
+const isWide = () => matchMedia('(min-width: 900px)').matches
 
 function toast(text, ms = 3500) {
 	const t = $('#toast'); t.textContent = text; t.hidden = false
@@ -143,9 +155,11 @@ function render() {
 	if (!S.token) return
 	const r = route(); const key = r.name + ':' + r.arg; const changed = key !== lastRoute; lastRoute = key
 	if (r.name !== 't' && S.active) S.active = null
-	if (r.name === 't') return changed || !$('#thread') ? renderThread(r.arg, true) : undefined
+	if (r.name !== 'inbox' && r.name !== 't' && S.selMode) { S.selMode = false; S.sel.clear() }
+	if (isWide() && (r.name === 'inbox' || r.name === 't')) return renderSplit(r, changed)
+	if (r.name === 't') return changed || !$('#thread') || $('#split') ? renderThread(r.arg, true) : undefined
 	if (r.name === 'compose') return renderCompose(r.arg, changed)
-	if (changed || !$('#view')) $('#app').innerHTML = `<main class="view" id="view"></main>${tabs(r.name)}`
+	if (changed || !$('#view') || $('#split')) $('#app').innerHTML = `<main class="view" id="view"></main>${tabs(r.name)}`
 	updateBadge()
 	if (r.name === 'accounts') renderAccounts()
 	else if (r.name === 'account') renderAccount(Number(r.arg), changed)
@@ -153,6 +167,20 @@ function render() {
 	else if (r.name === 'campaigns') renderCampaigns(changed)
 	else renderInbox(changed)
 }
+// PC: lista a la izquierda y el correo abierto a la derecha
+function renderSplit(r, changed) {
+	let fresh = false
+	if (!$('#split')) {
+		$('#app').innerHTML = `<div class="split" id="split"><main class="view" id="view"></main><section class="pane" id="pane"></section></div>${tabs('inbox')}`
+		fresh = true
+	}
+	updateBadge()
+	renderInbox(fresh)
+	if (r.name === 't') { if (changed || fresh || !$('#thread')) renderThread(r.arg, true, $('#pane')) }
+	else if (changed || fresh) { S.threadSig = null; $('#pane').innerHTML = '<div class="empty"><div class="big">✉️</div>Elige un correo para leerlo aquí.</div>' }
+}
+matchMedia('(min-width: 900px)').addEventListener?.('change', () => { lastRoute = ''; if (S.token) render() })
+
 function tabs(active) {
 	const t = (n, i, txt, href) => `<a href="${href}" class="${active === n || (n === 'accounts' && active === 'account') ? 'active' : ''}"><span>${i}</span>${txt}${n === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
 	const sends = S.accounts.length ? t('campaigns', '📤', 'Envíos', '#/campaigns') : ''
@@ -162,34 +190,59 @@ function tabs(active) {
 // ---------- Bandeja ----------
 function filtered() {
 	const f = S.filter, q = f.q.trim().toLowerCase()
-	return S.threads.filter(t => {
+	// Con búsqueda se usa lo que encontró el servidor (busca también dentro de los correos)
+	const server = q && S.search?.q === q
+	return (server ? S.search.list : S.threads).filter(t => {
+		if (f.view === 'archived' ? !t.archived : (t.archived && !q)) return false
+		if (f.view === 'replied' && !t.campaign) return false
+		if (f.view === 'promises' && !t.promise) return false
 		if (f.account && t.accountId !== f.account) return false
 		if (f.label && !t.labelIds.includes(f.label)) return false
+		if (f.intent && t.intent !== f.intent) return false
 		if (f.unread && !t.unread) return false
-		if (q) return (t.subject || '').toLowerCase().includes(q) || (t.from || '').toLowerCase().includes(q) || (t.snippet || '').toLowerCase().includes(q)
+		if (q && !server) return [t.subject, t.from, t.snippet, t.email].some(x => String(x || '').toLowerCase().includes(q))
 		return true
 	})
+}
+let searchTimer
+function searchServer() {
+	clearTimeout(searchTimer)
+	const q = S.filter.q.trim()
+	if (!q) { S.search = null; return }
+	searchTimer = setTimeout(async () => {
+		try { const list = await api('GET', `/threads?q=${enc(q)}`); if (S.filter.q.trim() === q) { S.search = { q, list }; renderInboxList() } } catch {}
+	}, 350)
 }
 function renderInbox(full) {
 	const view = $('#view')
 	if (full) {
 		view.innerHTML = `
 			<header class="bar"><i class="dot ${S.wsOk ? 'on' : ''}" id="ws-dot"></i><h1>Bandeja</h1>
+				<button class="icon-btn" id="sel-btn" data-act="sel-mode" style="font-size:16px">${S.selMode ? 'Listo' : 'Seleccionar'}</button>
 				<button class="icon-btn" data-act="compose" aria-label="Redactar">✍️</button></header>
 			${!isStandalone() && /iPhone|iPad/.test(navigator.userAgent) ? `<div class="install"><b>Instala la app</b>Toca <b style="display:inline">Compartir ⬆︎</b> y luego <b style="display:inline">«Añadir a pantalla de inicio»</b>.</div>` : ''}
-			<div class="search"><input id="q" type="search" placeholder="Buscar correo, remitente o asunto" value="${esc(S.filter.q)}"></div>
+			<div class="search"><input id="q" type="search" placeholder="Buscar nombre, correo, expediente o texto" value="${esc(S.filter.q)}"></div>
 			<div class="chips" id="chips"></div>
-			<ul class="list" id="threads"></ul>`
-		$('#q').oninput = e => { S.filter.q = e.target.value; renderInboxList() }
+			<ul class="list" id="threads"></ul>
+			<div class="selbar" id="selbar" hidden></div>`
+		$('#q').oninput = e => { S.filter.q = e.target.value; renderInboxList(); searchServer() }
 	}
 	renderChips(); renderInboxList()
 }
 function renderChips() {
 	const f = S.filter
 	const chip = (act, val, text, on, color) => `<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-val="${esc(val)}" ${color ? `style="--c:${esc(color)}"` : ''}>${esc(text)}</button>`
+	const live = S.threads.filter(t => !t.archived)
+	const replied = live.filter(t => t.campaign).length
+	const promises = live.filter(t => t.promise).length
+	const byIntent = {}; for (const t of live) if (t.intent) byIntent[t.intent] = (byIntent[t.intent] || 0) + 1
 	$('#chips').innerHTML = [
-		chip('f-all', '', 'Todos', !f.account && !f.label && !f.unread),
+		chip('f-all', '', 'Todos', f.view === 'all' && !f.account && !f.label && !f.unread && !f.intent),
 		chip('f-unread', '', 'No leídos', f.unread),
+		chip('f-view', 'replied', `💬 Respondieron${replied ? ' ' + replied : ''}`, f.view === 'replied', '#25D366'),
+		promises ? chip('f-view', 'promises', `🤝 Promesas ${promises}`, f.view === 'promises', '#FF9500') : '',
+		...Object.keys(INTENTS).filter(k => byIntent[k] || f.intent === k).map(k => chip('f-intent', k, `${INTENTS[k][0]} ${INTENTS[k][1]} ${byIntent[k] || 0}`, f.intent === k, INTENTS[k][2])),
+		chip('f-view', 'archived', '📦 Archivados', f.view === 'archived', '#8E8E93'),
 		...S.accounts.map(a => chip('f-account', a.id, a.name, f.account === a.id, a.color)),
 		...S.labels.map(l => chip('f-label', l.id, '# ' + l.name, f.label === l.id, l.color))
 	].join('')
@@ -200,27 +253,65 @@ function renderInboxList() {
 		el.innerHTML = `<li class="empty"><div class="big">${S.accounts.length ? '📭' : '✉️'}</div>${S.accounts.length ? 'Sin correos.' : 'Aún no hay cuentas. Ve a <a href="#/accounts">Cuentas</a> y agrega tu primer correo.'}</li>`
 		return
 	}
+	renderChips()
 	el.innerHTML = list.map(t => `
-		<li><a class="row ${t.unread ? 'unread' : ''}" href="#/t/${enc(t.key)}">
+		<li><a class="row ${t.unread ? 'unread' : ''} ${t.key === S.active ? 'active' : ''} ${S.sel.has(t.key) ? 'picked' : ''}" ${S.selMode ? `href="#" data-act="sel-toggle" data-val="${esc(t.key)}"` : `href="#/t/${enc(t.key)}"`}>
+			${S.selMode ? `<span class="pick">${S.sel.has(t.key) ? '✓' : ''}</span>` : ''}
 			<div class="avatar" style="background:${avatarColor(t.from)}">${esc(initials(t.from))}</div>
 			<div class="body">
 				<div class="top"><span class="from">${esc(t.from)}${t.count > 1 ? ` <span class="count">(${t.count})</span>` : ''}</span><span class="time ${t.unread ? 'u' : ''}">${timeLabel(t.lastTs)}</span></div>
 				<div class="subject">${esc(t.subject)}</div>
 				<div class="top"><span class="snippet">${esc(t.snippet)}</span>${t.unread ? '<span class="dotu"></span>' : ''}</div>
-				<div class="tags">${accountTag(t.accountId)}${t.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}</div>
+				<div class="tags">${intentTag(t.intent)}${promiseTag(t.promise)}${t.campaign ? `<span class="tag" style="--c:#25D366">📤 ${esc(t.campaign.name)}</span>` : ''}${t.archived ? '<span class="tag" style="--c:#8E8E93">📦 Archivado</span>' : ''}${accountTag(t.accountId)}${t.labelIds.map(label).filter(Boolean).map(l => `<span class="tag solid" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('')}</div>
 			</div>
 		</a></li>`).join('')
+	renderSelbar()
+}
+function renderSelbar() {
+	const bar = $('#selbar'); if (!bar) return
+	bar.hidden = !S.selMode
+	const btn = $('#sel-btn'); if (btn) btn.textContent = S.selMode ? 'Listo' : 'Seleccionar'
+	if (!S.selMode) return
+	const n = S.sel.size, arch = S.filter.view === 'archived'
+	bar.innerHTML = `<button class="chip" data-act="sel-all">${n && n === filtered().length ? 'Ninguno' : 'Todos'}</button><b class="grow">${n} seleccionado${n === 1 ? '' : 's'}</b>
+		<button class="chip" data-act="bulk" data-val="${arch ? 'unarchive' : 'archive'}" ${n ? '' : 'disabled'}>${arch ? '📥 Desarchivar' : '📦 Archivar'}</button>
+		<button class="chip" data-act="bulk" data-val="read" ${n ? '' : 'disabled'}>Leído</button>
+		<button class="chip" data-act="bulk" data-val="unread" ${n ? '' : 'disabled'}>No leído</button>
+		<button class="chip" style="--c:var(--danger)" data-act="bulk" data-val="delete" ${n ? '' : 'disabled'}>🗑 Borrar</button>`
+}
+// Archivar, borrar, leído / no leído para uno o varios hilos
+async function bulk(action, keys) {
+	if (!keys.length) return
+	if (action === 'delete' && !confirm(`¿Borrar ${keys.length === 1 ? 'este correo' : keys.length + ' correos'}? Se mandan a la papelera de tu correo.`)) return false
+	const set = new Set(keys)
+	try { await api('POST', '/threads/bulk', { action, keys }) } catch (e) { toast(e.message); return false }
+	if (action === 'delete') S.threads = S.threads.filter(t => !set.has(t.key))
+	else for (const t of S.threads) if (set.has(t.key)) {
+		if (action === 'archive') t.archived = true
+		if (action === 'unarchive') t.archived = false
+		if (action === 'read') t.unread = 0
+		if (action === 'unread') t.unread = Math.max(1, t.unread)
+	}
+	if (S.search) S.search = null
+	S.sel.clear(); updateBadge()
+	toast({ archive: 'Archivado', unarchive: 'De vuelta en la bandeja', delete: 'Borrado', read: 'Marcado como leído', unread: 'Marcado como no leído' }[action])
+	if ($('#threads')) renderInboxList()
+	return true
 }
 
 // ---------- Hilo ----------
-async function renderThread(key, full) {
+async function renderThread(key, full, host = $('#app')) {
 	if (full) {
-		S.active = key
-		$('#app').innerHTML = `
+		S.active = key; S.threadSig = null
+		const t = thread(key)
+		host.innerHTML = `
 			<header class="bar">
-				<button class="icon-btn" data-act="back" aria-label="Atrás">‹</button>
-				<div class="title"><b id="t-title"></b><small id="t-sub"></small></div>
-				<button class="icon-btn" data-act="labels" aria-label="Etiquetas">🏷️</button>
+				<button class="icon-btn" data-act="${host.id === 'pane' ? 'go' : 'back'}" data-val="#/" aria-label="Atrás">${host.id === 'pane' ? '✕' : '‹'}</button>
+				<div class="title"><b id="t-title"></b><small id="t-sub"></small><div class="tags" id="t-tags"></div></div>
+				<button class="icon-btn" data-act="t-archive" title="${t?.archived ? 'Desarchivar' : 'Archivar'}" aria-label="Archivar">${t?.archived ? '📥' : '📦'}</button>
+				<button class="icon-btn" data-act="t-unread" title="Marcar como no leído" aria-label="No leído">✉️</button>
+				<button class="icon-btn" data-act="t-delete" title="Borrar" aria-label="Borrar">🗑️</button>
+				<button class="icon-btn" data-act="labels" title="Etiquetas" aria-label="Etiquetas">🏷️</button>
 			</header>
 			<div class="thread" id="thread"><div class="empty">Cargando…</div></div>
 			<div class="thread-actions">
@@ -243,7 +334,8 @@ async function openThread(key, silent) {
 	S.threadData = data
 	upsertThread(data.thread)
 	const t = $('#t-title'); if (t) t.textContent = data.thread.subject
-	const sub = $('#t-sub'); if (sub) sub.textContent = `${accountTag ? '' : ''}${account(accountId)?.name || ''}${data.thread.labelIds.length ? ' · ' + data.thread.labelIds.map(label).filter(Boolean).map(l => l.name).join(', ') : ''}`
+	const sub = $('#t-sub'); if (sub) sub.textContent = `${account(accountId)?.name || ''}${data.thread.email ? ' · ' + data.thread.email : ''}${data.thread.labelIds.length ? ' · ' + data.thread.labelIds.map(label).filter(Boolean).map(l => l.name).join(', ') : ''}`
+	const tg = $('#t-tags'); if (tg) tg.innerHTML = `${intentTag(data.thread.intent)}${promiseTag(data.thread.promise)}${data.thread.campaign ? `<span class="tag" style="--c:#25D366">📤 Respondió a «${esc(data.thread.campaign.name)}»</span>` : ''}`
 	const box = $('#thread'); if (!box) return
 	const keep = silent ? box.scrollTop : null
 	box.innerHTML = data.messages.map(m => mailHTML(m)).join('')
@@ -536,6 +628,9 @@ function renderSettings() {
 				${colorPicker(COLORS[1])}
 				<button class="btn" data-act="add-label">Agregar etiqueta</button>
 			</div>
+			<div class="section">Plantillas guardadas</div>
+			<div class="group" id="tpl-box"><div class="item"><small>Cargando…</small></div></div>
+			<p class="hint">Se guardan desde <b>Envíos › ＋ › Guardar como plantilla</b>.</p>
 			<div class="section">Conectar con Google / Microsoft (una vez)</div>
 			<div class="group">
 				<button class="btn" data-act="oauth-setup" data-val="google">Configurar Google (Gmail)</button>
@@ -549,8 +644,16 @@ function renderSettings() {
 			</div>
 			<div style="height:30px"></div>
 		</div>`
+	loadTemplatesBox()
 	$('#view').dataset.labelColor = COLORS[1]
 	bindColor($('#view'), c => { $('#view').dataset.labelColor = c })
+}
+async function loadTemplatesBox() {
+	try { S.templates = await api('GET', '/templates') } catch { return }
+	const box = $('#tpl-box'); if (!box) return
+	box.innerHTML = S.templates.length
+		? S.templates.map(t => `<div class="item"><span class="grow"><b>${esc(t.name)}</b><small>${esc(t.subject || '(sin asunto)')}</small></span><button class="icon-btn" data-act="del-tpl" data-val="${t.id}" aria-label="Borrar">🗑️</button></div>`).join('')
+		: '<div class="item"><small>Aún no tienes plantillas.</small></div>'
 }
 function b64ToUint8(b64) { const pad = '='.repeat((4 - b64.length % 4) % 4); const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, c => c.charCodeAt(0)) }
 async function enablePush() {
@@ -675,7 +778,7 @@ function renderCampaignList() {
 	if (!S.campaigns.length) { el.innerHTML = '<div class="empty"><div class="big">📤</div>Toca <b>＋</b> para crear tu primer envío.</div>'; return }
 	el.innerHTML = '<div class="section">Tus envíos</div><div class="group">' + S.campaigns.map(c => {
 		const n = c.counts, total = n.pending + n.sent + n.failed + n.skipped, done = n.sent + n.failed + n.skipped
-		const [st, color] = CAMP_ST[c.status] || [c.status, 'var(--muted)']
+		const [st, color] = c.status === 'running' && c.startAt > Date.now() ? ['Programado', '#AF52DE'] : CAMP_ST[c.status] || [c.status, 'var(--muted)']
 		const pct = total ? Math.round(done / total * 100) : 0
 		return `<div class="item" style="display:block">
 			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="grow">${esc(c.name)}</b>${c.accountIds.map(accountTag).join('')}<span class="status" style="color:${color}">${st}</span></div>
@@ -689,15 +792,22 @@ function renderCampaignList() {
 				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
 				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
 				${n.failed ? `<button class="chip" data-act="camp-retry" data-val="${c.id}">↻ Reintentar fallidos</button>` : ''}
+				<a class="chip" style="--c:#1D6F42" href="${BASE}/api/campaigns/${c.id}/export?token=${enc(S.token)}" download>📊 Excel</a>
 			</div>
 		</div>`
 	}).join('') + '</div>'
 }
-function openNewCampaign() {
+async function openNewCampaign() {
 	const conn = S.accounts.filter(a => a.status === 'connected')
 	if (!conn.length) return toast('Primero conecta un correo')
-	sheet('Nuevo envío', `
-		<div class="section">Nombre</div>
+	try { S.templates = await api('GET', '/templates') } catch {}
+		sheet('Nuevo envío', `
+			<div class="section">Plantilla</div>
+			<div class="group">
+				<div class="item"><select id="cp-tpl"><option value="">${S.templates.length ? '— Usar una plantilla guardada —' : 'Aún no tienes plantillas guardadas'}</option>${S.templates.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
+				<button class="btn" id="cp-tpl-save" type="button">💾 Guardar asunto y mensaje como plantilla</button>
+			</div>
+			<div class="section">Nombre</div>
 		<div class="group"><div class="item"><input type="text" id="cp-name" placeholder="Ej. Recordatorios octubre"></div></div>
 		<div class="section">Enviar desde</div>
 		<div class="group">${conn.map(a => `<label class="item"><input type="checkbox" class="cp-acc" value="${a.id}" checked><span class="grow">${accountTag(a.id)} ${esc(a.email)}</span></label>`).join('')}</div>
@@ -723,8 +833,10 @@ function openNewCampaign() {
 			<div class="item"><span class="grow">Máximo por buzón al día</span><input type="number" id="cp-daily" value="40" min="1" max="200" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Correos por hora (total)</span><input type="number" id="cp-rate" value="20" min="1" max="200" style="text-align:right;max-width:80px"></div>
 			<div class="item"><span class="grow">Desde (hora)</span><input type="number" id="cp-start" value="9" min="0" max="23" style="text-align:right;max-width:80px"></div>
-			<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="cp-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
-		</div>
+				<div class="item"><span class="grow">Hasta (hora)</span><input type="number" id="cp-end" value="19" min="1" max="24" style="text-align:right;max-width:80px"></div>
+				<div class="item"><span class="grow">Empezar el</span><input type="datetime-local" id="cp-at" style="text-align:right;max-width:220px"></div>
+			</div>
+			<p class="hint">«Empezar el»: déjalo vacío para empezar ya, o elige fecha y hora para programarlo.</p>
 		<p class="hint">En Zoho gratis deja 40 o menos por buzón al día para no toparte con su límite.</p>
 		<div class="pad"><button class="btn primary" id="cp-go">Iniciar envío</button></div>`, el => {
 		const count = () => {
@@ -770,7 +882,28 @@ function openNewCampaign() {
 				frame.onload = () => { try { frame.style.height = Math.min(900, Math.max(160, frame.contentDocument.documentElement.scrollHeight + 4)) + 'px' } catch {} }
 			}, 250)
 		}
-		el.querySelectorAll('input,textarea').forEach(i => { i.addEventListener('input', () => { count(); view() }); i.addEventListener('change', () => { count(); view() }) })
+			$('#cp-tpl', el).onchange = e => {
+				const t = S.templates.find(x => x.id === Number(e.target.value)); if (!t) return
+				const body = $('#cp-body', el)
+				if (body.value.trim() && body.value !== t.body && !confirm(`¿Cambiar el asunto y el mensaje por la plantilla «${t.name}»?`)) { e.target.value = ''; return }
+				$('#cp-subject', el).value = t.subject; body.value = t.body
+				if (!$('#cp-name', el).value.trim()) $('#cp-name', el).value = t.name
+				count(); view()
+			}
+			$('#cp-tpl-save', el).onclick = async () => {
+				const subject = $('#cp-subject', el).value, body = $('#cp-body', el).value
+				if (!body.trim()) return toast('Primero escribe el mensaje')
+				const cur = S.templates.find(x => x.id === Number($('#cp-tpl', el).value))
+				const name = prompt('Nombre de la plantilla (si ya existe, se actualiza):', cur?.name || $('#cp-name', el).value.trim() || subject.slice(0, 40))
+				if (!name?.trim()) return
+				try {
+					const t = await api('POST', '/templates', { name: name.trim(), subject, body })
+					S.templates = [...S.templates.filter(x => x.id !== t.id), t].sort((a, b) => a.name.localeCompare(b.name))
+					$('#cp-tpl', el).innerHTML = '<option value="">— Usar una plantilla guardada —</option>' + S.templates.map(x => `<option value="${x.id}" ${x.id === t.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')
+					toast('Plantilla guardada')
+				} catch (err) { toast(err.message) }
+			}
+			el.querySelectorAll('input,textarea').forEach(i => { i.addEventListener('input', () => { count(); view() }); i.addEventListener('change', () => { count(); view() }) })
 		view()
 		$('#cp-file', el).onchange = async e => { const f = e.target.files[0]; if (f) { $('#cp-list', el).value = await f.text(); count(); view() } }
 		count()
@@ -781,15 +914,19 @@ function openNewCampaign() {
 			if (!$('#cp-subject', el).value.trim()) return toast('Escribe el asunto')
 			if (!$('#cp-body', el).value.trim()) return toast('Escribe el mensaje')
 			if (!rows.length) return toast('La lista está vacía')
-			if (!confirm(`Se enviará a ${rows.length} contactos desde ${accountIds.length} buzón(es). ¿Iniciar?`)) return
+				const atVal = $('#cp-at', el).value
+				const startAt = atVal ? new Date(atVal).getTime() : null
+				if (startAt && startAt < Date.now() - 60000) return toast('La fecha para empezar ya pasó')
+				const whenTxt = startAt ? ` a partir del ${new Date(startAt).toLocaleString('es-MX', { weekday: 'long', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''
+				if (!confirm(`Se enviará a ${rows.length} contactos desde ${accountIds.length} buzón(es)${whenTxt}. ¿${startAt ? 'Programar' : 'Iniciar'}?`)) return
 			try {
 				const { headers } = parseCsv($('#cp-list', el).value)
 				const res = await api('POST', '/campaigns', {
 					name: $('#cp-name', el).value.trim(), accountIds, headers,
 					subject: $('#cp-subject', el).value, body: $('#cp-body', el).value,
 					dailyPerAccount: Number($('#cp-daily', el).value), perHour: Number($('#cp-rate', el).value),
-					startHour: Number($('#cp-start', el).value), endHour: Number($('#cp-end', el).value),
-					rows
+						startHour: Number($('#cp-start', el).value), endHour: Number($('#cp-end', el).value),
+						rows, startAt
 				})
 				closeSheet()
 				if (res.invalid?.length) toast(`${res.invalid.length} correos no válidos se omitieron`, 5000)
@@ -823,7 +960,21 @@ document.addEventListener('click', async e => {
 	switch (act) {
 		case 'go': return go(val)
 		case 'back': return history.length > 1 ? history.back() : go('#/')
-		case 'f-all': S.filter.account = null; S.filter.label = null; S.filter.unread = false; return renderInbox(false)
+			case 'f-all': S.filter.account = null; S.filter.label = null; S.filter.unread = false; S.filter.view = 'all'; S.filter.intent = null; S.sel.clear(); return renderInbox(false)
+		case 'f-view': S.filter.view = S.filter.view === val ? 'all' : val; S.sel.clear(); return renderInbox(false)
+		case 'f-intent': S.filter.intent = S.filter.intent === val ? null : val; S.sel.clear(); return renderInbox(false)
+		case 'sel-mode': S.selMode = !S.selMode; S.sel.clear(); return renderInboxList()
+		case 'sel-toggle': e.preventDefault(); S.sel.has(val) ? S.sel.delete(val) : S.sel.add(val); return renderInboxList()
+		case 'sel-all': { const list = filtered(); if (S.sel.size === list.length) S.sel.clear(); else list.forEach(t => S.sel.add(t.key)); return renderInboxList() }
+		case 'bulk': { if (await bulk(val, [...S.sel]) !== false && val !== 'read' && val !== 'unread') { /* sigue en modo selección */ } return }
+		case 't-archive': { const t = thread(S.active); const k = S.active; if (k && await bulk(t?.archived ? 'unarchive' : 'archive', [k])) go('#/'); return }
+		case 't-delete': { const k = S.active; if (k && await bulk('delete', [k])) go('#/'); return }
+		case 't-unread': { const k = S.active; if (k && await bulk('unread', [k])) go('#/'); return }
+		case 'del-tpl': {
+			if (!confirm('¿Borrar esta plantilla?')) return
+			try { await api('DELETE', `/templates/${val}`) } catch (err) { return toast(err.message) }
+			return loadTemplatesBox()
+		}
 		case 'f-unread': S.filter.unread = !S.filter.unread; return renderInbox(false)
 		case 'f-account': S.filter.account = S.filter.account === Number(val) ? null : Number(val); return renderInbox(false)
 		case 'f-label': S.filter.label = S.filter.label === Number(val) ? null : Number(val); return renderInbox(false)

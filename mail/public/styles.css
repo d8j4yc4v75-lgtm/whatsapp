@@ -131,3 +131,19 @@ a { color: var(--accent); }
 .viewer-head div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .viewer-warn { color: var(--danger); white-space: normal !important; margin-top: 4px; }
 #cp-view { display: block; width: 100%; height: 180px; border: 0; background: #fff; }
+
+/* Selección de varios correos */
+.row .pick { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); flex-shrink: 0; align-self: center; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; }
+.row.picked .pick { background: var(--accent); border-color: var(--accent); }
+.row.picked { background: var(--accent-soft); }
+.selbar { position: sticky; bottom: 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 8px 10px; background: var(--bg2); border-top: 1px solid var(--line); }
+.selbar .grow { flex: 1; font-size: 14px; }
+.selbar .chip:disabled { opacity: .4; }
+.bar .title .tags { margin-top: 2px; }
+
+/* PC: lista y correo lado a lado */
+.split { flex: 1; display: flex; min-height: 0; }
+.split > .view { flex: 0 0 380px; max-width: 42%; border-right: 1px solid var(--line); }
+.split > .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg2); }
+.split > .pane > .empty { margin: auto; }
+.row.active { background: var(--accent-soft); }
