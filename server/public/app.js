@@ -1934,6 +1934,8 @@ const HIST = {
 	validate: d => `🔎 Validó números de una lista (${d || ''})`,
 	removed: d => `❌ ${d || 'WhatsApp quitó el dispositivo vinculado'}`,
 	'campaign-paused': d => `⏸️ Se pausó el envío «${d || ''}» por esto`,
+	restricted: d => `🚫 WhatsApp lo restringió hasta ${d || '…'} (no puede iniciar chats nuevos)`,
+	unrestricted: () => '✅ WhatsApp le quitó la restricción',
 	rest: () => '😴 Entró en descanso'
 }
 async function loadHistory(id) {

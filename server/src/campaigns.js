@@ -19,9 +19,6 @@ const hourNow = () => Number(new Intl.DateTimeFormat('en-US', { timeZone: TZ, ho
 // Errores que significan que hay que detener la campaña completa (no solo ese número)
 const FATAL = new Set([190, 10, 200, 132001, 132015, 132016, 133010, 131048])
 
-// Modo seguro: si un número acumula estos rechazos en 2 horas, deja de usarse en esa campaña
-const SAFE_MAX_REJECTS = 2
-
 for (const sql of [
 	"ALTER TABLE campaigns ADD COLUMN kind TEXT NOT NULL DEFAULT 'cloud'",
 	'ALTER TABLE campaigns ADD COLUMN message TEXT',
@@ -101,23 +98,27 @@ export class CampaignRunner {
 		this.purgeOld()
 		setInterval(() => this.purgeOld(), 3600000).unref?.()
 		this.recover()
+		// Una sola vez: los envíos que se pausaron solos porque un número dejó de enviar se reanudan, y los números
+		// apartados para siempre vuelven (ahora se apartan solo mientras están restringidos o en descanso)
+		if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'campaign_no_pause_v1'").get()) {
+			db.prepare("UPDATE campaigns SET status = 'running', note = NULL WHERE status = 'paused' AND (note LIKE 'Se pausó solo: WhatsApp quitó%' OR note LIKE 'Ningún número disponible:%')").run()
+			db.prepare("UPDATE campaigns SET disabled = NULL WHERE status IN ('running', 'paused')").run()
+			db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('campaign_no_pause_v1', '1')").run()
+		}
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
 		// WhatsApp quitó un número segundos después de que mandó un mensaje de un envío: se pausa ese envío
 		// para no perder más números con el mismo mensaje
 		manager.on('device-removed', info => { try { this.onRemoved(info) } catch (e) { note(null, 'campaign-error', e.message) } })
 	}
 
+	// El envío NO se pausa: solo se avisa en la tarjeta. El número queda en descanso (ver sessions.js) y el
+	// envío sigue con los demás.
 	onRemoved({ accountId, campaignId, secondsAfterSend }) {
 		if (!campaignId) return
 		const c = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId)
-		if (!c) return
-		const disabled = new Set(JSON.parse(c.disabled || '[]'))
-		disabled.add(accountId)
-		db.prepare('UPDATE campaigns SET disabled = ? WHERE id = ?').run(JSON.stringify([...disabled]), c.id)
-		if (c.status !== 'running') return this.emit(c.id)
+		if (!c || c.status !== 'running') return
 		const name = db.prepare('SELECT name FROM accounts WHERE id = ?').get(accountId)?.name || accountId
-		note(accountId, 'campaign-paused', c.name)
-		this.setStatus(c.id, 'paused', `Se pausó solo: WhatsApp quitó «${name}» ${secondsAfterSend} s después de enviar un mensaje de este envío. Revisa el texto, la lista y el ritmo antes de reanudar; ese número ya no se usará aquí.`)
+		this.setNote(c, `WhatsApp quitó «${name}» ${secondsAfterSend} s después de enviar un mensaje de este envío. El envío sigue con los demás números.`)
 	}
 
 	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, forced, skipChats, startAt, rows }) {
@@ -338,32 +339,32 @@ export class CampaignRunner {
 	}
 
 	async tickSafe(c, inWindow) {
-		// Mensajes que WhatsApp rechazó después de enviarse (por ejemplo, error 463)
-		const rejected = db.prepare(`
-			UPDATE campaign_items SET status = 'failed', error = 'WhatsApp rechazó el mensaje'
-			WHERE campaign_id = ? AND status = 'sent' AND EXISTS (
-				SELECT 1 FROM messages m WHERE m.account_id = campaign_items.sent_by AND m.id = campaign_items.message_id AND m.status = 0)`).run(c.id)
+		// Mensajes que WhatsApp rechazó después de enviarse. Si fue porque ese número está restringido (463)
+		// o por un problema pasajero con el contacto (479), el contacto vuelve a la cola para que se lo mande
+		// otro número (hasta 2 veces). Un número con rechazos se deja de usar solo mientras está en
+		// descanso o restringido (lo decide su salud); el envío nunca se pausa por un número.
+		const rejectedRows = db.prepare(`
+			SELECT i.id, i.sent_by, i.attempts, m.error FROM campaign_items i
+			JOIN messages m ON m.account_id = i.sent_by AND m.id = i.message_id
+			WHERE i.campaign_id = ? AND i.status = 'sent' AND m.status = 0`).all(c.id)
+		for (const r of rejectedRows) {
+			const retry = /\((463|479)\)/.test(r.error || '') && (r.attempts || 0) < 2
+			if (retry) {
+				db.prepare("UPDATE campaign_items SET status = 'pending', sent_by = NULL, sent_at = NULL, message_id = NULL, error = NULL, attempts = attempts + 1 WHERE id = ?").run(r.id)
+			} else {
+				db.prepare("UPDATE campaign_items SET status = 'failed', error = ? WHERE id = ?").run(r.error || 'WhatsApp rechazó el mensaje', r.id)
+			}
+			const name = db.prepare('SELECT name FROM accounts WHERE id = ?').get(r.sent_by)?.name || r.sent_by
+			if (/\(463\)/.test(r.error || '')) this.setNote(c, `WhatsApp restringió «${name}». El envío sigue con los demás números${retry ? ' y ese contacto se lo manda otro' : ''}.`)
+		}
 		const accounts = JSON.parse(c.accounts || '[]')
 		const disabled = new Set(JSON.parse(c.disabled || '[]'))
-		// Se deja de usar un número si WhatsApp le rechaza varios mensajes seguidos
-		for (const acc of accounts) {
-			if (disabled.has(acc)) continue
-			const n = db.prepare(`
-				SELECT COUNT(*) AS n FROM campaign_items
-				WHERE campaign_id = ? AND sent_by = ? AND status = 'failed' AND error = 'WhatsApp rechazó el mensaje' AND sent_at > ?`).get(c.id, acc, Date.now() - 2 * 3600000).n
-			if (n >= SAFE_MAX_REJECTS) {
-				disabled.add(acc)
-				const name = db.prepare('SELECT name FROM accounts WHERE id = ?').get(acc)?.name || acc
-				note(acc, 'safe-disabled', String(c.id))
-				db.prepare('UPDATE campaigns SET disabled = ? WHERE id = ?').run(JSON.stringify([...disabled]), c.id)
-				this.setNote(c, `Se dejó de usar «${name}» porque WhatsApp le rechazó mensajes. Úsalo poco unos días.`)
-			}
-		}
-		if (rejected.changes) this.emit(c.id)
+		if (rejectedRows.length) this.emit(c.id)
 		// Números de reserva: si alguno de los elegidos ya no puede enviar, entra uno de reserva en su lugar
 		const usable = acc => {
 			const session = this.manager.sessions.get(acc)
-			return !disabled.has(acc) && session && !(session instanceof CloudSession) && session.status === 'connected' && !accountHealth(acc, session.status)?.restUntil
+			const h = accountHealth(acc, session?.status)
+			return !disabled.has(acc) && session && !(session instanceof CloudSession) && session.status === 'connected' && !h?.restUntil && !h?.restrictedUntil
 		}
 		const target = c.target_numbers || accounts.length
 		if (accounts.filter(usable).length < target) {
@@ -380,7 +381,8 @@ export class CampaignRunner {
 			}
 		}
 		const active = accounts.filter(a => !disabled.has(a))
-		if (!active.length) return this.setStatus(c.id, 'paused', 'Ningún número disponible: WhatsApp rechazó mensajes de todos. Espera unos días antes de reanudar.')
+		// Sin números disponibles el envío no se pausa: espera y sigue solo cuando alguno pueda enviar
+		if (!active.length) return this.setNote(c, 'Esperando: ningún número del envío puede enviar ahora (restringidos, en descanso o desconectados). Sigue solo cuando alguno pueda.')
 		if (!inWindow) return
 
 		const pending = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE campaign_id = ? AND status = 'pending'").get(c.id).n
@@ -393,6 +395,8 @@ export class CampaignRunner {
 			if (!session || session instanceof CloudSession || session.status !== 'connected') continue
 			// Con «subir poco a poco», el límite depende de la salud del número
 			const health = accountHealth(acc, session.status)
+			// Restringido por WhatsApp: no puede iniciar chats nuevos, no se usa hasta que termine
+			if (health?.restrictedUntil) continue
 			// Descansando: solo envía si tú le permitiste unos cuantos al día (máximo esos, sin importar el modo)
 			if (health?.restUntil) {
 				const allow = db.prepare('SELECT rest_allow FROM accounts WHERE id = ?').get(acc)?.rest_allow || 0
@@ -481,9 +485,12 @@ export class CampaignRunner {
 			if (parts.length) this.setNote(c, `Esperando: ${parts.join(' · ')} (de los pendientes revisados)`)
 		}
 		if (!anyAvailable) {
-			const connected = active.some(a => this.manager.sessions.get(a)?.status === 'connected')
-			this.setNote(c, connected ? 'limit-safe' : 'Esperando a que los números elegidos estén conectados')
-		} else if (c.note === 'limit-safe' || c.note === 'Esperando a que los números elegidos estén conectados') {
+			const conn = active.filter(a => this.manager.sessions.get(a)?.status === 'connected')
+			const blocked = conn.filter(a => { const h = accountHealth(a, 'connected'); return h?.restrictedUntil || h?.restUntil || h?.level === 'red' })
+			this.setNote(c, !conn.length ? 'Esperando a que los números elegidos estén conectados'
+				: blocked.length === conn.length ? 'Esperando: los números conectados están restringidos o en descanso. Sigue solo cuando alguno pueda enviar.'
+					: 'limit-safe')
+		} else if (c.note === 'limit-safe' || /^Esperando (a que|: los números conectados|: ningún número)/.test(c.note || '')) {
 			this.setNote(c, null)
 		}
 	}

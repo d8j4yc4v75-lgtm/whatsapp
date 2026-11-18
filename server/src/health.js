@@ -7,7 +7,10 @@ for (const sql of [
 	'ALTER TABLE accounts ADD COLUMN rest_until INTEGER',
 	'ALTER TABLE accounts ADD COLUMN rest_ended_at INTEGER',
 	// Mensajes al día que tú permites aunque el número esté descansando (0 = ninguno)
-	'ALTER TABLE accounts ADD COLUMN rest_allow INTEGER NOT NULL DEFAULT 0'
+	'ALTER TABLE accounts ADD COLUMN rest_allow INTEGER NOT NULL DEFAULT 0',
+	// Restricción de WhatsApp (no puede iniciar chats nuevos) y hasta cuándo, según WhatsApp mismo
+	'ALTER TABLE accounts ADD COLUMN restricted_until INTEGER',
+	'ALTER TABLE accounts ADD COLUMN restriction_type TEXT'
 ]) {
 	try { db.exec(sql) } catch {}
 }
@@ -112,12 +115,18 @@ export function accountHealth(accountId, status) {
 	const ageDays = since ? Math.floor((now - since) / DAY) : 0
 	const st = status || a.status
 	const resting = a.rest_until && a.rest_until > now
+	const restricted = a.restricted_until && a.restricted_until > now
 	let level
 	let reason
 	let suggestedDaily = rampLimit(ageDays)
 	if (st !== 'connected') {
 		level = 'red'
 		reason = 'Desconectado'
+		suggestedDaily = 0
+	} else if (restricted) {
+		level = 'red'
+		const until = new Date(a.restricted_until).toLocaleString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'America/Mexico_City' })
+		reason = `WhatsApp lo restringió hasta ${until}: no puede iniciar chats nuevos${a.restriction_type === 'WEB_COMPANION_ONLY' ? ' desde dispositivos vinculados' : ''}. Los masivos no lo usan hasta entonces.`
 		suggestedDaily = 0
 	} else if (resting) {
 		level = 'red'
@@ -159,5 +168,5 @@ export function accountHealth(accountId, status) {
 		reason = `Casi nadie le contesta (${Math.round(rs.rate * 100)}% de ${rs.sent}). Baja el ritmo para que no lo reporten.`
 		suggestedDaily = Math.max(5, Math.floor(suggestedDaily / 2))
 	}
-	return { level, reason, rejections24h: r24, rejections72h: r72, ageDays, suggestedDaily, restUntil: resting ? a.rest_until : null, replyRate: rs.sent ? Math.round(rs.rate * 100) : null, sent3d: rs.sent }
+	return { level, reason, rejections24h: r24, rejections72h: r72, ageDays, suggestedDaily, restUntil: resting ? a.rest_until : null, restrictedUntil: restricted ? a.restricted_until : null, replyRate: rs.sent ? Math.round(rs.rate * 100) : null, sent3d: rs.sent }
 }

@@ -66,7 +66,15 @@ export function note(accountId, event, detail) {
 		try { histInsert().run(accountId, Date.now(), event, clean ?? null) } catch {}
 	}
 }
-const HISTORY_EVENTS = new Set(['open', 'close', 'alert', 'status', 'optout', 'reserve-in', 'safe-disabled', 'rest', 'validate', 'removed', 'campaign-paused'])
+const HISTORY_EVENTS = new Set(['open', 'close', 'alert', 'status', 'optout', 'reserve-in', 'safe-disabled', 'rest', 'validate', 'removed', 'campaign-paused', 'restricted', 'unrestricted'])
+
+/** Texto del rechazo según el código que manda WhatsApp */
+function rejectionText(params) {
+	const code = String(params?.[0] ?? '')
+	if (code === '463') return 'WhatsApp rechazó: cuenta restringida, no puede iniciar chats nuevos (463)'
+	if (code === '479') return 'WhatsApp rechazó el mensaje por un problema de conexión con el contacto (479)'
+	return code ? `Rechazado por WhatsApp (${code})` : null
+}
 let histStmt
 function histInsert() {
 	if (!histStmt) {
@@ -99,7 +107,8 @@ export const stmt = {
 		ON CONFLICT (account_id, id) DO NOTHING`),
 	setMedia: db.prepare('UPDATE messages SET media_path = ? WHERE account_id = ? AND id = ?'),
 	setStatus: db.prepare('UPDATE messages SET status = MAX(status, ?) WHERE account_id = ? AND id = ?'),
-	forceStatus: db.prepare("UPDATE messages SET status = ?, error = COALESCE(error, 'Rechazado por WhatsApp') WHERE account_id = ? AND id = ?"),
+	forceStatus: db.prepare("UPDATE messages SET status = ?, error = COALESCE(?, error, 'Rechazado por WhatsApp') WHERE account_id = ? AND id = ?"),
+	setRestriction: db.prepare('UPDATE accounts SET restricted_until = ?, restriction_type = ? WHERE id = ?'),
 	setText: db.prepare('UPDATE messages SET text = ?, edited = 1 WHERE account_id = ? AND id = ?'),
 	setDeleted: db.prepare('UPDATE messages SET deleted = 1, text = NULL WHERE account_id = ? AND id = ?'),
 	getMessage: db.prepare('SELECT * FROM messages WHERE account_id = ? AND id = ?'),
@@ -250,6 +259,40 @@ export class Session {
 		}
 	}
 
+	/** WhatsApp rechazó un mensaje: con 463 (cuenta restringida) se pregunta hasta cuándo dura la restricción */
+	onRejected(params) {
+		this.rejectionAlert()
+		if (String(params?.[0]) === '463') this.checkRestriction()
+	}
+
+	/** Pregunta a WhatsApp si la cuenta está restringida (como hace WhatsApp Web); máximo una vez por minuto */
+	checkRestriction() {
+		if (!this.sock?.fetchAccountReachoutTimelock || this.status !== 'connected') return
+		if (Date.now() - (this.restrictionAskedAt || 0) < 60000) return
+		this.restrictionAskedAt = Date.now()
+		// La respuesta llega también como «connection.update» (reachoutTimeLock) y la guarda setRestriction
+		this.sock.fetchAccountReachoutTimelock().then(r => this.setRestriction(r)).catch(() => {})
+	}
+
+	setRestriction(r) {
+		if (!r) return
+		const prev = stmt.getAccount.get(this.accountId)
+		const was = prev?.restricted_until && prev.restricted_until > Date.now()
+		if (r.isActive) {
+			const until = r.timeEnforcementEnds ? new Date(r.timeEnforcementEnds).getTime() : Date.now() + 3600000
+			if (was && Math.abs(prev.restricted_until - until) < 60000) return
+			stmt.setRestriction.run(until, r.enforcementType || null, this.accountId)
+			const when = new Date(until).toLocaleString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'America/Mexico_City' })
+			note(this.accountId, 'restricted', when)
+			if (!was) this.alert(`🚫 WhatsApp restringió «${prev?.name || 'un número'}» hasta ${when}`, 'No puede iniciar chats nuevos. Los masivos siguen con tus otros números y lo vuelven a usar cuando termine.')
+		} else {
+			if (!prev?.restricted_until) return
+			stmt.setRestriction.run(null, null, this.accountId)
+			if (was) note(this.accountId, 'unrestricted')
+		}
+		this.manager.emit('event', { type: 'account.update', data: this.manager.accountInfo(this.accountId) })
+	}
+
 	alert(title, body) {
 		note(this.accountId, 'alert', title)
 		sendPush({ title, body, url: '/#/accounts', badge: this.manager.totalUnread() })
@@ -326,7 +369,7 @@ export class Session {
 				}
 				if (typeof update.status === 'number') {
 					note(this.accountId, 'status', `${update.status} ${JSON.stringify(update.messageStubParameters || '')}`)
-					if (update.status === 0) { stmt.forceStatus.run(0, this.accountId, key.id); this.rejectionAlert() }
+					if (update.status === 0) { stmt.forceStatus.run(0, rejectionText(update.messageStubParameters), this.accountId, key.id); this.onRejected(update.messageStubParameters) }
 					else stmt.setStatus.run(update.status, this.accountId, key.id)
 					this.manager.emit('event', {
 						type: 'message.status',
@@ -339,7 +382,9 @@ export class Session {
 		})
 	}
 
-	async onConnection({ connection, lastDisconnect, qr }) {
+	async onConnection({ connection, lastDisconnect, qr, reachoutTimeLock }) {
+		// WhatsApp avisa cuando pone o quita una restricción a la cuenta
+		if (reachoutTimeLock) this.setRestriction(reachoutTimeLock)
 		if (qr) {
 			this.qr = await QRCode.toDataURL(qr, { margin: 1, width: 512 })
 			this.setStatus('qr')
@@ -353,6 +398,9 @@ export class Session {
 			note(this.accountId, 'open')
 			markLinked(this.accountId)
 			this.setStatus('connected', phone)
+			// ¿Está restringida? (se pregunta unos segundos después de conectar)
+			clearTimeout(this.restrictionTimer)
+			this.restrictionTimer = setTimeout(() => this.checkRestriction(), 10000 + Math.random() * 20000)
 		}
 		if (connection === 'close') {
 			const code = lastDisconnect?.error?.output?.statusCode
@@ -414,7 +462,7 @@ export class Session {
 		let body
 		if (camp) {
 			detail = `WhatsApp lo quitó ${info.secondsAfterSend} s después de enviar un mensaje del envío «${camp}»`
-			body = `WhatsApp lo quitó ${info.secondsAfterSend} s después de enviar un mensaje de «${camp}». El envío se pausó solo. Déjalo descansar unos días antes de volver a vincularlo.`
+			body = `WhatsApp lo quitó ${info.secondsAfterSend} s después de enviar un mensaje de «${camp}». El envío sigue con los demás números. Déjalo descansar unos días antes de volver a vincularlo.`
 			setRest(this.accountId, 3)
 		} else if (info.minutesAfterLink != null && info.minutesAfterLink < 30) {
 			detail = `WhatsApp lo quitó ${info.minutesAfterLink} min después de vincularlo`
@@ -611,8 +659,8 @@ export class Session {
 		if (!inserted && fromMe && status !== null) {
 			if (status === 0) {
 				note(this.accountId, 'status', `0 ${JSON.stringify(m.messageStubParameters || '')}`)
-				stmt.forceStatus.run(0, this.accountId, key.id)
-				this.rejectionAlert()
+				stmt.forceStatus.run(0, rejectionText(m.messageStubParameters), this.accountId, key.id)
+				this.onRejected(m.messageStubParameters)
 			} else {
 				stmt.setStatus.run(status, this.accountId, key.id)
 			}
@@ -843,6 +891,14 @@ export class SessionManager extends EventEmitter {
 	constructor() {
 		super()
 		this.sessions = new Map()
+		// Los números restringidos se revisan cada 20 minutos para saber si ya se levantó la restricción
+		setInterval(() => {
+			for (const s of this.sessions.values()) {
+				if (s instanceof CloudSession || s.status !== 'connected') continue
+				const a = stmt.getAccount.get(s.accountId)
+				if (a?.restricted_until) s.checkRestriction()
+			}
+		}, 20 * 60000).unref?.()
 		// Cuando un chat con LID se junta con el del número real, la lista se vuelve a cargar
 		onLidMerged(accs => { for (const accountId of accs) this.emit('event', { type: 'conversations.changed', data: { accountId } }) })
 		setTimeout(() => {
