@@ -1924,13 +1924,16 @@ async function renderTemplateList(accountId, refresh) {
 // ---------- Historial del número ----------
 const HIST = {
 	open: () => '🟢 Se conectó',
-	close: d => /^403/.test(d || '') ? '⛔ WhatsApp rechazó la conexión (403)' : /^401/.test(d || '') ? '🔒 WhatsApp cerró la sesión' : '⚪ Se desconectó' + (d ? ` (${String(d).split(' ')[0]})` : ''),
+	close: d => /^403/.test(d || '') ? '⛔ WhatsApp rechazó la conexión (403)' : /device_removed/.test(d || '') ? '🔒 WhatsApp quitó el dispositivo (device_removed)' : /^401/.test(d || '') ? '🔒 WhatsApp cerró la sesión' : '⚪ Se desconectó' + (d ? ` (${String(d).split(' ')[0]})` : ''),
 	alert: d => d || 'Aviso',
 	status: () => '⚠️ WhatsApp rechazó un mensaje',
 	optout: () => '🚫 Un cliente pidió baja',
 	'reserve-in': () => '🔁 Entró como reserva en un envío',
 	'safe-disabled': () => '⏸️ Se apartó de un envío por rechazos',
-	validate: d => `🔎 Validó números de una lista (${d || ''})`
+	validate: d => `🔎 Validó números de una lista (${d || ''})`,
+	removed: d => `❌ ${d || 'WhatsApp quitó el dispositivo vinculado'}`,
+	'campaign-paused': d => `⏸️ Se pausó el envío «${d || ''}» por esto`,
+	rest: () => '😴 Entró en descanso'
 }
 async function loadHistory(id) {
 	const el = $('#ac-history'); if (!el) return

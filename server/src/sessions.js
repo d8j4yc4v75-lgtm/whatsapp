@@ -25,7 +25,7 @@ import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 import { CloudSession, normalizePhone } from './cloud.js'
 import { clearAuth, hasAuth, useSqliteAuthState } from './auth-store.js'
-import { accountHealth, markLinked, markUnlinked, maybeRest } from './health.js'
+import { accountHealth, markLinked, markUnlinked, maybeRest, setRest } from './health.js'
 
 // Los avisos de Baileys también se guardan en el diagnóstico
 const logger = pino({ level: process.env.LOG_LEVEL || 'warn' }, {
@@ -65,7 +65,7 @@ export function note(accountId, event, detail) {
 		try { histInsert().run(accountId, Date.now(), event, clean ?? null) } catch {}
 	}
 }
-const HISTORY_EVENTS = new Set(['open', 'close', 'alert', 'status', 'optout', 'reserve-in', 'safe-disabled', 'rest', 'validate'])
+const HISTORY_EVENTS = new Set(['open', 'close', 'alert', 'status', 'optout', 'reserve-in', 'safe-disabled', 'rest', 'validate', 'removed', 'campaign-paused'])
 let histStmt
 function histInsert() {
 	if (!histStmt) {
@@ -237,7 +237,9 @@ export class Session {
 			clearTimeout(this.alertTimer)
 		} else if (status === 'logged_out' && prev !== 'logged_out' && !this.userLogout) {
 			clearTimeout(this.alertTimer)
-			this.alert(`⚠️ ${name} se desvinculó`, 'WhatsApp cerró la sesión. Vuelve a vincularlo en Cuentas.')
+			const [title, body] = this.unlinkAlert || [`⚠️ ${name} se desvinculó`, 'WhatsApp cerró la sesión. Vuelve a vincularlo en Cuentas.']
+			this.unlinkAlert = null
+			this.alert(title, body)
 		} else if (status === 'reconnecting' && prev === 'connected') {
 			clearTimeout(this.alertTimer)
 			this.alertTimer = setTimeout(() => {
@@ -355,15 +357,31 @@ export class Session {
 			note(this.accountId, 'close', `${code} ${lastDisconnect?.error?.message || ''} ${JSON.stringify(lastDisconnect?.error?.data || '')}`)
 			this.sock = null
 			if (this.stopped) return
+			// «device_removed»: WhatsApp quitó este dispositivo vinculado (o lo quitaron desde el teléfono).
+			// Se guarda qué pasó justo antes (un mensaje de un envío, o recién vinculado) para avisar y protegerlo.
+			const removed = code === DisconnectReason.loggedOut && /device_removed/.test(JSON.stringify(lastDisconnect?.error?.data || ''))
+			if (removed && !this.removedInfo) {
+				const last = this.lastCampaignSend
+				const linkedAt = stmt.getAccount.get(this.accountId)?.linked_at
+				this.removedInfo = {
+					at: Date.now(),
+					campaignId: last && Date.now() - last.at < 120000 ? last.campaignId : null,
+					secondsAfterSend: last ? Math.round((Date.now() - last.at) / 1000) : null,
+					minutesAfterLink: linkedAt ? Math.round((Date.now() - linkedAt) / 60000) : null
+				}
+			}
 			if (code === DisconnectReason.loggedOut) {
 				// A veces WhatsApp responde 401 de forma pasajera: se reintenta una vez antes de dar la sesión por cerrada
+				// (si WhatsApp dijo explícitamente que quitó el dispositivo, no se insiste)
 				const registered = hasAuth(this.accountId, this.authDir)
-				if (registered && (this.loggedOutRetries || 0) < 1) {
+				if (registered && !removed && (this.loggedOutRetries || 0) < 1) {
 					this.loggedOutRetries = (this.loggedOutRetries || 0) + 1
 					this.setStatus('reconnecting')
 					setTimeout(() => !this.stopped && this.start().catch(e => note(this.accountId, 'start-error', e.message)), 5000)
 					return
 				}
+				if (this.removedInfo) this.onRemoved(this.removedInfo)
+				this.removedInfo = null
 				clearAuth(this.accountId, this.authDir)
 				markUnlinked(this.accountId)
 				this.setStatus('logged_out')
@@ -384,6 +402,30 @@ export class Session {
 			const delay = code === DisconnectReason.restartRequired ? 0 : Math.min(30000, 2000 * 2 ** this.retries++)
 			setTimeout(() => !this.stopped && this.start().catch(e => note(this.accountId, 'start-error', e.message)), delay)
 		}
+	}
+
+	/** WhatsApp quitó el dispositivo: se explica por qué parece haber pasado, descansa y se avisa al envío */
+	onRemoved(info) {
+		const name = stmt.getAccount.get(this.accountId)?.name || 'Un número'
+		const camp = info.campaignId ? db.prepare('SELECT name FROM campaigns WHERE id = ?').get(info.campaignId)?.name : null
+		let detail
+		let body
+		if (camp) {
+			detail = `WhatsApp lo quitó ${info.secondsAfterSend} s después de enviar un mensaje del envío «${camp}»`
+			body = `WhatsApp lo quitó ${info.secondsAfterSend} s después de enviar un mensaje de «${camp}». El envío se pausó solo. Déjalo descansar unos días antes de volver a vincularlo.`
+			setRest(this.accountId, 3)
+		} else if (info.minutesAfterLink != null && info.minutesAfterLink < 30) {
+			detail = `WhatsApp lo quitó ${info.minutesAfterLink} min después de vincularlo`
+			body = `WhatsApp lo volvió a quitar ${info.minutesAfterLink} min después de vincularlo: el número está marcado. Espera al menos 3 días antes de vincularlo otra vez.`
+			setRest(this.accountId, 3)
+		} else {
+			detail = 'WhatsApp quitó el dispositivo vinculado'
+			body = 'WhatsApp quitó este dispositivo vinculado. Si no lo quitaste tú desde el teléfono, espera un rato antes de volver a vincularlo.'
+		}
+		note(this.accountId, 'removed', detail)
+		this.unlinkAlert = [`⚠️ WhatsApp quitó «${name}»`, body]
+		this.lastCampaignSend = null
+		this.manager.emit('device-removed', { accountId: this.accountId, ...info })
 	}
 
 	saveContacts(contacts) {

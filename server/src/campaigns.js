@@ -102,6 +102,22 @@ export class CampaignRunner {
 		setInterval(() => this.purgeOld(), 3600000).unref?.()
 		this.recover()
 		this.timer = setInterval(() => this.tick().catch(e => note(null, 'campaign-error', e.message)), 5000)
+		// WhatsApp quitó un número segundos después de que mandó un mensaje de un envío: se pausa ese envío
+		// para no perder más números con el mismo mensaje
+		manager.on('device-removed', info => { try { this.onRemoved(info) } catch (e) { note(null, 'campaign-error', e.message) } })
+	}
+
+	onRemoved({ accountId, campaignId, secondsAfterSend }) {
+		if (!campaignId) return
+		const c = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId)
+		if (!c) return
+		const disabled = new Set(JSON.parse(c.disabled || '[]'))
+		disabled.add(accountId)
+		db.prepare('UPDATE campaigns SET disabled = ? WHERE id = ?').run(JSON.stringify([...disabled]), c.id)
+		if (c.status !== 'running') return this.emit(c.id)
+		const name = db.prepare('SELECT name FROM accounts WHERE id = ?').get(accountId)?.name || accountId
+		note(accountId, 'campaign-paused', c.name)
+		this.setStatus(c.id, 'paused', `Se pausó solo: WhatsApp quitó «${name}» ${secondsAfterSend} s después de enviar un mensaje de este envío. Revisa el texto, la lista y el ritmo antes de reanudar; ese número ya no se usará aquí.`)
 	}
 
 	create({ kind, accountId, accountIds, name, template, language, message, perHour, startHour, endHour, dailyPerNumber, hourlyPerNumber, minDelay, maxDelay, autoRamp, forced, skipChats, startAt, rows }) {
@@ -426,6 +442,7 @@ export class CampaignRunner {
 				await session.setPresence(jid, 'composing').catch(() => {})
 				await sleep(Math.min(6000, 900 + text.length * 30))
 				const sent = await session.send(jid, { text })
+				session.lastCampaignSend = { at: Date.now(), campaignId: c.id }
 				await session.setPresence(jid, 'paused').catch(() => {})
 				db.prepare("UPDATE campaign_items SET status = 'sent', message_id = ?, sent_at = ?, jid = ? WHERE id = ?").run(sent.id, Date.now(), jid, item.id)
 				// Micro-descanso: de vez en cuando el número "se despega" un rato, como alguien real
