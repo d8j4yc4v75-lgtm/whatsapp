@@ -25,6 +25,7 @@ import { DATA_DIR } from './config.js'
 import { sendPush } from './push.js'
 import { CloudSession, normalizePhone } from './cloud.js'
 import { clearAuth, hasAuth, useSqliteAuthState } from './auth-store.js'
+import { onLidMerged, repairLids, saveLidMapping } from './lidfix.js'
 import { accountHealth, markLinked, markUnlinked, maybeRest, setRest } from './health.js'
 
 // Los avisos de Baileys también se guardan en el diagnóstico
@@ -136,7 +137,8 @@ export function isOwnJid(jid) {
 }
 
 function rememberLid(lid, pn) {
-	if (lid && pn && isLidUser(lid) && isPnUser(pn)) stmt.setLid.run(jidNormalizedUser(lid), jidNormalizedUser(pn))
+	// Además junta el chat que hubiera quedado con el LID (un código en lugar del número) con el del número real
+	if (lid && pn && isLidUser(lid) && isPnUser(pn)) saveLidMapping(jidNormalizedUser(lid), jidNormalizedUser(pn))
 }
 
 /** Convierte un JID (posiblemente @lid) al formato de número para unificar conversaciones */
@@ -841,6 +843,11 @@ export class SessionManager extends EventEmitter {
 	constructor() {
 		super()
 		this.sessions = new Map()
+		// Cuando un chat con LID se junta con el del número real, la lista se vuelve a cargar
+		onLidMerged(accs => { for (const accountId of accs) this.emit('event', { type: 'conversations.changed', data: { accountId } }) })
+		setTimeout(() => {
+			try { const r = repairLids(); if (r.learned || r.merged) note(null, 'lid-repair', `${r.learned} equivalencias, ${r.merged} chats juntados`) } catch (e) { note(null, 'lid-repair-error', e.message) }
+		}, 15000).unref?.()
 	}
 
 	async startAll() {
@@ -1077,7 +1084,8 @@ export class SessionManager extends EventEmitter {
 			accountId: r.account_id,
 			jid: r.jid,
 			name: r.name || null,
-			phone: isJidGroup(r.jid) ? null : r.jid.split('@')[0],
+			phone: isJidGroup(r.jid) || isLidUser(r.jid) ? null : r.jid.split('@')[0],
+			lid: Boolean(isLidUser(r.jid)),
 			isGroup: Boolean(isJidGroup(r.jid)),
 			lastTs: Math.max(r.last_ts, last?.ts || 0),
 			lastText: preview(last),

@@ -73,7 +73,8 @@ function fmtPhone(p) {
 	return '+' + d
 }
 // Mostrar el número en lugar del nombre (los grupos sí conservan su nombre)
-const convName = c => c?.isGroup ? (c?.name || 'Grupo') : (c?.phone ? fmtPhone(c.phone) : (c?.name || c?.jid || ''))
+// WhatsApp a veces oculta el número (LID): se muestra el nombre o «Número oculto»
+const convName = c => c?.isGroup ? (c?.name || 'Grupo') : c?.lid ? (c?.name || 'Número oculto por WhatsApp') : (c?.phone ? fmtPhone(c.phone) : (c?.name || c?.jid || ''))
 // Spintax: {a|b|c} → una opción al azar (para la vista previa; el servidor hace lo mismo al enviar)
 const spin = text => {
 	let s = String(text || '')
@@ -713,7 +714,7 @@ async function renderChat(jid, full) {
 
 function renderChatHeader() {
 	const c = conv(S.active)
-	$('#c-title').textContent = c ? convName(c) : fmtPhone(jidOf(S.active).split('@')[0])
+	$('#c-title').textContent = c ? convName(c) : /@lid$/.test(jidOf(S.active)) ? 'Número oculto por WhatsApp' : fmtPhone(jidOf(S.active).split('@')[0])
 	const av = $('#c-avatar'); if (av && c && av.dataset.key !== c.key) { av.dataset.key = c.key; av.innerHTML = avatarHtml(c, true) }
 	updateBadge()
 	const parts = []

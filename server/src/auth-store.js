@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { BufferJSON, initAuthCreds, proto } from 'baileys'
 import { db } from './db.js'
+import { lidPairsFromKeys, saveLidMapping } from './lidfix.js'
 
 // Las llaves de WhatsApp se guardan en SQLite en lugar de miles de archivos pequeños,
 // que ocupan mucho más disco. Los archivos de versiones anteriores se migran al leerlos.
@@ -94,6 +95,12 @@ export function useSqliteAuthState(accountId, folder) {
 							}
 						}
 					})()
+					// Equivalencias LID → número: se copian aparte para no perderlas si el número se desvincula
+					if (data['lid-mapping']) {
+						for (const [lid, pn] of lidPairsFromKeys(Object.entries(data['lid-mapping']))) {
+							try { saveLidMapping(lid, pn) } catch {}
+						}
+					}
 				}
 			}
 		},
