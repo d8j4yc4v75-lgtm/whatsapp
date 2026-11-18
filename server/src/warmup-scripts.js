@@ -17,25 +17,25 @@ export const SCRIPTS = [
 	{ lines: ['¿{Me pasas|Me mandas} {el número|los datos|la dirección} {cuando puedas|al rato}?', '{Claro|Sí}, {ahorita te lo paso|dame un minuto|en un rato}', '{Gracias|Mil gracias|Va}'] },
 	{ when: 'weekend', lines: ['{Feliz|Buen} {fin de semana|viernes} {🎉|🙌|}', '{Igualmente|Gracias, igual}! ¿{Qué planes|Vas a salir}?', '{Nada|Descansar|Ver series} {jaja|😂|}, ¿{y tú|tú}?', '{Igual|Lo mismo}, {a descansar|tranquilo} {😴|}'] },
 	{ lines: ['¿{A qué hora|Cuándo} {nos vemos|pasas}?', '{Como a las|Tipo} {5|6|7}, ¿{te parece|va}?', '{Va, perfecto|Sale|Ok}'] },
-	{ lines: ['{Te mando|Ahí te va} {la foto|el archivo|lo que me pediste} {más tarde|al rato}', '{Va, gracias|Ok, sin prisa|Perfecto}'] },
-	{ lines: ['¿Ya {pagaste|hiciste} {lo de la luz|el súper|lo del recibo}?', '{Sí, ayer|Todavía no, mañana|Ya mero}', '{Ok|Va}, {no se te olvide|cualquier cosa me dices}', '{Sí|Claro} {😅|👍|}'] },
+	{ follow: ['{Perdón, se me pasó|Oye, ¿sí te llegó} {lo que te dije|la foto|el archivo}? {😅|}', '{No te preocupes|Sí, gracias|Ya lo vi}', '{Va|Ok} {👍|}'], lines: ['{Te mando|Ahí te va} {la foto|el archivo|lo que me pediste} {más tarde|al rato}', '{Va, gracias|Ok, sin prisa|Perfecto}'] },
+	{ follow: ['¿Siempre {pagaste|alcanzaste a pagar} lo {del recibo|de la luz|del súper}?', '{Sí, ya|Ya quedó, gracias|Ya, ayer}', '{Va|Bien} {👍|}'], lines: ['¿Ya {pagaste|hiciste} {lo de la luz|el súper|lo del recibo}?', '{Sí, ayer|Todavía no, mañana|Ya mero}', '{Ok|Va}, {no se te olvide|cualquier cosa me dices}', '{Sí|Claro} {😅|👍|}'] },
 	{ lines: ['{Qué calor|Qué frío} {hace hoy|está haciendo} {🥵|🥶|}', '{Demasiado|Muchísimo|Sí, horrible} {jaja|}', '{Ya quiero que cambie|Ni modo} {😂|}'] },
-	{ lines: ['¿Cómo {sigue|está} {tu mamá|tu familia|tu papá}?', '{Mejor, gracias|Bien, gracias por preguntar|Ahí va}', '{Qué bueno|Me alegra} {🙏|}, {saludos|mándale saludos}', '{Gracias|Igual} {🙌|}'] },
+	{ follow: ['¿Cómo {sigue|ha seguido} {tu familia|tu mamá|todo en tu casa}?', '{Mejor, gracias|Ya mucho mejor|Ahí va, poco a poco} {🙏|}', '{Qué bueno|Me da gusto} {🙌|}'], lines: ['¿Cómo {sigue|está} {tu mamá|tu familia|tu papá}?', '{Mejor, gracias|Bien, gracias por preguntar|Ahí va}', '{Qué bueno|Me alegra} {🙏|}, {saludos|mándale saludos}', '{Gracias|Igual} {🙌|}'] },
 	{ lines: ['{Oye|Fíjate} que {vi|me acordé de} {algo chistoso|una cosa curiosa|algo bien curioso} {jaja|😂}', '¿{Qué cosa|De qué}?', '{Luego te cuento|Al rato te digo} {jaja|}', '{Va|Ok, me dejas con la duda} {😂|}'] },
-	{ lines: ['¿{Conoces|Sabes de} {algún|un} {mecánico|doctor|plomero|electricista} {bueno|de confianza}?', '{Sí, te paso su número|Déjame preguntar|Mmm no, pero pregunto}', '{Gracias|Te lo agradezco}'] },
+	{ follow: ['¿{Siempre encontraste|Ya encontraste} {a alguien|quién te ayudara|lo que buscabas}?', '{Sí, ya|Todavía no|Ya, gracias por preguntar}', '{Qué bueno|Avísame si necesitas|Va} {👍|}'], lines: ['¿{Conoces|Sabes de} {algún|un} {mecánico|doctor|plomero|electricista} {bueno|de confianza}?', '{Sí, te paso su número|Déjame preguntar|Mmm no, pero pregunto}', '{Gracias|Te lo agradezco}'] },
 	{ when: 'morning', greets: true, lines: ['{Buenos días|Buen día} {☀️|}', '{Buenos días|Buen día}! ¿{Cómo amaneciste|Qué tal}?', '{Bien|Con sueño} {jaja|😴|}', '{Igual|Ánimo} {☕|}'] },
 	{ when: 'morning', greets: true, lines: ['{Buenos días|Buen día}, ¿{ya desayunaste|ya vas para allá}?', '{Apenas|Ya, gracias|Todavía no} {☕|}', '{Va|Ok}, {buen día|que te vaya bien}'] },
 	{ when: 'night', greets: true, lines: ['{Buenas noches|Ya me voy a dormir} {😴|🌙|}', '{Descansa|Buenas noches|Que descanses}', '{Igualmente|Gracias}'] },
 	{ when: 'night', lines: ['¿{Sigues despierto|Ya te dormiste}?', '{Ya casi|Todavía no} {jaja|😴|}', '{Igual|Yo también ya me voy}, {buenas noches|descansa}'] },
-	{ lines: ['¿Ya {viste|empezaste} {la serie|la película} que te dije?', '{Todavía no|Ya, está buenísima|Apenas voy empezando}', '{Tienes que verla|¿Verdad que sí?|Te va a gustar} {😄|}'] },
+	{ follow: ['¿{Ya la viste|Al final viste} {la serie|la película}?', '{Sí, ya voy a la mitad|Todavía no, este fin|Ya, me encantó} {😄|}', '{Te dije|Luego me cuentas|Va} {jaja|}'], lines: ['¿Ya {viste|empezaste} {la serie|la película} que te dije?', '{Todavía no|Ya, está buenísima|Apenas voy empezando}', '{Tienes que verla|¿Verdad que sí?|Te va a gustar} {😄|}'] },
 	{ lines: ['{Gracias por|Gracias, ya me llegó} {lo de ayer|el paquete|la info}', '{De nada|Con gusto|Para eso estamos} {🙌|}'] },
-	{ lines: ['¿{Vas a ir|Irás} {a la reunión|a la comida} {del sábado|de mañana}?', '{Sí|Creo que sí|No creo}, ¿{tú|y tú}?', '{Yo sí|Todavía no sé}', '{Va, ahí nos vemos|Ok, me avisas}'] },
+	{ follow: ['¿{Qué tal estuvo|Cómo estuvo} {la reunión|la comida}?', '{Bien, tranquila|Estuvo buena|Larga jaja}', '{Qué bueno|Ah, va} {😄|}'], lines: ['¿{Vas a ir|Irás} {a la reunión|a la comida} {del sábado|de mañana}?', '{Sí|Creo que sí|No creo}, ¿{tú|y tú}?', '{Yo sí|Todavía no sé}', '{Va, ahí nos vemos|Ok, me avisas}'] },
 	{ lines: ['{Ando|Estoy} {en el súper|haciendo mandados|en la calle}, ¿{necesitas algo|se te ofrece algo}?', '{No, gracias|Si ves {pan|leche|tortillas}, tráeme porfa}', '{Va|Sale|Ok} {👍|}'] },
 	{ lines: ['¿{Estás ocupado|Tienes un minuto}?', '{Sí, dime|Un poco, ¿qué pasó?|Ahorita sí}', '{Nada grave|Luego te marco|Era para ver lo de mañana}, {al rato hablamos|no te preocupes}', '{Va|Ok, al rato} {👍|}'] },
 	{ lines: ['{Ya llegué|Ya estoy en casa} {🙌|}', '{Qué bueno|Perfecto}, {descansa|me avisas cualquier cosa}'] },
 	{ when: 'monday', lines: ['{Ya es lunes|Otra vez lunes} {😩|😴|}', '{Ni me digas|No me recuerdes|Ánimo} {jaja|😂|}', '{A darle|Ni modo, a trabajar} {💪|}'] },
 	{ lines: ['¿{Tienes|Traes} {cargador|cable} {de iPhone|tipo C}?', '{Sí, ¿lo necesitas?|No, se me olvidó|Creo que sí}', '{Sí porfa|No, ya conseguí|Luego te digo}', '{Va|Ok} {👍|}'] },
-	{ lines: ['{Mañana|El lunes} {tengo que|hay que} {ir al banco|pasar al centro|hacer un trámite}, ¿{me acompañas|vas a ir}?', '{Sí, ¿a qué hora?|No puedo, perdón|Depende de la hora}', '{Temprano|Como a las 10|En la tarde}', '{Va|Ok, me avisas} {👍|}'] },
+	{ follow: ['¿{Cómo te fue|Qué tal te fue} {con el trámite|en el banco|con lo que tenías que hacer}?', '{Bien, ya quedó|Un rollo, pero ya quedó|Mal, hay que regresar} {😅|}', '{Qué bueno|Uff|Ni modo} {jaja|}'], lines: ['{Mañana|El lunes} {tengo que|hay que} {ir al banco|pasar al centro|hacer un trámite}, ¿{me acompañas|vas a ir}?', '{Sí, ¿a qué hora?|No puedo, perdón|Depende de la hora}', '{Temprano|Como a las 10|En la tarde}', '{Va|Ok, me avisas} {👍|}'] },
 	{ lines: ['{Se me olvidó|Ya no me acordé de} {decirte|comentarte} lo {de mañana|del sábado} {😅|}', '¿{Qué pasó|Qué cosa}?', '{Que siempre sí|Que se movió para otro día|Que al final no}', '{Ah, ok|Va, gracias por avisar|Entendido}'] },
 	{ greets: true, lines: ['{Buenas|Hola}, ¿{todo bien|cómo va el día}?', '{Todo bien|Pesado pero bien|Tranquilo}, ¿{y tú|tú}?', '{Igual|Bien, gracias} {🙌|}'] },
 	{ lines: ['¿{Ya viste|Viste} el precio de {la gasolina|el gas|las tortillas|el aguacate}?', '{Sí, carísimo|No manches, ¿subió otra vez?|Ni me digas}', '{Todo sube|Así está todo} {😩|}'] },
@@ -110,7 +110,8 @@ export function persona(id) {
 		abbrev: r(16) < 0.3, // q, xq, tmb, porfa
 		speed: 28 + r(17) * 45, // ms por letra al escribir
 		dropPeriod: r(18) < 0.6,
-		pace: 0.6 + r(19) * 0.9 // qué tan rápido contesta (menos = más rápido)
+		pace: 0.6 + r(19) * 0.9, // qué tan rápido contesta (menos = más rápido)
+		typos: 0.02 + r(20) * 0.08 // qué tan seguido se equivoca al escribir
 	}
 }
 const EMOJI = /\p{Extended_Pictographic}️?/gu

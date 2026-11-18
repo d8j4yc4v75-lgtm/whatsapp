@@ -26,6 +26,10 @@ import {
 // - Prueba de entrega: si los mensajes de un número no le llegan a tus otros números, lo pausa y avisa.
 // - Madurez 0–100 por número, con consejos (foto, info del perfil…) y cuándo estará listo.
 // - Las charlas sobreviven a un reinicio del servidor.
+// - Números restringidos por WhatsApp solo contestan (nunca inician) y al terminar la restricción regresan poco a poco.
+// - Errores de dedo que se corrigen con «*palabra» o editando el mensaje, como una persona.
+// - Seguimiento: días después alguien pregunta «¿cómo te fue en el banco?» sobre una charla anterior.
+// - Historial de las últimas charlas para ver qué hizo.
 
 const TZ = process.env.TZ_CAMPAIGNS || 'America/Mexico_City'
 const DAY = 864e5
@@ -78,7 +82,7 @@ const q = {
 	pairs: db.prepare('SELECT account_id AS a, peer_id AS b, MAX(ts) AS t FROM warmup_log WHERE ts > ? AND peer_id IS NOT NULL GROUP BY account_id, peer_id'),
 	perDay: db.prepare('SELECT ts FROM warmup_log WHERE ts > ?'),
 	prune: db.prepare('DELETE FROM warmup_log WHERE ts < ?'),
-	accounts: db.prepare("SELECT id, name, phone, linked_at, rest_ended_at, rest_until FROM accounts WHERE (kind IS NULL OR kind != 'cloud') AND phone IS NOT NULL AND phone != ''"),
+	accounts: db.prepare("SELECT id, name, phone, linked_at, rest_ended_at, rest_until, restricted_until FROM accounts WHERE (kind IS NULL OR kind != 'cloud') AND phone IS NOT NULL AND phone != ''"),
 	getSetting: db.prepare('SELECT value FROM app_settings WHERE key = ?'),
 	setSetting: db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)'),
 	lidsOf: db.prepare('SELECT lid FROM lid_map WHERE pn = ?'),
@@ -166,6 +170,25 @@ const FAILS_TO_FLAG = 3
 const FLAG_HOURS = 12
 const LAT = Number(process.env.WARMUP_LAT || 19.4326)
 const LNG = Number(process.env.WARMUP_LNG || -99.1332)
+const RECOVER_DAYS = 3 // días de regreso gradual después de una restricción
+const MAX_HISTORY = 40
+
+// Error de dedo: intercambia dos letras de una palabra larga ("gracias" → "garcias")
+function typo(text) {
+	const words = [...text.matchAll(/\p{L}{5,}/gu)]
+	if (!words.length) return null
+	const w = pick(words)
+	const i = irnd(1, w[0].length - 3)
+	const chars = [...w[0]]
+	;[chars[i], chars[i + 1]] = [chars[i + 1], chars[i]]
+	const bad = chars.join('')
+	if (bad === w[0]) return null
+	return { text: text.slice(0, w.index) + bad + text.slice(w.index + w[0].length), word: w[0] }
+}
+// Texto corto de la primera línea para el historial ("{Hola|Buenas}" → "Hola")
+const previewOf = line => typeof line === 'string'
+	? line.replace(/\{([^|}]*)[^}]*\}/g, '$1').replace(/\|\|/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70)
+	: { image: '📷 Foto', audio: '🎤 Nota de voz', location: '📍 Ubicación', contact: '👤 Contacto' }[line?.media] || '…'
 
 function moments(h, wd) {
 	return {
@@ -216,6 +239,8 @@ export class WarmupManager {
 		this.custom = parseCustom(getJSON('warmup_custom', ''))
 		this.groups = getJSON('warmup_groups', [])
 		this.stories = getJSON('warmup_stories', {})
+		this.follows = [] // seguimientos pendientes { from, to, lines, at }
+		this.history = getJSON('warmup_history', []) // últimas charlas
 		this.day = null
 		this.snap = null
 		this.dirty = false
@@ -279,14 +304,16 @@ export class WarmupManager {
 		this.dirty = false
 		setJSON('warmup_state', {
 			convos: [...this.convos.values()], queue: this.queue, checks: this.checks, fails: this.fails, flags: this.flags,
-			nextConvoAt: this.nextConvoAt, recent: this.recent, seq: this.seq, avgLines: this.avgLines
+			nextConvoAt: this.nextConvoAt, recent: this.recent, seq: this.seq, avgLines: this.avgLines, follows: this.follows
 		})
+		setJSON('warmup_history', this.history.slice(0, MAX_HISTORY))
 	}
 	restore() {
 		const st = getJSON('warmup_state', null)
 		if (!st) return
 		const now = Date.now()
 		this.fails = st.fails || {}
+		this.follows = (st.follows || []).filter(f => f?.lines?.length && now - f.at < 5 * DAY)
 		for (const [id, f] of Object.entries(st.flags || {})) if (f?.until > now) this.flags[id] = f
 		if (!this.s.enabled) return
 		this.seq = st.seq || 0
@@ -352,6 +379,7 @@ export class WarmupManager {
 	// MODO AUTOMÁTICO: según estado, rechazos, antigüedad, masivos de hoy e intensidad
 	autoBase(a, h, camp) {
 		if (!h || a.grace) return 0
+		if (h.restrictedUntil) return 3 // restringido: no puede iniciar chats nuevos, solo contesta un poco
 		if (h.restUntil) return h.rejections24h >= 2 ? 0 : 2 // descanso de masivos: charla ligera para recuperarse
 		if (h.level === 'red') return 0
 		const age = h.ageDays
@@ -360,8 +388,11 @@ export class WarmupManager {
 		else if (age < 3) base = 2 + age
 		else if (h.level === 'yellow') base = 3
 		else if (age < 7) base = 6
-		else base = 8
+		else if (age < 14) base = 8
+		else if (age < 30 || h.level !== 'green') base = 10
+		else base = 12
 		if (camp >= 20 && h.level === 'green') base += Math.min(4, 1 + Math.floor(camp / 40))
+		if (a.recovering) base *= 0.5 // acaba de salir de una restricción: regresa poco a poco
 		return base * INTENSITY[this.s.intensity || 'normal']
 	}
 
@@ -375,9 +406,11 @@ export class WarmupManager {
 		const prof = known ? (p.picture ? 6 : 0) + (p.name ? 4 : 0) + (p.about ? 5 : 0) : 7
 		const health = a.level === 'green' ? 15 : a.level === 'yellow' ? 7 : 0
 		let score = Math.round(age + talk + peers + prof + health)
-		if (this.flagged(a.id)) score = Math.round(score * 0.5)
+		if (this.flagged(a.id) || a.restricted) score = Math.round(score * 0.5)
 		const tips = []
 		if (this.flagged(a.id)) tips.push('Sus mensajes no les llegan a tus otros números: puede estar restringido')
+		if (a.restricted) tips.push('WhatsApp lo restringió: solo contesta, no inicia charlas')
+		if (a.recovering) tips.push('Saliendo de una restricción: habla a la mitad unos días')
 		if (known && !p.picture) tips.push('Ponle foto de perfil')
 		if (known && !p.name) tips.push('Ponle nombre al perfil')
 		if (known && !p.about) tips.push('Escribe una info en su perfil')
@@ -407,9 +440,12 @@ export class WarmupManager {
 			try { h = accountHealth(a.id, 'connected') } catch {}
 			a.level = h?.level || 'red'
 			a.resting = Boolean(h?.restUntil || (a.rest_until && a.rest_until > now))
+			a.restricted = Boolean(h?.restrictedUntil)
+			a.restrictedUntil = h?.restrictedUntil || null
+			a.recovering = !a.restricted && Boolean(a.restricted_until && a.restricted_until <= now && now - a.restricted_until < RECOVER_DAYS * DAY)
 			let base
 			if (s.auto) base = this.autoBase(a, h, a.campaign)
-			else base = a.grace || a.level === 'red' ? 0 : Math.min(s.perDay, 3 + 2 * this.ageDays(a))
+			else base = a.grace || a.level === 'red' ? 0 : a.restricted ? Math.min(s.perDay, 3) : Math.min(s.perDay, 3 + 2 * this.ageDays(a)) * (a.recovering ? 0.5 : 1)
 			a.target = base ? Math.max(1, Math.round(base * this.dayFactor(a, rest, wd))) : 0
 			if (!s.auto) a.target = Math.min(s.perDay, a.target)
 			if (this.flagged(a.id)) a.target = 0
@@ -487,10 +523,13 @@ export class WarmupManager {
 			group: g ? { subject: g.subject, members: (g.members || []).length } : null,
 			library: { images: files.filter(f => f.kind === 'image').length, audios: files.filter(f => f.kind === 'audio').length, files },
 			customCount: this.custom.length,
+			pendingFollows: this.follows.length,
+			history: this.history.slice(0, 15),
 			numbers: list.map(a => ({
 				id: a.id, name: a.name, sentToday: this.sentToday(a.id), receivedToday: this.recvToday(a.id), target: a.target,
 				ageDays: this.ageDays(a), asleep: this.awake(a, h, wd) < 0.15, grace: a.grace, resting: a.resting,
 				level: a.level, campaignToday: a.campaign, flagged: this.flagged(a.id) ? this.flags[a.id] : null,
+				restrictedUntil: a.restrictedUntil, recovering: a.recovering,
 				maturity: a.mature,
 				inConvo: [...this.convos.values()].some(c => c.members.includes(a.id))
 			}))
@@ -668,7 +707,7 @@ export class WarmupManager {
 				this.flags[c.from] = { until: now + FLAG_HOURS * 36e5, at: now, reason: `${this.fails[c.from]} mensajes seguidos no llegaron a tus otros números` }
 				this.snap = null
 				sendPush({ title: `⚠️ ${name}: sus mensajes no llegan`, body: 'El calentamiento lo pausó 12 h. Puede estar restringido por WhatsApp: no lo uses en masivos por ahora.', url: '/#/settings' })
-				for (const cv of [...this.convos.values()]) if (cv.members.includes(c.from)) this.end(cv.id)
+				for (const cv of [...this.convos.values()]) if (cv.members.includes(c.from)) this.end(cv.id, 'pausada')
 			}
 		}
 	}
@@ -679,8 +718,19 @@ export class WarmupManager {
 		if (this.convos.size >= maxActive) return 'busy'
 		const busyIds = new Set([...this.convos.values()].flatMap(c => c.members))
 		const free = a => !busyIds.has(a.id) && this.live(a.id) && !this.flagged(a.id) && !this.busyReal(a.id)
-		const ready = list.filter(a => free(a) && this.canSpeak(a, false))
+		const ready = list.filter(a => free(a) && this.canSpeak(a, false) && !a.restricted) // un restringido no inicia charlas
 		const mo = moments(hour, wd)
+		// Seguimiento de una charla de días anteriores («¿cómo te fue en el banco?»)
+		const now = Date.now()
+		this.follows = this.follows.filter(f => now - f.at < 5 * DAY)
+		const fu = this.follows.find(f => f.at <= now && ready.some(a => a.id === f.from) && list.some(x => x.id === f.to && free(x)) && this.awake(snap.byId.get(f.from), hour, wd) >= 0.5)
+		if (fu && Math.random() < 0.7) {
+			this.follows = this.follows.filter(f => f !== fu)
+			const to = snap.byId.get(fu.to)
+			let lines = [...fu.lines]
+			if (to.grace || !this.canSpeak(to, true)) lines = lines.slice(0, 1)
+			return this.startConvo({ members: [fu.from, fu.to], order: lines.map((_, i) => (i % 2 === 0 ? fu.from : fu.to)), lines, followUp: true }, { lines }, force)
+		}
 		const fitOf = sc => (!sc.when ? (mo.night ? 0.4 : 1) : mo[sc.when] ? BOOST[sc.when] : 0)
 		// A veces la charla es en el grupo de tus números
 		const g = this.group()
@@ -727,16 +777,26 @@ export class WarmupManager {
 	startConvo(c, script, force) {
 		this.recent = [keyOf(script), ...this.recent].slice(0, 14)
 		const id = ++this.seq
-		this.convos.set(id, { id, ...c, when: c.when || null, i: 0, n: 0, postponed: 0, lastAt: Date.now() })
+		this.convos.set(id, { id, ...c, when: c.when || null, follow: script.follow || null, preview: previewOf(c.lines[0]), startedAt: Date.now(), i: 0, n: 0, postponed: 0, lastAt: Date.now() })
 		this.queue.push({ at: Date.now() + rnd(force ? 0 : 5, force ? 5 : 40) * 1000, kind: 'say', convoId: id })
 		this.dirty = true
 		return 'ok'
 	}
 
-	end(convoId) {
+	end(convoId, reason = 'cortada') {
 		// Aprende cuántos mensajes salen de verdad por charla (algunas acaban antes) para planear mejor
 		const c = this.convos.get(convoId)
 		if (c?.n && !c.group) this.avgLines = clamp(this.avgLines * 0.92 + c.n * 0.08, 1.5, 6)
+		if (c) {
+			// Si la charla terminó bien y tiene seguimiento, el que escuchaba pregunta en 1–2 días
+			if (c.follow && !c.group && (reason === 'completa' || reason === 'reacción') && c.members.length === 2 && this.follows.length < 20) {
+				this.follows.push({ from: c.members[1], to: c.members[0], lines: c.follow, at: Date.now() + rnd(18, 50) * 36e5 })
+			}
+			if (c.n || reason !== 'cortada') {
+				this.history.unshift({ at: Date.now(), startedAt: c.startedAt || null, members: c.members, group: Boolean(c.group), preview: c.preview || '', n: c.n, reason, followUp: Boolean(c.followUp) })
+				this.history = this.history.slice(0, MAX_HISTORY)
+			}
+		}
 		this.convos.delete(convoId)
 		this.queue = this.queue.filter(e => !(e.kind === 'say' && e.convoId === convoId))
 		this.dirty = true
@@ -761,8 +821,22 @@ export class WarmupManager {
 			const parts = bubbles(raw).map(t => styleText(t, p))
 			for (let j = 0; j < parts.length; j++) {
 				await typing(parts[j])
-				const r = await session.send(toJid, { text: parts[j] }, undefined, j === 0 && quoted ? { quoted } : undefined)
+				// A veces se le va un error de dedo y luego lo corrige
+				const bad = Math.random() < (p.typos ?? 0.05) ? typo(parts[j]) : null
+				const r = await session.send(toJid, { text: bad ? bad.text : parts[j] }, undefined, j === 0 && quoted ? { quoted } : undefined)
 				if (r?.id) ids.push(r.id)
+				if (bad && r?.id) {
+					if (Math.random() < 0.55) {
+						await sleep(irnd(1200, 3500))
+						await session.setPresence(toJid, 'composing')
+						await sleep(irnd(800, 1800))
+						const fix = await session.send(toJid, { text: `*${p.noAccent ? bad.word.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : bad.word}` })
+						if (fix?.id) ids.push(fix.id)
+					} else {
+						await sleep(irnd(3000, 9000))
+						await session.editMessage(r.id, parts[j]).catch(() => {})
+					}
+				}
 				if (j < parts.length - 1) await sleep(irnd(500, 1800))
 			}
 		}
@@ -812,7 +886,7 @@ export class WarmupManager {
 		if (!speaker || !listeners.length || !this.live(speaker.id) || this.flagged(speaker.id) || !this.canSpeak(speaker, c.i > 0)) return this.end(c.id)
 		// Si está atendiendo un chat real o un envío masivo, contesta un poco después
 		if (this.busyReal(speaker.id)) {
-			if (++c.postponed > 4) return this.end(c.id)
+			if (++c.postponed > 4) return this.end(c.id, 'ocupado')
 			this.queue.push({ ...ev, at: Date.now() + rnd(2, 6) * MIN })
 			return
 		}
@@ -830,7 +904,7 @@ export class WarmupManager {
 			if (isLast && c.i > 0 && typeof line === 'string' && Math.random() < 0.3 && await session.reactLast(chat, pick(REACTS))) {
 				this.log(speaker.id, one?.id)
 				c.n++
-				return this.end(c.id)
+				return this.end(c.id, 'reacción')
 			}
 			// A media charla, a veces reacciona y luego contesta
 			if (c.i > 0 && !isLast && Math.random() < 0.1) { await session.reactLast(chat, pick(REACTS)); await sleep(irnd(800, 2500)) }
@@ -846,7 +920,7 @@ export class WarmupManager {
 			c.n += ids.length
 			await session.setPresence(toJid, 'paused')
 		} catch {
-			return this.end(c.id)
+			return this.end(c.id, 'error')
 		} finally {
 			this.lastActionAt = Date.now() + irnd(6, 18) * 1000 // respiro antes de cualquier otro envío
 		}
@@ -866,7 +940,8 @@ export class WarmupManager {
 		// Un "buenas noches" a alguien dormido solo se lee en la mañana, no se contesta.
 		const nextSpeaker = c.i < c.lines.length ? snap.byId.get(c.order[c.i]) : null
 		const asleep = nextSpeaker ? this.awake(nextSpeaker, h, wd) < 0.15 : false
-		if (!nextSpeaker || (c.i >= 2 && Math.random() < 0.07) || (asleep && c.when === 'night')) return this.end(c.id)
+		if (!nextSpeaker || (asleep && c.when === 'night')) return this.end(c.id, 'completa')
+		if (c.i >= 2 && Math.random() < 0.07) return this.end(c.id, 'en visto')
 		next ||= this.replyTiming(nextSpeaker, h, wd)
 		this.queue.push({ at: Date.now() + next.readIn + next.replyIn, kind: 'say', convoId: c.id })
 	}

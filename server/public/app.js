@@ -2270,7 +2270,7 @@ function renderSettings() {
 
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
-				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
+				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Los números restringidos por WhatsApp solo contestan y, al terminar la restricción, regresan poco a poco. A veces se equivocan al escribir y lo corrigen, y días después retoman temas («¿cómo te fue en el banco?»). Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
 
 				<div class="section">Días sin envíos masivos</div>
 			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
@@ -2342,7 +2342,10 @@ function renderWarmupBox(st) {
 	const state = st.eligible < 2 ? `<span class="pill warn">${st.eligible} conectado(s) · faltan números</span>`
 		: !st.enabled ? '<span class="pill">En pausa</span>'
 			: '<span class="pill ok">Funcionando</span>'
+	const until = t => new Date(t).toLocaleString('es-MX', { weekday: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 	const numState = n => n.flagged ? `⚠️ Pausado: ${esc(n.flagged.reason)}`
+		: n.restrictedUntil ? `⛔ Restringido por WhatsApp hasta ${until(n.restrictedUntil)}: solo contesta · ${n.sentToday} de ${n.target} hoy`
+		: n.recovering ? `🩹 Saliendo de restricción: habla a la mitad unos días · ${n.sentToday} de ${n.target} hoy`
 		: n.grace ? 'Recién vinculado: solo recibe sus primeras 24 h'
 			: n.resting && n.target > 0 ? `En descanso de masivos: charla ligera · ${n.sentToday} de ${n.target} hoy`
 				: n.target > 0 ? `${n.sentToday} de ${n.target} hoy · recibió ${n.receivedToday} · ${n.ageDays} día(s)${n.campaignToday ? ` · ${n.campaignToday} masivos hoy` : ''}`
@@ -2373,6 +2376,12 @@ function renderWarmupBox(st) {
 		<div class="item"><span class="grow">Pausa entre charlas (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" class="num"><span class="muted">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" class="num"></div>
 		<button class="btn" data-act="warmup-save">Guardar</button>`
 	const act = { alta: 'Alta', media: 'Media', baja: 'Baja (noche)', fuera: 'Fuera de horario' }
+	const nameOf = id => (st.numbers || []).find(n => n.id === id)?.name || account(id)?.name || `#${id}`
+	const RS = { completa: ['Completa', 'var(--accent)'], 'reacción': ['Cerró con reacción', 'var(--accent)'], 'en visto': ['Quedó en visto', 'var(--muted)'], ocupado: ['Pospuesta: ocupado', 'var(--warn)'], pausada: ['Pausada', 'var(--danger)'], error: ['Error al enviar', 'var(--danger)'], cortada: ['Se cortó', 'var(--muted)'] }
+	const hist = st.history || []
+	const histHtml = hist.length ? `<div class="item sub-head"><span class="grow">Últimas charlas${st.pendingFollows ? `<small>${st.pendingFollows} seguimiento(s) programado(s) para los próximos días</small>` : ''}</span></div>
+		${hist.slice(0, 10).map(h => `<div class="item" style="align-items:flex-start"><span class="grow">${h.group ? '👥 ' : ''}${h.members.map(nameOf).map(esc).join(' → ')}${h.followUp ? ' <span class="pill">↩︎ seguimiento</span>' : ''}
+			<small>«${esc(h.preview)}» · ${h.n} mensaje(s)</small></span><span style="text-align:right;font-size:12px"><span style="color:${(RS[h.reason] || RS.cortada)[1]}">${(RS[h.reason] || [h.reason])[0]}</span><br><span class="muted">${timeLabel(h.at)}</span></span></div>`).join('')}` : ''
 	const lib = st.library || { files: [] }
 	const tk = enc(S.token)
 	const libHtml = `
@@ -2398,6 +2407,7 @@ function renderWarmupBox(st) {
 		${chart}
 		<button class="btn" data-act="warmup-now">Iniciar una charla ahora</button>` : ''}
 		${nums ? `<div class="item sub-head"><span class="grow">Números</span></div>${nums}` : ''}
+		${histHtml}
 		${libHtml}
 		<div class="item sub-head"><span class="grow">Guiones propios${st.customCount ? ` · ${st.customCount}` : ''}</span></div>
 		<div class="item"><span class="grow muted" style="font-size:13px">Una línea por mensaje (se alternan los dos números); deja una línea en blanco entre charlas. Usa {opción1|opción2} para variar.</span></div>
