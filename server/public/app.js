@@ -759,6 +759,37 @@ function openMentors(id) {
 	})
 }
 
+// ---------- Preparar un número para un masivo ----------
+function openPrep(id) {
+	const st = S.warmup || {}
+	const cur = (st.prep || {})[id]
+	const d = new Date(cur || Date.now() + 4 * 864e5)
+	const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+	sheet(`Preparar ${account(id)?.name || '#' + id}`, `
+		<p class="hint" style="padding-top:12px">Elige el día en que vas a usar este número en un masivo. Los 5 días previos el calentamiento sube su actividad poco a poco (hasta casi el doble) y los 2 días siguientes le da charla extra para recuperarse.</p>
+		<div class="group" style="margin-top:10px"><div class="item"><span class="grow">Fecha del masivo</span><input type="date" id="pp-date" value="${val}"></div></div>
+		<div class="pad"><button class="btn primary" id="pp-save">Guardar</button>${cur ? '<button class="btn danger" id="pp-clear" style="margin-top:8px">Quitar fecha</button>' : ''}</div>`, el => {
+		const save = async at => {
+			try {
+				const prep = { ...(st.prep || {}) }
+				if (at) prep[id] = at; else delete prep[id]
+				renderWarmupBox(await api('POST', '/warmup', { prep }))
+				closeSheet()
+				toast(at ? 'Fecha guardada 📅' : 'Fecha quitada')
+			} catch (e) { toast(e.message) }
+		}
+		$('#pp-save', el).onclick = () => {
+			const v = $('#pp-date', el).value
+			if (!v) return toast('Elige la fecha')
+			const [y, m, dd] = v.split('-').map(Number)
+			const at = new Date(y, m - 1, dd, 10).getTime()
+			if (at < Date.now() - 864e5) return toast('Elige una fecha de hoy en adelante')
+			save(at)
+		}
+		const clr = $('#pp-clear', el); if (clr) clr.onclick = () => save(null)
+	})
+}
+
 // ---------- Info. del contacto ----------
 async function openContactInfo() {
 	const key = S.active
@@ -2298,7 +2329,7 @@ function renderSettings() {
 
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
-				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Los números maduros platican más con los nuevos, y puedes elegir <b>padrinos</b> para un número (solo hablará con ellos). Los números restringidos por WhatsApp solo contestan y, al terminar la restricción, regresan poco a poco. A veces se equivocan al escribir y lo corrigen, y días después retoman temas («¿cómo te fue en el banco?»). Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
+				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Los números maduros platican más con los nuevos, y puedes elegir <b>padrinos</b> para un número (solo hablará con ellos). Los números restringidos por WhatsApp solo contestan y, al terminar la restricción, regresan poco a poco. Un padrino con problemas deja de hablar con su ahijado hasta recuperarse; si los mensajes de un número tardan en llegar, baja su ritmo; puedes preparar un número para un masivo con fecha; te avisa cuando uno queda listo y los lunes te manda un reporte. A veces se equivocan al escribir y lo corrigen, y días después retoman temas («¿cómo te fue en el banco?»). Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
 
 				<div class="section">Días sin envíos masivos</div>
 			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
@@ -2374,6 +2405,7 @@ function renderWarmupBox(st) {
 	const numState = n => n.flagged ? `⚠️ Pausado: ${esc(n.flagged.reason)}`
 		: n.restrictedUntil ? `⛔ Restringido por WhatsApp hasta ${until(n.restrictedUntil)}: solo contesta · ${n.sentToday} de ${n.target} hoy`
 		: n.recovering ? `🩹 Saliendo de restricción: habla a la mitad unos días · ${n.sentToday} de ${n.target} hoy`
+		: n.slow ? `🐢 Sus mensajes tardan en llegar: habla a la mitad · ${n.sentToday} de ${n.target} hoy`
 		: n.grace ? 'Recién vinculado: solo recibe sus primeras 24 h'
 			: n.resting && n.target > 0 ? `En descanso de masivos: charla ligera · ${n.sentToday} de ${n.target} hoy`
 				: n.target > 0 ? `${n.sentToday} de ${n.target} hoy · recibió ${n.receivedToday} · ${n.ageDays} día(s)${n.campaignToday ? ` · ${n.campaignToday} masivos hoy` : ''}`
@@ -2385,12 +2417,13 @@ function renderWarmupBox(st) {
 		return `<div class="item" style="align-items:flex-start"><span class="grow">${esc(n.name)}
 			<small>${numState(n)}</small>
 			${n.target > 0 ? bar(n.sentToday, n.target) : ''}
-			<small style="margin-top:6px">Madurez <b style="color:${matColor(m.score)}">${m.score}/100 · ${m.label}</b>${m.score < 70 && m.readyIn ? ` · lista en ~${m.readyIn} día(s)` : ''}</small>
+			<small style="margin-top:6px">Madurez <b style="color:${matColor(m.score)}">${m.score}/100 · ${m.label}</b>${n.weekDelta ? ` <b style="color:${n.weekDelta > 0 ? 'var(--accent)' : 'var(--danger)'}">${n.weekDelta > 0 ? '▲ +' : '▼ '}${n.weekDelta} esta semana</b>` : ''}${m.score < 70 && m.readyIn ? ` · lista en ~${m.readyIn} día(s)` : ''}</small>
+			${n.prepAt ? `<small style="margin-top:4px">📅 ${n.prepAt > Date.now() ? `Preparándose para masivo el ${new Date(n.prepAt).toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })}: sube su actividad poco a poco` : 'Recuperándose del masivo: charla extra 2 días'}</small>` : ''}
 			${bar(m.score, 100, matColor(m.score))}
 			${m.tips?.length ? `<small style="margin-top:4px">💡 ${m.tips.map(esc).join(' · ')}</small>` : ''}
-			${n.mentors?.length ? `<small style="margin-top:4px">🤝 Padrinos: ${n.mentors.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · el nuevo solo habla con ellos</small>` : ''}
+			${n.mentors?.length ? `<small style="margin-top:4px">🤝 Padrinos: ${n.mentors.map(id => esc(account(id)?.name || '#' + id) + (n.mentorsPaused?.includes(id) ? ' (en pausa)' : '')).join(', ')} · el nuevo solo habla con ellos${n.mentorsPaused?.length === n.mentors.length ? ' · ninguno está sano: mientras, habla con otros números sanos' : ''}</small>` : ''}
 			${n.godchildren?.length ? `<small style="margin-top:4px">🧑‍🏫 Padrino de: ${n.godchildren.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · habla más con él y sigue con los demás</small>` : ''}
-			<button class="chip" style="margin-top:8px" data-act="warmup-mentors" data-val="${n.id}">🤝 ${n.mentors?.length ? 'Cambiar padrinos' : 'Elegir padrinos'}</button>
+			<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-act="warmup-mentors" data-val="${n.id}">🤝 ${n.mentors?.length ? 'Cambiar padrinos' : 'Elegir padrinos'}</button><button class="chip" data-act="warmup-prep" data-val="${n.id}">📅 ${n.prepAt ? 'Cambiar fecha de masivo' : 'Preparar para masivo'}</button></div>
 			${n.flagged ? `<button class="btn" style="margin-top:8px" data-act="warmup-unflag" data-val="${n.id}">Reanudar ya</button>` : ''}
 		</span>${n.inConvo ? '<span class="pill ok">💬 charlando</span>' : n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`
 	}).join('')
@@ -2411,23 +2444,27 @@ function renderWarmupBox(st) {
 	const RS = { completa: ['Completa', 'var(--accent)'], 'reacción': ['Cerró con reacción', 'var(--accent)'], 'en visto': ['Quedó en visto', 'var(--muted)'], ocupado: ['Pospuesta: ocupado', 'var(--warn)'], pausada: ['Pausada', 'var(--danger)'], error: ['Error al enviar', 'var(--danger)'], cortada: ['Se cortó', 'var(--muted)'] }
 	const hist = st.history || []
 	const histHtml = hist.length ? `<div class="item sub-head"><span class="grow">Últimas charlas${st.pendingFollows ? `<small>${st.pendingFollows} seguimiento(s) programado(s) para los próximos días</small>` : ''}</span></div>
-		${hist.slice(0, 10).map(h => `<div class="item" style="align-items:flex-start"><span class="grow">${h.group ? '👥 ' : ''}${h.members.map(nameOf).map(esc).join(' → ')}${h.followUp ? ' <span class="pill">↩︎ seguimiento</span>' : ''}
+		${hist.slice(0, 10).map(h => `<div class="item" style="align-items:flex-start${h.chat ? ';cursor:pointer' : ''}"${h.chat ? ` data-act="go" data-val="#/chat/${enc(h.chat)}"` : ''}><span class="grow">${h.group ? '👥 ' : ''}${h.members.map(nameOf).map(esc).join(' → ')}${h.followUp ? ' <span class="pill">↩︎ seguimiento</span>' : ''}
 			<small>«${esc(h.preview)}» · ${h.n} mensaje(s)</small></span><span style="text-align:right;font-size:12px"><span style="color:${(RS[h.reason] || RS.cortada)[1]}">${(RS[h.reason] || [h.reason])[0]}</span><br><span class="muted">${timeLabel(h.at)}</span></span></div>`).join('')}` : ''
 	const lib = st.library || { files: [] }
 	const tk = enc(S.token)
 	const libHtml = `
 		<div class="item sub-head"><span class="grow">Fotos y notas de voz</span></div>
-		<div class="item"><span class="grow muted" style="font-size:13px">Las usa en charlas («¿me mandas la foto?», audios) y en estados.</span></div>
-		${lib.files.length ? `<div class="item" style="display:flex;flex-wrap:wrap;gap:8px">${lib.files.map(f => f.kind === 'image'
-		? `<div style="position:relative;width:64px;height:64px"><img src="/api/warmup/media/${enc(f.name)}?token=${tk}" style="width:64px;height:64px;object-fit:cover;border-radius:8px" loading="lazy" alt=""><button class="icon-btn" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;min-width:0;padding:0;font-size:11px;line-height:20px;background:var(--fill);border-radius:50%" data-act="warmup-media-del" data-val="${esc(f.name)}" aria-label="Borrar">✕</button></div>`
+		<div class="item"><span class="grow muted" style="font-size:13px">Las usa en charlas («¿me mandas la foto?», audios, stickers y GIFs cuando se ríen), en estados y en las fotos de perfil.</span></div>
+		${lib.files.length ? `<div class="item" style="display:flex;flex-wrap:wrap;gap:8px">${lib.files.map(f => f.kind === 'gif'
+		? `<div style="position:relative;width:64px;height:64px"><video src="/api/warmup/media/${enc(f.name)}?token=${tk}" style="width:64px;height:64px;object-fit:cover;border-radius:8px" muted autoplay loop playsinline></video><span style="position:absolute;left:4px;bottom:3px;font-size:9px;font-weight:700;color:#fff;background:rgba(0,0,0,.5);border-radius:3px;padding:0 3px">GIF</span><button class="icon-btn" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;min-width:0;padding:0;font-size:11px;line-height:20px;background:var(--fill);border-radius:50%" data-act="warmup-media-del" data-val="${esc(f.name)}" aria-label="Borrar">✕</button></div>`
+		: f.kind === 'image' || f.kind === 'sticker'
+		? `<div style="position:relative;width:64px;height:64px"><img src="/api/warmup/media/${enc(f.name)}?token=${tk}" style="width:64px;height:64px;object-fit:${f.kind === 'sticker' ? 'contain' : 'cover'};border-radius:8px${f.kind === 'sticker' ? ';background:var(--fill)' : ''}" loading="lazy" alt=""><button class="icon-btn" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;min-width:0;padding:0;font-size:11px;line-height:20px;background:var(--fill);border-radius:50%" data-act="warmup-media-del" data-val="${esc(f.name)}" aria-label="Borrar">✕</button></div>`
 		: `<div style="position:relative;height:64px;padding:0 12px;display:flex;align-items:center;border-radius:8px;background:var(--fill)">🎤 ${Math.max(1, Math.round(f.size * 8 / 32000))} s<button class="icon-btn" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;min-width:0;padding:0;font-size:11px;line-height:20px;background:var(--fill);border-radius:50%" data-act="warmup-media-del" data-val="${esc(f.name)}" aria-label="Borrar">✕</button></div>`).join('')}</div>` : '<div class="item"><span class="grow muted" style="font-size:13px">Aún no hay. Sube fotos casuales (comida, paisajes, mascotas) y audios cortos tipo «ya voy» o «ahorita te marco».</span></div>'}
-		<label class="btn">➕ Subir foto o audio<input type="file" id="wu-media" accept="image/jpeg,image/png,image/webp,audio/*" multiple hidden></label>`
+		<label class="btn">➕ Subir foto, GIF o audio<input type="file" id="wu-media" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,audio/*" multiple hidden></label>
+		<label class="btn">➕ Subir sticker<input type="file" id="wu-sticker" accept="image/webp,image/png,image/jpeg,image/gif" multiple hidden></label>`
 	box.innerHTML = `
 		<div class="item"><span class="grow">Calentamiento</span>${sw('warmup-toggle', st.enabled)}</div>
 		<div class="item"><span class="grow">Automático<small>Decide solo cuánto y cuándo según cada número</small></span>${sw('warmup-auto', st.auto)}</div>
 		<div class="item"><span class="grow">Las 24 horas<small>De noche casi no habla, como una persona</small></span>${sw('warmup-allday', st.allDay)}</div>
 		${manual}
-		<div class="item"><span class="grow">Fotos, audios, ubicación y contactos<small>Mensajes variados, no solo texto</small></span>${sw('warmup-media-t', st.media)}</div>
+		<div class="item"><span class="grow">Fotos, audios, stickers, GIFs, ubicación y contactos<small>Mensajes variados, no solo texto</small></span>${sw('warmup-media-t', st.media)}</div>
+		<div class="item"><span class="grow">Cambios de perfil<small>Cada número cambia su info cada 10–22 días y su foto cada 35–65 días (usa fotos de la biblioteca; si no tiene foto, le pone una)</small></span>${sw('warmup-profiles', st.profiles)}</div>
 		<div class="item"><span class="grow">Estados<small>Cada número publica un estado cada 2–4 días. Solo lo ven tus números vinculados, nunca tus contactos ni clientes</small></span>${sw('warmup-stories', st.stories)}</div>
 		<div class="item"><span class="grow">Grupo entre tus números<small>${st.group ? `«${esc(st.group.subject)}» · ${st.group.members} números` : 'Se crea solo cuando hay 3 números con 2+ días'}</small></span>${sw('warmup-groups', st.groups)}</div>
 		<div class="item"><span class="grow">Estado</span>${state}</div>
@@ -2448,17 +2485,19 @@ function renderWarmupBox(st) {
 	if (ta && S.warmupScripts != null) ta.value = S.warmupScripts
 	else api('GET', '/warmup/scripts').then(r => { S.warmupScripts = r.text || ''; const t = $('#wu-scripts'); if (t && !t.value) t.value = S.warmupScripts }).catch(() => {})
 	if (ta) ta.oninput = () => { S.warmupScripts = ta.value }
-	const fileIn = $('#wu-media')
-	if (fileIn) fileIn.onchange = async () => {
-		const files = [...fileIn.files]
+	const upload = (input, as) => { if (input) input.onchange = async () => {
+		const files = [...input.files]
 		let last = null
 		for (const f of files) {
 			const fd = new FormData()
 			fd.append('file', f)
+			if (as) fd.append('as', as)
 			try { last = await api('POST', '/warmup/media', fd, true) } catch (err) { toast(err.message) }
 		}
 		if (last) { renderWarmupBox(last); toast(files.length > 1 ? `${files.length} archivos subidos` : 'Archivo subido') }
-	}
+	} }
+	upload($('#wu-media'))
+	upload($('#wu-sticker'), 'sticker')
 	clearTimeout(S.warmupTimer)
 	// Se actualiza solo (sin pisar lo que estés escribiendo en los guiones)
 	if (st.enabled) S.warmupTimer = setTimeout(() => { const t = $('#wu-scripts'); if ($('#warmup-box') && document.activeElement !== t) loadWarmup() }, 30000)
@@ -2639,6 +2678,7 @@ document.addEventListener('click', async e => {
 		}
 		case 'contact-info': return openContactInfo()
 		case 'warmup-mentors': return openMentors(Number(val))
+		case 'warmup-prep': return openPrep(Number(val))
 		case 'ci-copy': { try { await navigator.clipboard.writeText('+' + val); toast('Número copiado') } catch { toast('+' + val) } return }
 		case 'ci-mute': {
 			try { const c = await api('PUT', `/conversations/${enc(S.active)}/mute`, { muted: el.checked }); if (c) upsertConv(c); toast(el.checked ? 'Notificaciones silenciadas 🔕' : 'Notificaciones activadas 🔔') } catch (err) { toast(err.message); el.checked = !el.checked }
@@ -2904,8 +2944,8 @@ document.addEventListener('click', async e => {
 			catch (err) { toast(err.message) }
 			return
 		}
-		case 'warmup-media-t': case 'warmup-stories': case 'warmup-groups': {
-			const key = { 'warmup-media-t': 'media', 'warmup-stories': 'stories', 'warmup-groups': 'groups' }[act]
+		case 'warmup-media-t': case 'warmup-stories': case 'warmup-groups': case 'warmup-profiles': {
+			const key = { 'warmup-media-t': 'media', 'warmup-stories': 'stories', 'warmup-groups': 'groups', 'warmup-profiles': 'profiles' }[act]
 			try { renderWarmupBox(await api('POST', '/warmup', { enabled: S.warmup?.enabled, [key]: !(S.warmup?.[key]) })) }
 			catch (err) { toast(err.message) }
 			return

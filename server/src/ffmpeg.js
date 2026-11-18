@@ -50,3 +50,30 @@ export async function toMp4(buffer) {
 		fs.rmSync(`${tmp}.mp4`, { force: true })
 	}
 }
+
+/** Imagen → sticker de WhatsApp (WebP 512×512 con fondo transparente) */
+export async function toSticker(buffer) {
+	const tmp = path.join(os.tmpdir(), `multiwa-${crypto.randomUUID()}`)
+	fs.writeFileSync(`${tmp}.in`, buffer)
+	try {
+		await run(['-i', `${tmp}.in`, '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,format=rgba,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000',
+			'-frames:v', '1', '-c:v', 'libwebp', '-lossless', '0', '-q:v', '80', `${tmp}.webp`])
+		return fs.readFileSync(`${tmp}.webp`)
+	} finally {
+		fs.rmSync(`${tmp}.in`, { force: true })
+		fs.rmSync(`${tmp}.webp`, { force: true })
+	}
+}
+
+/** Imagen → JPEG cuadrado 640×640 para foto de perfil */
+export async function toSquareJpeg(buffer) {
+	const tmp = path.join(os.tmpdir(), `multiwa-${crypto.randomUUID()}`)
+	fs.writeFileSync(`${tmp}.in`, buffer)
+	try {
+		await run(['-i', `${tmp}.in`, '-vf', "crop='min(iw,ih)':'min(iw,ih)',scale=640:640", '-frames:v', '1', '-q:v', '4', `${tmp}.jpg`])
+		return fs.readFileSync(`${tmp}.jpg`)
+	} finally {
+		fs.rmSync(`${tmp}.in`, { force: true })
+		fs.rmSync(`${tmp}.jpg`, { force: true })
+	}
+}

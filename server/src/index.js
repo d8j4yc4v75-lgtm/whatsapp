@@ -480,7 +480,7 @@ app.post('/api/warmup/unflag/:id', route(req => { warmup.unflag(Number(req.param
 app.get('/api/warmup/scripts', route(() => ({ text: warmup.customText(), count: warmup.custom.length })))
 app.put('/api/warmup/scripts', route(req => warmup.saveCustom(req.body?.text)))
 app.post('/api/warmup/media', upload.single('file'), route(async req => {
-	await warmupLibrary.add(req.file?.buffer, req.file?.mimetype, req.file?.originalname)
+	await warmupLibrary.add(req.file?.buffer, req.file?.mimetype, req.file?.originalname, req.body?.as)
 	return warmup.status()
 }))
 app.delete('/api/warmup/media/:name', route(req => { warmupLibrary.remove(req.params.name); return warmup.status() }))

@@ -82,6 +82,19 @@ export const STORY_TEXTS = [
 ]
 export const STORY_COLORS = ['#128C7E', '#25D366', '#34B7F1', '#7C5CFF', '#FF6B6B', '#F4A261', '#2A9D8F', '#E76F51', '#264653']
 
+// Info del perfil que cada número cambia de vez en cuando
+export const ABOUTS = ['Disponible', 'Ocupado', 'En el trabajo', 'Solo urgencias', 'En el gym 💪', 'Batería baja 🔋', 'Durmiendo 😴', 'Hoy no hay mañana', 'Todo pasa por algo ✨',
+	'Dios es bueno 🙏', 'Trabajando 💼', 'En camino 🚗', 'Fin de semana 🎉', 'Café ☕', 'Con mi familia ❤️', 'Paso a pasito', 'Viviendo 🙌', 'No hay mal que dure 100 años', '...', 'Aquí andamos']
+// Mensajes "equivocados" que se borran para todos
+export const WRONG = ['¿Ya llegaste?', 'Te veo en 10', 'Mándame la lista porfa', 'Ya salí', '¿Compraste lo que te dije?', 'Voy para allá', 'Ok mañana te paso', '¿A qué hora era?']
+export const WRONG_SORRY = ['{Perdón|Sorry}, era para otra persona {😅|}', 'Me equivoqué de chat {jaja|😅}', '{Ups|Perdón}, no era para ti {jaja|}']
+export const LATE_SORRY = '{Perdón|Una disculpa|Sorry}, {apenas vi|no había visto|hasta ahorita vi} tu mensaje {😅|}||'
+// Charlas sobre llamadas perdidas (WhatsApp no deja hacer llamadas desde aquí)
+export const CALL_SCRIPTS = [
+	{ lines: ['{Te marqué|Te llamé} hace rato, ¿{todo bien|estás ocupado}?', '{Perdón|Sorry}, {no lo escuché|estaba manejando|traía el cel en silencio} {😅|}. ¿{Qué pasó|Qué ocupabas}?', '{Nada grave|Era para lo de mañana|Ya lo resolví}, {luego te cuento|al rato hablamos}', '{Va|Ok} {👍|}'] },
+	{ lines: ['{Tengo una llamada perdida tuya|Vi que me marcaste}, ¿{qué pasó|todo bien}?', '{Ah sí|Sí}, {era para preguntarte algo|ya no es nada}, {ya quedó|gracias}', '{Ok|Va}, {cualquier cosa me dices|me avisas}'] },
+	{ lines: ['¿{Puedo marcarte|Te puedo llamar} {en un rato|al rato|más tarde}?', '{Sí, márcame como en 20|Ahorita no puedo, mejor en la tarde|Claro}', '{Va|Ok}, {te marco|luego te marco} {👍|}'] }
+]
 export const REACTS = ['👍', '❤️', '😂', '🙌', '👌', '🔥', '😅', '🙏']
 export const GREET = { morning: '{Buenos días|Buen día}', afternoon: '{Buenas tardes|Buenas}', night: '{Buenas noches|Buenas}' }
 export const CONTACT_NAMES = ['Juan', 'Carlos', 'Luis', 'Miguel', 'Jorge', 'Ana', 'María', 'Laura', 'Sofía', 'Lupita', 'Don Pepe', 'Sra. Rosa', 'Toño', 'Paco']
