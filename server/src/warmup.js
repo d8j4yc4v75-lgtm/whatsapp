@@ -31,7 +31,7 @@ import {
 // - Seguimiento: días después alguien pregunta «¿cómo te fue en el banco?» sobre una charla anterior.
 // - Historial de las últimas charlas para ver qué hizo.
 // - Los números maduros platican más con los nuevos (y los nuevos menos entre sí).
-// - Padrinos: eliges qué números maduros hablan con un número nuevo; ese número solo habla con ellos.
+// - Padrinos: eliges qué números maduros hablan más con un número nuevo; los padrinos siguen hablando con los demás.
 
 const TZ = process.env.TZ_CAMPAIGNS || 'America/Mexico_City'
 const DAY = 864e5
@@ -732,7 +732,8 @@ export class WarmupManager {
 		return (!ma.length || ma.includes(b)) && (!mb.length || mb.includes(a))
 	}
 	pairBoost(a, b) {
-		if (this.mentorsOf(a.id).includes(b.id) || this.mentorsOf(b.id).includes(a.id)) return 4
+		// Padrino ↔ ahijado: bastante más seguido, pero sin acaparar al padrino (sigue hablando con los demás)
+		if (this.mentorsOf(a.id).includes(b.id) || this.mentorsOf(b.id).includes(a.id)) return this.lastPair(a.id, b.id) > Date.now() - 3 * 36e5 ? 1.2 : 3
 		const sa = a.mature?.score ?? 0, sb = b.mature?.score ?? 0
 		const newA = sa < 40 || this.ageDays(a) < 7, newB = sb < 40 || this.ageDays(b) < 7
 		if ((sa >= 70 && newB) || (sb >= 70 && newA)) return 2.5 // maduro con nuevo
@@ -781,7 +782,7 @@ export class WarmupManager {
 		const starter = weighted(ready, a => {
 			if (!partnersOf(a).length) return 0
 			const kids = this.godchildrenOf(a.id).filter(k => { const x = snap.byId.get(k); return x && free(x) && (!x.grace || this.recvToday(x.id) < GRACE_RECEIVE) })
-			return (force ? 1 : this.awake(a, hour, wd) ** 1.5) * (a.target - this.sentToday(a.id)) * (kids.length ? 2.5 : 1)
+			return (force ? 1 : this.awake(a, hour, wd) ** 1.5) * (a.target - this.sentToday(a.id)) * (kids.length ? 1.5 : 1)
 		})
 		if (!starter) return list.some(a => busyIds.has(a.id) && this.canSpeak(a, false)) ? 'busy' : 'none'
 		// Con quién: quien no ha hablado con él hace tiempo, despierto, y más si hoy hizo masivos.

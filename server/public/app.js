@@ -740,7 +740,7 @@ function openMentors(id) {
 	const others = S.accounts.filter(a => a.id !== id && a.kind !== 'cloud' && a.phone)
 		.sort((a, b) => (mat(b.id)?.score ?? -1) - (mat(a.id)?.score ?? -1))
 	sheet(`Padrinos de ${me?.name || '#' + id}`, `
-		<p class="hint" style="padding-top:12px">Elige qué números (de preferencia maduros) platican con <b>${esc(me?.name || '')}</b>. Mientras tenga padrinos, solo hablará con ellos y ellos le escribirán más seguido.</p>
+		<p class="hint" style="padding-top:12px">Elige qué números (de preferencia maduros) platican con <b>${esc(me?.name || '')}</b>. Mientras tenga padrinos, este número solo hablará con ellos. Los padrinos le escriben más seguido, pero siguen platicando con todos tus demás números.</p>
 		<div class="group" style="margin-top:10px">${others.map(a => {
 			const m = mat(a.id)
 			return `<label class="item"><input type="checkbox" class="mt-cb" value="${a.id}"${current.has(a.id) ? ' checked' : ''}><span class="grow">${esc(a.name)}<small>${m ? `Madurez ${m.score}/100 · ${m.label}` : 'Sin conexión ahora'}</small></span></label>`
@@ -2388,8 +2388,8 @@ function renderWarmupBox(st) {
 			<small style="margin-top:6px">Madurez <b style="color:${matColor(m.score)}">${m.score}/100 · ${m.label}</b>${m.score < 70 && m.readyIn ? ` · lista en ~${m.readyIn} día(s)` : ''}</small>
 			${bar(m.score, 100, matColor(m.score))}
 			${m.tips?.length ? `<small style="margin-top:4px">💡 ${m.tips.map(esc).join(' · ')}</small>` : ''}
-			${n.mentors?.length ? `<small style="margin-top:4px">🤝 Padrinos: ${n.mentors.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · solo habla con ellos</small>` : ''}
-			${n.godchildren?.length ? `<small style="margin-top:4px">🧑‍🏫 Padrino de: ${n.godchildren.map(id => esc(account(id)?.name || '#' + id)).join(', ')}</small>` : ''}
+			${n.mentors?.length ? `<small style="margin-top:4px">🤝 Padrinos: ${n.mentors.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · el nuevo solo habla con ellos</small>` : ''}
+			${n.godchildren?.length ? `<small style="margin-top:4px">🧑‍🏫 Padrino de: ${n.godchildren.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · habla más con él y sigue con los demás</small>` : ''}
 			<button class="chip" style="margin-top:8px" data-act="warmup-mentors" data-val="${n.id}">🤝 ${n.mentors?.length ? 'Cambiar padrinos' : 'Elegir padrinos'}</button>
 			${n.flagged ? `<button class="btn" style="margin-top:8px" data-act="warmup-unflag" data-val="${n.id}">Reanudar ya</button>` : ''}
 		</span>${n.inConvo ? '<span class="pill ok">💬 charlando</span>' : n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`
