@@ -731,6 +731,34 @@ function renderChatHeader() {
 	}
 }
 
+// ---------- Padrinos del calentamiento ----------
+function openMentors(id) {
+	const st = S.warmup || {}
+	const me = account(id)
+	const current = new Set(((st.mentors || {})[id] || []).map(Number))
+	const mat = n => (st.numbers || []).find(x => x.id === n)?.maturity
+	const others = S.accounts.filter(a => a.id !== id && a.kind !== 'cloud' && a.phone)
+		.sort((a, b) => (mat(b.id)?.score ?? -1) - (mat(a.id)?.score ?? -1))
+	sheet(`Padrinos de ${me?.name || '#' + id}`, `
+		<p class="hint" style="padding-top:12px">Elige qué números (de preferencia maduros) platican con <b>${esc(me?.name || '')}</b>. Mientras tenga padrinos, solo hablará con ellos y ellos le escribirán más seguido.</p>
+		<div class="group" style="margin-top:10px">${others.map(a => {
+			const m = mat(a.id)
+			return `<label class="item"><input type="checkbox" class="mt-cb" value="${a.id}"${current.has(a.id) ? ' checked' : ''}><span class="grow">${esc(a.name)}<small>${m ? `Madurez ${m.score}/100 · ${m.label}` : 'Sin conexión ahora'}</small></span></label>`
+		}).join('') || '<div class="item"><span class="grow muted">No hay otros números</span></div>'}</div>
+		<div class="pad"><button class="btn primary" id="mt-save">Guardar</button>${current.size ? '<button class="btn danger" id="mt-clear" style="margin-top:8px">Quitar padrinos</button>' : ''}</div>`, el => {
+		const save = async list => {
+			try {
+				const mentors = { ...(st.mentors || {}), [id]: list }
+				renderWarmupBox(await api('POST', '/warmup', { mentors }))
+				closeSheet()
+				toast(list.length ? 'Padrinos guardados 🤝' : 'Padrinos quitados')
+			} catch (e) { toast(e.message) }
+		}
+		$('#mt-save', el).onclick = () => save([...el.querySelectorAll('.mt-cb:checked')].map(c => Number(c.value)))
+		const clr = $('#mt-clear', el); if (clr) clr.onclick = () => save([])
+	})
+}
+
 // ---------- Info. del contacto ----------
 async function openContactInfo() {
 	const key = S.active
@@ -2270,7 +2298,7 @@ function renderSettings() {
 
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
-				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Los números restringidos por WhatsApp solo contestan y, al terminar la restricción, regresan poco a poco. A veces se equivocan al escribir y lo corrigen, y días después retoman temas («¿cómo te fue en el banco?»). Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
+				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Los números maduros platican más con los nuevos, y puedes elegir <b>padrinos</b> para un número (solo hablará con ellos). Los números restringidos por WhatsApp solo contestan y, al terminar la restricción, regresan poco a poco. A veces se equivocan al escribir y lo corrigen, y días después retoman temas («¿cómo te fue en el banco?»). Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
 
 				<div class="section">Días sin envíos masivos</div>
 			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
@@ -2360,6 +2388,9 @@ function renderWarmupBox(st) {
 			<small style="margin-top:6px">Madurez <b style="color:${matColor(m.score)}">${m.score}/100 · ${m.label}</b>${m.score < 70 && m.readyIn ? ` · lista en ~${m.readyIn} día(s)` : ''}</small>
 			${bar(m.score, 100, matColor(m.score))}
 			${m.tips?.length ? `<small style="margin-top:4px">💡 ${m.tips.map(esc).join(' · ')}</small>` : ''}
+			${n.mentors?.length ? `<small style="margin-top:4px">🤝 Padrinos: ${n.mentors.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · solo habla con ellos</small>` : ''}
+			${n.godchildren?.length ? `<small style="margin-top:4px">🧑‍🏫 Padrino de: ${n.godchildren.map(id => esc(account(id)?.name || '#' + id)).join(', ')}</small>` : ''}
+			<button class="chip" style="margin-top:8px" data-act="warmup-mentors" data-val="${n.id}">🤝 ${n.mentors?.length ? 'Cambiar padrinos' : 'Elegir padrinos'}</button>
 			${n.flagged ? `<button class="btn" style="margin-top:8px" data-act="warmup-unflag" data-val="${n.id}">Reanudar ya</button>` : ''}
 		</span>${n.inConvo ? '<span class="pill ok">💬 charlando</span>' : n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`
 	}).join('')
@@ -2607,6 +2638,7 @@ document.addEventListener('click', async e => {
 			return
 		}
 		case 'contact-info': return openContactInfo()
+		case 'warmup-mentors': return openMentors(Number(val))
 		case 'ci-copy': { try { await navigator.clipboard.writeText('+' + val); toast('Número copiado') } catch { toast('+' + val) } return }
 		case 'ci-mute': {
 			try { const c = await api('PUT', `/conversations/${enc(S.active)}/mute`, { muted: el.checked }); if (c) upsertConv(c); toast(el.checked ? 'Notificaciones silenciadas 🔕' : 'Notificaciones activadas 🔔') } catch (err) { toast(err.message); el.checked = !el.checked }

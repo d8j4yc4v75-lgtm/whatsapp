@@ -30,6 +30,8 @@ import {
 // - Errores de dedo que se corrigen con «*palabra» o editando el mensaje, como una persona.
 // - Seguimiento: días después alguien pregunta «¿cómo te fue en el banco?» sobre una charla anterior.
 // - Historial de las últimas charlas para ver qué hizo.
+// - Los números maduros platican más con los nuevos (y los nuevos menos entre sí).
+// - Padrinos: eliges qué números maduros hablan con un número nuevo; ese número solo habla con ellos.
 
 const TZ = process.env.TZ_CAMPAIGNS || 'America/Mexico_City'
 const DAY = 864e5
@@ -159,7 +161,7 @@ export const library = {
 }
 
 const AVG_LINES = SCRIPTS.reduce((n, s) => n + s.lines.length, 0) / SCRIPTS.length
-const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true }
+const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, mentors: {} }
 const INTENSITY = { suave: 0.6, normal: 1, intenso: 1.4 }
 const GRACE_HOURS = Number(process.env.WARMUP_GRACE_HOURS || 24) // espera tras vincular antes de enviar
 const GRACE_RECEIVE = 6 // mensajes que puede recibir al día un número recién vinculado
@@ -263,6 +265,14 @@ export class WarmupManager {
 		s.endHour = clamp(Math.floor(Number(s.endHour) || 24), s.startHour + 1, 24)
 		for (const k of ['enabled', 'auto', 'allDay', 'media', 'stories', 'groups']) s[k] = s[k] === undefined ? DEFAULTS[k] : Boolean(s[k])
 		if (!INTENSITY[s.intensity]) s.intensity = 'normal'
+		// Padrinos: { númeroNuevo: [números maduros que hablan con él] }
+		const m = {}
+		for (const [k, v] of Object.entries(s.mentors && typeof s.mentors === 'object' ? s.mentors : {})) {
+			const id = Number(k)
+			const list = [...new Set((Array.isArray(v) ? v : []).map(Number).filter(x => x && x !== id))].slice(0, 12)
+			if (id && list.length) m[id] = list
+		}
+		s.mentors = m
 		setJSON('warmup', s)
 		const wasOn = this.s.enabled
 		this.s = s
@@ -530,6 +540,7 @@ export class WarmupManager {
 				ageDays: this.ageDays(a), asleep: this.awake(a, h, wd) < 0.15, grace: a.grace, resting: a.resting,
 				level: a.level, campaignToday: a.campaign, flagged: this.flagged(a.id) ? this.flags[a.id] : null,
 				restrictedUntil: a.restrictedUntil, recovering: a.recovering,
+				mentors: this.mentorsOf(a.id), godchildren: this.godchildrenOf(a.id),
 				maturity: a.mature,
 				inConvo: [...this.convos.values()].some(c => c.members.includes(a.id))
 			}))
@@ -712,6 +723,24 @@ export class WarmupManager {
 		}
 	}
 
+	// ---- Padrinos y emparejamiento por madurez ----
+	mentorsOf(id) { return (this.s.mentors?.[id] || []).map(Number) }
+	godchildrenOf(id) { return Object.keys(this.s.mentors || {}).map(Number).filter(t => this.mentorsOf(t).includes(id)) }
+	// Un número con padrinos solo habla con ellos
+	allowedPair(a, b) {
+		const ma = this.mentorsOf(a), mb = this.mentorsOf(b)
+		return (!ma.length || ma.includes(b)) && (!mb.length || mb.includes(a))
+	}
+	pairBoost(a, b) {
+		if (this.mentorsOf(a.id).includes(b.id) || this.mentorsOf(b.id).includes(a.id)) return 4
+		const sa = a.mature?.score ?? 0, sb = b.mature?.score ?? 0
+		const newA = sa < 40 || this.ageDays(a) < 7, newB = sb < 40 || this.ageDays(b) < 7
+		if ((sa >= 70 && newB) || (sb >= 70 && newA)) return 2.5 // maduro con nuevo
+		if (sa >= 40 && sb >= 40 && (newA || newB)) return 1.5 // templado con nuevo
+		if (newA && newB) return 0.5 // dos nuevos entre sí, poco
+		return 1
+	}
+
 	spawn(snap, hour, wd, force = false) {
 		const list = snap.list
 		const maxActive = Math.min(MAX_ACTIVE, Math.floor(list.length / 2))
@@ -723,7 +752,7 @@ export class WarmupManager {
 		// Seguimiento de una charla de días anteriores («¿cómo te fue en el banco?»)
 		const now = Date.now()
 		this.follows = this.follows.filter(f => now - f.at < 5 * DAY)
-		const fu = this.follows.find(f => f.at <= now && ready.some(a => a.id === f.from) && list.some(x => x.id === f.to && free(x)) && this.awake(snap.byId.get(f.from), hour, wd) >= 0.5)
+		const fu = this.follows.find(f => f.at <= now && this.allowedPair(f.from, f.to) && ready.some(a => a.id === f.from) && list.some(x => x.id === f.to && free(x)) && this.awake(snap.byId.get(f.from), hour, wd) >= 0.5)
 		if (fu && Math.random() < 0.7) {
 			this.follows = this.follows.filter(f => f !== fu)
 			const to = snap.byId.get(fu.to)
@@ -735,7 +764,7 @@ export class WarmupManager {
 		// A veces la charla es en el grupo de tus números
 		const g = this.group()
 		if (g && this.s.groups && Math.random() < 0.16) {
-			const members = ready.filter(a => g.members.includes(a.id))
+			const members = ready.filter(a => g.members.includes(a.id) && !this.mentorsOf(a.id).length)
 			if (members.length >= 3) {
 				const people = weightedSample(members, a => 0.2 + this.awake(a, hour, wd), Math.min(members.length, irnd(3, 4)))
 				const script = weighted(GROUP_SCRIPTS, sc => fitOf(sc) * (this.recent.includes(keyOf(sc)) ? 0.05 : 1))
@@ -746,16 +775,24 @@ export class WarmupManager {
 				}
 			}
 		}
-		// Quién empieza: el que está despierto y aún tiene cupo
-		const starter = weighted(ready, a => (force ? 1 : this.awake(a, hour, wd) ** 1.5) * (a.target - this.sentToday(a.id)))
+		// Con quién puede hablar cada uno (respeta los padrinos que elegiste)
+		const partnersOf = st => list.filter(x => x.id !== st.id && free(x) && this.allowedPair(st.id, x.id) && (!x.grace || this.recvToday(x.id) < GRACE_RECEIVE))
+		// Quién empieza: el que está despierto y aún tiene cupo; los padrinos con su ahijado libre, más
+		const starter = weighted(ready, a => {
+			if (!partnersOf(a).length) return 0
+			const kids = this.godchildrenOf(a.id).filter(k => { const x = snap.byId.get(k); return x && free(x) && (!x.grace || this.recvToday(x.id) < GRACE_RECEIVE) })
+			return (force ? 1 : this.awake(a, hour, wd) ** 1.5) * (a.target - this.sentToday(a.id)) * (kids.length ? 2.5 : 1)
+		})
 		if (!starter) return list.some(a => busyIds.has(a.id) && this.canSpeak(a, false)) ? 'busy' : 'none'
-		// Con quién: quien no ha hablado con él hace tiempo, despierto, y más si hoy hizo masivos
-		const partners = list.filter(x => x.id !== starter.id && free(x) && (!x.grace || this.recvToday(x.id) < GRACE_RECEIVE))
+		// Con quién: quien no ha hablado con él hace tiempo, despierto, y más si hoy hizo masivos.
+		// Los maduros platican más con los nuevos y los nuevos menos entre sí; con padrinos, mucho más.
+		const partners = partnersOf(starter)
 		const partner = weighted(partners, x =>
 			(0.2 + this.awake(x, hour, wd)) *
 			clamp((Date.now() - this.lastPair(starter.id, x.id)) / DAY, 0.15, 1.5) *
 			(1 + Math.min(1.5, x.campaign / 40)) *
-			(x.grace ? 0.7 : this.canSpeak(x, false) ? 1 : 0.35))
+			(x.grace ? 0.7 : this.canSpeak(x, false) ? 1 : 0.35) *
+			this.pairBoost(starter, x))
 		if (!partner) return this.convos.size ? 'busy' : 'none'
 		// Guion según el momento y lo que haya disponible (fotos, audios), sin repetir los recientes
 		const av = this.available()
