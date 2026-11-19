@@ -38,7 +38,7 @@ import {
 // - Si los mensajes de un número tardan en llegar a tus otros números, baja su ritmo antes de que lo restrinjan.
 // - Stickers, GIFs, mensajes borrados «para todos», respuestas tardías, charlas de llamadas perdidas y cambios de perfil.
 // - Madurez diaria por número: aviso cuando uno queda listo y reporte semanal los lunes.
-// - Intensidad Turbo y «sesión intensiva» (×2 por 1–6 h): más charlas a la vez, respuestas más rápidas, charlas que
+// - Intensidad Turbo (×2), Máximo (×3) y «sesión intensiva» (×2.5 por 1–6 h): más charlas a la vez, respuestas más rápidas, charlas que
 //   cambian de tema y más grupo. Solo acelera a números sanos y nunca pasa el tope diario según su antigüedad.
 
 const TZ = process.env.TZ_CAMPAIGNS || 'America/Mexico_City'
@@ -193,10 +193,10 @@ export const library = {
 
 const AVG_LINES = SCRIPTS.reduce((n, s) => n + s.lines.length, 0) / SCRIPTS.length
 const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, profiles: true, mentors: {}, prep: {} }
-const INTENSITY = { suave: 0.6, normal: 1, intenso: 1.4, turbo: 2 }
-const BOOST = 2 // «sesión intensiva»: duplica la actividad por unas horas
+const INTENSITY = { suave: 0.6, normal: 1, intenso: 1.4, turbo: 2, maximo: 3 }
+const BOOST = 2.5 // «sesión intensiva»: multiplica la actividad por unas horas
 // Tope diario por antigüedad que ninguna intensidad puede pasar (para no quemar números nuevos)
-const capFor = age => (age < 1 ? 6 : age < 3 ? 12 : age < 7 ? 25 : age < 14 ? 40 : 60)
+const capFor = age => (age < 1 ? 8 : age < 3 ? 15 : age < 7 ? 30 : age < 14 ? 50 : 80)
 const GRACE_HOURS = Number(process.env.WARMUP_GRACE_HOURS || 24) // espera tras vincular antes de enviar
 const GRACE_RECEIVE = 6 // mensajes que puede recibir al día un número recién vinculado
 const MAX_ACTIVE = 4 // charlas a la vez como máximo
@@ -455,7 +455,7 @@ export class WarmupManager {
 	}
 	boostActive() { return Number(this.s.boostUntil) > Date.now() }
 	// ¿Modo acelerado? (Turbo o sesión intensiva)
-	hot() { return this.s.intensity === 'turbo' || this.boostActive() }
+	hot() { return this.s.intensity === 'turbo' || this.s.intensity === 'maximo' || this.boostActive() }
 	// Solo se acelera a los números sanos; a los demás nunca se les sube de lo normal
 	multiplierFor(a) {
 		const m = INTENSITY[this.s.intensity || 'normal'] * (this.boostActive() ? BOOST : 1)
@@ -881,7 +881,7 @@ export class WarmupManager {
 
 	spawn(snap, hour, wd, force = false) {
 		const list = snap.list
-		const maxActive = Math.min(this.hot() ? 7 : MAX_ACTIVE, Math.floor(list.length / 2))
+		const maxActive = Math.min(this.hot() ? (this.s.intensity === 'maximo' ? 10 : 8) : MAX_ACTIVE, Math.floor(list.length / 2))
 		if (this.convos.size >= maxActive) return 'busy'
 		const busyIds = new Set([...this.convos.values()].flatMap(c => c.members))
 		const free = a => !busyIds.has(a.id) && this.live(a.id) && !this.flagged(a.id) && !this.busyReal(a.id)
@@ -901,7 +901,7 @@ export class WarmupManager {
 		const fitOf = sc => (!sc.when ? (mo.night ? 0.4 : 1) : mo[sc.when] ? MOMENT_BOOST[sc.when] : 0)
 		// A veces la charla es en el grupo de tus números
 		const g = this.group()
-		if (g && this.s.groups && Math.random() < (this.hot() ? 0.28 : 0.16)) {
+		if (g && this.s.groups && Math.random() < (this.hot() ? 0.32 : 0.16)) {
 			const members = ready.filter(a => g.members.includes(a.id) && !this.mentorsOf(a.id).length)
 			if (members.length >= 3) {
 				const people = weightedSample(members, a => 0.2 + this.awake(a, hour, wd), Math.min(members.length, irnd(3, 4)))
@@ -1152,7 +1152,7 @@ export class WarmupManager {
 		// Fin del guion, o a veces se queda "en visto".
 		// Un "buenas noches" a alguien dormido solo se lee en la mañana, no se contesta.
 		// En modo acelerado, a veces la charla sigue con otro tema («Oye, otra cosa…») en vez de terminar
-		if (c.i >= c.lines.length && !c.group && this.hot() && (c.chained || 0) < 2 && Math.random() < 0.45) {
+		if (c.i >= c.lines.length && !c.group && this.hot() && (c.chained || 0) < 3 && Math.random() < 0.6) {
 			const other = c.members.find(id => id !== speaker.id)
 			const o = snap.byId.get(other)
 			const sc = o && this.canSpeak(o, true) && this.canSpeak(speaker, true) && this.awake(o, h, wd) >= 0.5 ? this.pickScript(h, wd) : null
@@ -1253,7 +1253,7 @@ export class WarmupManager {
 	// Cuándo lee y cuándo contesta, según qué tan despierto está y qué tan rápido suele contestar
 	replyTiming(a, hour, wd) {
 		const w = this.awake(a, hour, wd)
-		const pace = (a.persona?.pace || 1) * (this.hot() ? 0.6 : 1)
+		const pace = (a.persona?.pace || 1) * (this.hot() ? 0.5 : 1)
 		if (w < 0.15) { // dormido: lo verá cuando despierte
 			let ahead = 1
 			while (ahead < 24 && this.awake(a, (hour + ahead) % 24, wd) < 0.35) ahead++
@@ -1303,7 +1303,7 @@ export class WarmupManager {
 		}
 		// Si falta mucho, solo vuelve a planear dentro de 2 h (por si cambian los números); no inicia charla
 		this.replanOnly = gapMin > 120
-		this.nextConvoAt = Date.now() + clamp(gapMin, this.hot() ? 2 : 4, 120) * MIN
+		this.nextConvoAt = Date.now() + clamp(gapMin, this.hot() ? 1.5 : 4, 120) * MIN
 	}
 }
 
