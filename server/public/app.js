@@ -2329,7 +2329,7 @@ function renderSettings() {
 
 			<div class="section">Calentamiento de números</div>
 				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
-				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Los números maduros platican más con los nuevos, y puedes elegir <b>padrinos</b> para un número (solo hablará con ellos). Los números restringidos por WhatsApp solo contestan y, al terminar la restricción, regresan poco a poco. Un padrino con problemas deja de hablar con su ahijado hasta recuperarse; si los mensajes de un número tardan en llegar, baja su ritmo; puedes preparar un número para un masivo con fecha; te avisa cuando uno queda listo y los lunes te manda un reporte. A veces se equivocan al escribir y lo corrigen, y días después retoman temas («¿cómo te fue en el banco?»). Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
+				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Los números maduros platican más con los nuevos, y puedes elegir <b>padrinos</b> para un número (solo hablará con ellos). Los números restringidos por WhatsApp solo contestan y, al terminar la restricción, regresan poco a poco. Con <b>⚡ Turbo</b> o una <b>sesión intensiva</b> habla el doble, solo con números sanos y sin pasar un tope diario según la antigüedad (6 el primer día, 12 hasta 3 días, 25 hasta 7, 40 hasta 14 y 60 después). Un padrino con problemas deja de hablar con su ahijado hasta recuperarse; si los mensajes de un número tardan en llegar, baja su ritmo; puedes preparar un número para un masivo con fecha; te avisa cuando uno queda listo y los lunes te manda un reporte. A veces se equivocan al escribir y lo corrigen, y días después retoman temas («¿cómo te fue en el banco?»). Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
 
 				<div class="section">Días sin envíos masivos</div>
 			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
@@ -2408,7 +2408,7 @@ function renderWarmupBox(st) {
 		: n.slow ? `🐢 Sus mensajes tardan en llegar: habla a la mitad · ${n.sentToday} de ${n.target} hoy`
 		: n.grace ? 'Recién vinculado: solo recibe sus primeras 24 h'
 			: n.resting && n.target > 0 ? `En descanso de masivos: charla ligera · ${n.sentToday} de ${n.target} hoy`
-				: n.target > 0 ? `${n.sentToday} de ${n.target} hoy · recibió ${n.receivedToday} · ${n.ageDays} día(s)${n.campaignToday ? ` · ${n.campaignToday} masivos hoy` : ''}`
+				: n.target > 0 ? `${n.sentToday} de ${n.target} hoy${n.atCap && st.hot ? ' (tope por antigüedad)' : ''} · recibió ${n.receivedToday} · ${n.ageDays} día(s)${n.campaignToday ? ` · ${n.campaignToday} masivos hoy` : ''}`
 					: 'Hoy no envía (rechazos o mensajes sin entregar); solo recibe'
 	const bar = (v, max, color = 'var(--accent)') => `<div style="height:4px;border-radius:2px;background:var(--fill);margin-top:6px;overflow:hidden"><div style="height:100%;width:${Math.min(100, max ? Math.round(v / max * 100) : 0)}%;background:${color}"></div></div>`
 	const matColor = sc => sc >= 70 ? 'var(--accent)' : sc >= 40 ? 'var(--warn)' : 'var(--danger)'
@@ -2434,12 +2434,17 @@ function renderWarmupBox(st) {
 	const chart = wk.length ? `<div class="item" style="display:block"><span class="muted" style="font-size:13px">Mensajes de los últimos 7 días</span>
 		<div style="display:flex;align-items:flex-end;gap:6px;height:56px;margin-top:8px">${wk.map((v, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><span class="muted" style="font-size:10px">${v || ''}</span><div style="width:100%;max-width:26px;height:${Math.max(2, Math.round(v / wkMax * 34))}px;border-radius:3px;background:${i === 6 ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 40%, transparent)'}"></div><span class="muted" style="font-size:10px">${days[(today - 6 + i + 7) % 7]}</span></div>`).join('')}</div></div>` : ''
 	const manual = st.auto ? `<div class="item" style="display:block"><span class="grow">Intensidad</span>
-		<div class="chips" style="padding:8px 0 0">${[['suave', 'Suave'], ['normal', 'Normal'], ['intenso', 'Intenso']].map(([k, t]) => `<button class="chip ${st.intensity === k ? 'on' : ''}" style="--c:#25D366" data-act="warmup-intensity" data-val="${k}">${t}</button>`).join('')}</div></div>` : `
+		<div class="chips" style="padding:8px 0 0">${[['suave', 'Suave'], ['normal', 'Normal'], ['intenso', 'Intenso'], ['turbo', '⚡ Turbo']].map(([k, t]) => `<button class="chip ${st.intensity === k ? 'on' : ''}" style="--c:#25D366" data-act="warmup-intensity" data-val="${k}">${t}</button>`).join('')}</div></div>` : `
 		<div class="item"><span class="grow">Tope por número al día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" class="num"></div>
 		${st.allDay ? '' : `<div class="item"><span class="grow">Horario</span><input type="number" id="wu-start" min="0" max="23" value="${st.startHour}" class="num"><span class="muted">a</span><input type="number" id="wu-end" min="1" max="24" value="${st.endHour}" class="num"></div>`}
 		<div class="item"><span class="grow">Pausa entre charlas (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" class="num"><span class="muted">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" class="num"></div>
 		<button class="btn" data-act="warmup-save">Guardar</button>`
 	const act = { alta: 'Alta', media: 'Media', baja: 'Baja (noche)', fuera: 'Fuera de horario' }
+	const boostLeft = st.boostUntil ? Math.max(1, Math.round((st.boostUntil - Date.now()) / 60000)) : 0
+	const boostHtml = `<div class="item" style="display:block"><span class="grow">⚡ Sesión intensiva<small>${boostLeft
+		? `Activa: quedan ${boostLeft >= 60 ? `${Math.floor(boostLeft / 60)} h ${boostLeft % 60} min` : `${boostLeft} min`}. Doble de charlas, respuestas más rápidas, temas encadenados y más grupo.`
+		: 'Duplica la actividad por unas horas: más charlas a la vez, respuestas más rápidas, charlas que cambian de tema y más grupo. Solo acelera a números sanos y respeta el tope diario por antigüedad.'}</small></span>
+		<div class="chips" style="padding:8px 0 0">${boostLeft ? '<button class="chip" data-act="warmup-boost" data-val="0">Detener</button>' : [1, 3, 6].map(h => `<button class="chip" style="--c:#FF9500" data-act="warmup-boost" data-val="${h}">${h} h</button>`).join('')}</div></div>`
 	const nameOf = id => (st.numbers || []).find(n => n.id === id)?.name || account(id)?.name || `#${id}`
 	const RS = { completa: ['Completa', 'var(--accent)'], 'reacción': ['Cerró con reacción', 'var(--accent)'], 'en visto': ['Quedó en visto', 'var(--muted)'], ocupado: ['Pospuesta: ocupado', 'var(--warn)'], pausada: ['Pausada', 'var(--danger)'], error: ['Error al enviar', 'var(--danger)'], cortada: ['Se cortó', 'var(--muted)'] }
 	const hist = st.history || []
@@ -2463,6 +2468,7 @@ function renderWarmupBox(st) {
 		<div class="item"><span class="grow">Automático<small>Decide solo cuánto y cuándo según cada número</small></span>${sw('warmup-auto', st.auto)}</div>
 		<div class="item"><span class="grow">Las 24 horas<small>De noche casi no habla, como una persona</small></span>${sw('warmup-allday', st.allDay)}</div>
 		${manual}
+		${st.enabled ? boostHtml : ''}
 		<div class="item"><span class="grow">Fotos, audios, stickers, GIFs, ubicación y contactos<small>Mensajes variados, no solo texto</small></span>${sw('warmup-media-t', st.media)}</div>
 		<div class="item"><span class="grow">Cambios de perfil<small>Cada número cambia su info cada 10–22 días y su foto cada 35–65 días (usa fotos de la biblioteca; si no tiene foto, le pone una)</small></span>${sw('warmup-profiles', st.profiles)}</div>
 		<div class="item"><span class="grow">Estados<small>Cada número publica un estado cada 2–4 días. Solo lo ven tus números vinculados, nunca tus contactos ni clientes</small></span>${sw('warmup-stories', st.stories)}</div>
@@ -2678,6 +2684,14 @@ document.addEventListener('click', async e => {
 		}
 		case 'contact-info': return openContactInfo()
 		case 'warmup-mentors': return openMentors(Number(val))
+		case 'warmup-boost': {
+			const h = Number(val)
+			try {
+				renderWarmupBox(await api('POST', '/warmup', { boostUntil: h ? Date.now() + h * 3600000 : 0 }))
+				toast(h ? `⚡ Sesión intensiva de ${h} h activada` : 'Sesión intensiva detenida')
+			} catch (err) { toast(err.message) }
+			return
+		}
 		case 'warmup-prep': return openPrep(Number(val))
 		case 'ci-copy': { try { await navigator.clipboard.writeText('+' + val); toast('Número copiado') } catch { toast('+' + val) } return }
 		case 'ci-mute': {

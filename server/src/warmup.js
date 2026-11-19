@@ -38,6 +38,8 @@ import {
 // - Si los mensajes de un número tardan en llegar a tus otros números, baja su ritmo antes de que lo restrinjan.
 // - Stickers, GIFs, mensajes borrados «para todos», respuestas tardías, charlas de llamadas perdidas y cambios de perfil.
 // - Madurez diaria por número: aviso cuando uno queda listo y reporte semanal los lunes.
+// - Intensidad Turbo y «sesión intensiva» (×2 por 1–6 h): más charlas a la vez, respuestas más rápidas, charlas que
+//   cambian de tema y más grupo. Solo acelera a números sanos y nunca pasa el tope diario según su antigüedad.
 
 const TZ = process.env.TZ_CAMPAIGNS || 'America/Mexico_City'
 const DAY = 864e5
@@ -191,7 +193,10 @@ export const library = {
 
 const AVG_LINES = SCRIPTS.reduce((n, s) => n + s.lines.length, 0) / SCRIPTS.length
 const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, profiles: true, mentors: {}, prep: {} }
-const INTENSITY = { suave: 0.6, normal: 1, intenso: 1.4 }
+const INTENSITY = { suave: 0.6, normal: 1, intenso: 1.4, turbo: 2 }
+const BOOST = 2 // «sesión intensiva»: duplica la actividad por unas horas
+// Tope diario por antigüedad que ninguna intensidad puede pasar (para no quemar números nuevos)
+const capFor = age => (age < 1 ? 6 : age < 3 ? 12 : age < 7 ? 25 : age < 14 ? 40 : 60)
 const GRACE_HOURS = Number(process.env.WARMUP_GRACE_HOURS || 24) // espera tras vincular antes de enviar
 const GRACE_RECEIVE = 6 // mensajes que puede recibir al día un número recién vinculado
 const MAX_ACTIVE = 4 // charlas a la vez como máximo
@@ -230,7 +235,7 @@ function moments(h, wd) {
 		weekend: wd === 5 ? h >= 14 : wd === 6 || wd === 0
 	}
 }
-const BOOST = { morning: 2, lunch: 2, afternoon: 1.5, night: 3, monday: 2, weekend: 1.5 }
+const MOMENT_BOOST = { morning: 2, lunch: 2, afternoon: 1.5, night: 3, monday: 2, weekend: 1.5 }
 const needs = sc => new Set(sc.lines.filter(l => typeof l === 'object').map(l => l.media))
 const keyOf = sc => (typeof sc.lines[0] === 'string' ? sc.lines[0] : JSON.stringify(sc.lines[0])).slice(0, 80)
 
@@ -299,6 +304,7 @@ export class WarmupManager {
 		s.endHour = clamp(Math.floor(Number(s.endHour) || 24), s.startHour + 1, 24)
 		for (const k of ['enabled', 'auto', 'allDay', 'media', 'stories', 'groups', 'profiles']) s[k] = s[k] === undefined ? DEFAULTS[k] : Boolean(s[k])
 		if (!INTENSITY[s.intensity]) s.intensity = 'normal'
+		s.boostUntil = Number(s.boostUntil) > Date.now() ? Math.min(Number(s.boostUntil), Date.now() + 12 * 36e5) : 0
 		// Padrinos: { númeroNuevo: [números maduros que hablan con él] }
 		const m = {}
 		for (const [k, v] of Object.entries(s.mentors && typeof s.mentors === 'object' ? s.mentors : {})) {
@@ -319,7 +325,7 @@ export class WarmupManager {
 		this.s = s
 		this.snap = null
 		if (s.enabled && !wasOn) this.nextConvoAt = Date.now() + rnd(0.5, 3) * MIN
-		if (s.enabled) this.nextConvoAt = Math.min(this.nextConvoAt, Date.now() + 20 * MIN)
+		if (s.enabled) this.nextConvoAt = Math.min(this.nextConvoAt, Date.now() + (s.boostUntil ? 0.5 : 20) * MIN)
 		else { this.convos.clear(); this.queue = [] }
 		this.dirty = true
 		this.persist()
@@ -445,7 +451,16 @@ export class WarmupManager {
 		else base = 12
 		if (camp >= 20 && h.level === 'green') base += Math.min(4, 1 + Math.floor(camp / 40))
 		if (a.recovering) base *= 0.5 // acaba de salir de una restricción: regresa poco a poco
-		return base * this.prepFactor(a) * INTENSITY[this.s.intensity || 'normal']
+		return base * this.prepFactor(a) * this.multiplierFor(a)
+	}
+	boostActive() { return Number(this.s.boostUntil) > Date.now() }
+	// ¿Modo acelerado? (Turbo o sesión intensiva)
+	hot() { return this.s.intensity === 'turbo' || this.boostActive() }
+	// Solo se acelera a los números sanos; a los demás nunca se les sube de lo normal
+	multiplierFor(a) {
+		const m = INTENSITY[this.s.intensity || 'normal'] * (this.boostActive() ? BOOST : 1)
+		const healthy = a.level === 'green' && !a.restricted && !a.slow && !a.recovering && !a.resting
+		return healthy ? m : Math.min(1, m)
 	}
 
 	// Preparar para masivo: los 5 días previos sube poco a poco (hasta ×1.75); 2 días después, charla de recuperación
@@ -525,9 +540,11 @@ export class WarmupManager {
 			a.recovering = !a.restricted && Boolean(a.restricted_until && a.restricted_until <= now && now - a.restricted_until < RECOVER_DAYS * DAY)
 			let base
 			if (s.auto) base = this.autoBase(a, h, a.campaign)
-			else base = a.grace || a.level === 'red' ? 0 : a.restricted ? Math.min(s.perDay, 3) : Math.min(s.perDay, 3 + 2 * this.ageDays(a)) * (a.recovering ? 0.5 : 1) * this.prepFactor(a)
+			else base = a.grace || a.level === 'red' ? 0 : a.restricted ? Math.min(s.perDay, 3) : Math.min(s.perDay, 3 + 2 * this.ageDays(a)) * (a.recovering ? 0.5 : 1) * this.prepFactor(a) * this.multiplierFor(a)
 			a.target = base ? Math.max(1, Math.round(base * this.dayFactor(a, rest, wd))) : 0
-			if (!s.auto) a.target = Math.min(s.perDay, a.target)
+			if (!s.auto) a.target = Math.min(Math.round(s.perDay * this.multiplierFor(a)), a.target)
+			a.cap = capFor(this.ageDays(a))
+			a.target = Math.min(a.target, a.cap)
 			if (a.slow && a.target) a.target = Math.max(1, Math.round(a.target * 0.5))
 			if (this.flagged(a.id)) a.target = 0
 			a.persona = persona(a.id)
@@ -634,6 +651,8 @@ export class WarmupManager {
 			library: { images: files.filter(f => f.kind === 'image').length, audios: files.filter(f => f.kind === 'audio').length, stickers: files.filter(f => f.kind === 'sticker').length, gifs: files.filter(f => f.kind === 'gif').length, files },
 			customCount: this.custom.length,
 			pendingFollows: this.follows.length,
+			boostUntil: this.boostActive() ? this.s.boostUntil : 0,
+			hot: this.hot(),
 			history: this.history.slice(0, 15),
 			numbers: list.map(a => ({
 				id: a.id, name: a.name, sentToday: this.sentToday(a.id), receivedToday: this.recvToday(a.id), target: a.target,
@@ -641,7 +660,7 @@ export class WarmupManager {
 				level: a.level, campaignToday: a.campaign, flagged: this.flagged(a.id) ? this.flags[a.id] : null,
 				restrictedUntil: a.restrictedUntil, recovering: a.recovering,
 				mentors: this.mentorsOf(a.id), godchildren: this.godchildrenOf(a.id), mentorsPaused: this.mentorsOf(a.id).filter(m => !this.mentorOk(m)),
-				slow: a.slow, prepAt: this.s.prep?.[a.id] || null, weekDelta: this.weekDelta(a.id, a.mature.score),
+				slow: a.slow, prepAt: this.s.prep?.[a.id] || null, cap: a.cap, atCap: a.target >= a.cap, weekDelta: this.weekDelta(a.id, a.mature.score),
 				maturity: a.mature,
 				inConvo: [...this.convos.values()].some(c => c.members.includes(a.id))
 			}))
@@ -862,7 +881,7 @@ export class WarmupManager {
 
 	spawn(snap, hour, wd, force = false) {
 		const list = snap.list
-		const maxActive = Math.min(MAX_ACTIVE, Math.floor(list.length / 2))
+		const maxActive = Math.min(this.hot() ? 7 : MAX_ACTIVE, Math.floor(list.length / 2))
 		if (this.convos.size >= maxActive) return 'busy'
 		const busyIds = new Set([...this.convos.values()].flatMap(c => c.members))
 		const free = a => !busyIds.has(a.id) && this.live(a.id) && !this.flagged(a.id) && !this.busyReal(a.id)
@@ -879,10 +898,10 @@ export class WarmupManager {
 			if (to.grace || !this.canSpeak(to, true)) lines = lines.slice(0, 1)
 			return this.startConvo({ members: [fu.from, fu.to], order: lines.map((_, i) => (i % 2 === 0 ? fu.from : fu.to)), lines, followUp: true }, { lines }, force)
 		}
-		const fitOf = sc => (!sc.when ? (mo.night ? 0.4 : 1) : mo[sc.when] ? BOOST[sc.when] : 0)
+		const fitOf = sc => (!sc.when ? (mo.night ? 0.4 : 1) : mo[sc.when] ? MOMENT_BOOST[sc.when] : 0)
 		// A veces la charla es en el grupo de tus números
 		const g = this.group()
-		if (g && this.s.groups && Math.random() < 0.16) {
+		if (g && this.s.groups && Math.random() < (this.hot() ? 0.28 : 0.16)) {
 			const members = ready.filter(a => g.members.includes(a.id) && !this.mentorsOf(a.id).length)
 			if (members.length >= 3) {
 				const people = weightedSample(members, a => 0.2 + this.awake(a, hour, wd), Math.min(members.length, irnd(3, 4)))
@@ -914,12 +933,7 @@ export class WarmupManager {
 			this.pairBoost(starter, x))
 		if (!partner) return this.convos.size ? 'busy' : 'none'
 		// Guion según el momento y lo que haya disponible (fotos, audios), sin repetir los recientes
-		const av = this.available()
-		const pool = [...SCRIPTS, ...CALL_SCRIPTS.map(x => ({ ...x, weight: 0.6 })), ...this.custom]
-		const script = weighted(pool, sc => {
-			for (const n of needs(sc)) if (!av[n]) return 0
-			return fitOf(sc) * (sc.weight ?? (sc.custom ? 1.5 : 1)) * (this.recent.includes(keyOf(sc)) ? 0.03 : 1)
-		})
+		const script = this.pickScript(hour, wd)
 		if (!script) return 'none'
 		let lines = [...script.lines]
 		// Recién vinculado: solo recibe (un mensaje, sin respuesta)
@@ -929,6 +943,16 @@ export class WarmupManager {
 		}
 		const order = lines.map((_, i) => (i % 2 === 0 ? starter.id : partner.id))
 		return this.startConvo({ members: [starter.id, partner.id], order, lines, when: script.when }, script, force)
+	}
+	pickScript(hour, wd) {
+		const mo = moments(hour, wd)
+		const fitOf = sc => (!sc.when ? (mo.night ? 0.4 : 1) : mo[sc.when] ? MOMENT_BOOST[sc.when] : 0)
+		const av = this.available()
+		const pool = [...SCRIPTS, ...CALL_SCRIPTS.map(x => ({ ...x, weight: 0.6 })), ...this.custom]
+		return weighted(pool, sc => {
+			for (const n of needs(sc)) if (!av[n]) return 0
+			return fitOf(sc) * (sc.weight ?? (sc.custom ? 1.5 : 1)) * (this.recent.includes(keyOf(sc)) ? 0.03 : 1)
+		})
 	}
 	startConvo(c, script, force) {
 		this.recent = [keyOf(script), ...this.recent].slice(0, 14)
@@ -1127,10 +1151,26 @@ export class WarmupManager {
 		}
 		// Fin del guion, o a veces se queda "en visto".
 		// Un "buenas noches" a alguien dormido solo se lee en la mañana, no se contesta.
+		// En modo acelerado, a veces la charla sigue con otro tema («Oye, otra cosa…») en vez de terminar
+		if (c.i >= c.lines.length && !c.group && this.hot() && (c.chained || 0) < 2 && Math.random() < 0.45) {
+			const other = c.members.find(id => id !== speaker.id)
+			const o = snap.byId.get(other)
+			const sc = o && this.canSpeak(o, true) && this.canSpeak(speaker, true) && this.awake(o, h, wd) >= 0.5 ? this.pickScript(h, wd) : null
+			if (sc && !sc.greets) {
+				const extra = [...sc.lines]
+				if (typeof extra[0] === 'string') extra[0] = `{Oye|Por cierto|Otra cosa|Oye, cambiando de tema}||${extra[0]}`
+				this.recent = [keyOf(sc), ...this.recent].slice(0, 14)
+				extra.forEach((l, k) => { c.lines.push(l); c.order.push(k % 2 === 0 ? other : speaker.id) })
+				c.follow = sc.follow || c.follow
+				c.chained = (c.chained || 0) + 1
+				next = null
+				for (const l of listeners) if (l.id === other) next = this.replyTiming(l, h, wd)
+			}
+		}
 		const nextSpeaker = c.i < c.lines.length ? snap.byId.get(c.order[c.i]) : null
 		const asleep = nextSpeaker ? this.awake(nextSpeaker, h, wd) < 0.15 : false
 		if (!nextSpeaker || (asleep && c.when === 'night')) return this.end(c.id, 'completa')
-		if (c.i >= 2 && Math.random() < 0.07) return this.end(c.id, 'en visto')
+		if (c.i >= 2 && Math.random() < (this.hot() ? 0.03 : 0.07)) return this.end(c.id, 'en visto')
 		next ||= this.replyTiming(nextSpeaker, h, wd)
 		// A veces lo ve horas después y contesta disculpándose
 		let late = 0
@@ -1213,7 +1253,7 @@ export class WarmupManager {
 	// Cuándo lee y cuándo contesta, según qué tan despierto está y qué tan rápido suele contestar
 	replyTiming(a, hour, wd) {
 		const w = this.awake(a, hour, wd)
-		const pace = a.persona?.pace || 1
+		const pace = (a.persona?.pace || 1) * (this.hot() ? 0.6 : 1)
 		if (w < 0.15) { // dormido: lo verá cuando despierte
 			let ahead = 1
 			while (ahead < 24 && this.awake(a, (hour + ahead) % 24, wd) < 0.35) ahead++
@@ -1263,7 +1303,7 @@ export class WarmupManager {
 		}
 		// Si falta mucho, solo vuelve a planear dentro de 2 h (por si cambian los números); no inicia charla
 		this.replanOnly = gapMin > 120
-		this.nextConvoAt = Date.now() + clamp(gapMin, 4, 120) * MIN
+		this.nextConvoAt = Date.now() + clamp(gapMin, this.hot() ? 2 : 4, 120) * MIN
 	}
 }
 
