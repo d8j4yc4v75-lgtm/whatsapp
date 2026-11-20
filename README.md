@@ -1,38 +1,29 @@
 # Coach — entrenador personal con Apple Health + Claude
 
-App de iPhone (SwiftUI, iOS 17+) que lee tus datos de Apple Health, te deja anotar lo que comes y, cada día, le pide a Claude que compare todo con tu plan de entrenamiento y te diga qué hiciste bien, qué hiciste mal y qué hacer mañana.
+Tu entrenador personal: lee tus datos de Apple Salud, registra lo que comes (con texto o foto) y tu entreno, arma tu rutina y cada día evalúa con Claude qué hiciste bien, qué hiciste mal y qué hacer mañana.
 
-## Qué hace
+- **Hoy**: evaluación del día, registro rápido («desayuné 3 huevos, entrené pierna, peso 103.5»), datos de Salud contra tus metas, entreno del día con casillas y pesos usados, y chat con el coach.
+- **Comidas**: calorías y macros estimadas por foto o texto, contra tu meta del día.
+- **Rutina**: semana de entrenamiento y metas diarias que el coach ajusta con tus resultados; tu plan base.
+- **Cuerpo**: peso, IMC, cintura, % grasa y gráfica de tu peso.
+- **Historial**: notas de los últimos 14 días y promedios de la semana.
 
-- **Hoy**: sueño (total, profundo, REM, hora de dormir/despertar), pasos, calorías activas y totales, minutos de ejercicio, FC en reposo, VFC, peso y entrenamientos del día. Botón **Analizar mi día** → nota del 1 al 10, resumen, lo bueno, lo malo y acciones para mañana.
-- **Comidas**: registro por día (desayuno, almuerzo, cena, snack, pre/post-entreno), con calorías y proteína opcionales. Si no pones cantidades, Claude las estima.
-- **Plan**: pega tu plan de entrenamiento o impórtalo desde `.txt`, `.md` o `.pdf`. Se envía en cada análisis.
-- **Historial**: todas las evaluaciones diarias.
-- **Automático**: al abrir la app, si el día anterior no tiene evaluación, la genera sola. Recordatorio diario a las 21:00 para anotar comidas.
+## Instalar en el iPhone con una Mac (gratis)
 
-## Instalación sin Mac (desde el iPhone)
+La app de iPhone lee Salud directamente y muestra Coach Diario (la página de Claude) con tus datos. No usa correo ni atajos.
 
-La app se compila en un Mac en la nube (GitHub Actions) y llega a tu iPhone por **TestFlight**.
+1. Instala **Xcode** desde la App Store de la Mac y ábrelo una vez.
+2. En Xcode: **Settings › Accounts › +** › inicia sesión con tu Apple ID (sirve la cuenta gratis).
+3. Conecta el iPhone con cable, desbloquéalo y toca **Confiar**. Si el iPhone lo pide, activa **Ajustes › Privacidad y seguridad › Modo de desarrollador**.
+4. En la Terminal de la Mac, dentro de esta carpeta: `bash mac/instalar.sh`
+5. La primera vez, en el iPhone: **Ajustes › General › VPN y gestión de dispositivos** › tu Apple ID › **Confiar**.
+6. Abre **Coach**, permite el acceso a Salud e inicia sesión en Claude dentro de la app (con «Continuar con Apple» o con tu correo).
 
-1. **Apple Developer Program** (99 USD/año): inscríbete en https://developer.apple.com/programs/enroll desde el iPhone.
-2. **Bundle ID**: en https://developer.apple.com/account/resources/identifiers crea un App ID, por ejemplo `com.tunombre.coach`, y marca **HealthKit**.
-3. **App en App Store Connect**: en https://appstoreconnect.apple.com → Apps → **+** → Nueva app, con ese Bundle ID.
-4. **Clave de API**: App Store Connect → Usuarios y acceso → Integraciones → **Claves de API del App Store Connect** → genera una con rol **Administrador**. Anota el *Issuer ID* y el *Key ID* y descarga el archivo `.p8`.
-5. **Team ID**: en https://developer.apple.com/account → Membresía.
-6. **Secretos en GitHub**: en este repositorio → Settings → Secrets and variables → Actions → *New repository secret*:
-   - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` (el contenido completo del `.p8`), `APPLE_TEAM_ID`, `BUNDLE_ID`.
-7. **Compilar y subir**: pestaña **Actions** → **iOS** → *Run workflow*. Unos 15 minutos después la build aparece en TestFlight.
-8. Instala **TestFlight** desde el App Store, entra con tu Apple ID y instala **Coach**.
-9. En la app: acepta los permisos de Salud, pega tu API key de Anthropic en **Ajustes** (créala en https://platform.claude.com) y carga tu plan en **Plan**.
-
-### Con Mac (opcional)
-
-```bash
-brew install xcodegen && xcodegen generate && open Coach.xcodeproj
-```
+Con la cuenta gratis de Apple la app deja de abrir a los 7 días: vuelve a correr `bash mac/instalar.sh` con el iPhone conectado. Tus datos no se pierden; viven en tu cuenta de Claude.
 
 ## Detalles técnicos
 
-- Modelo: `claude-opus-5-5` vía HTTP (`/v1/messages`), salida JSON estructurada, `fallbacks: "default"` para reintentar en otro modelo si un clasificador rechaza la petición.
-- La API key se guarda en el llavero (Keychain); comidas y evaluaciones en SwiftData, todo local en el iPhone. Solo se envía a Anthropic el informe del día y tu plan.
-- Código: `Coach/Services/HealthKitManager.swift` (lectura de Salud), `DayReviewer.swift` (informe diario), `ClaudeService.swift` (llamada a Claude), `Coach/Views/` (pantallas).
+- `web/coach.html`: la app (página de Claude). Guarda en tu cuenta de Claude y usa tu plan de Claude para las evaluaciones.
+- `Coach/App/HealthReader.swift`: lee los totales del día de Salud (sin contar doble iPhone y Apple Watch) y el sueño de una sola fuente.
+- `Coach/App/CoachApp.swift`: abre la página con los datos en el `#ancla` (`#salud~d20261120_t1415_p6240_…`) cada vez que abres la app o deslizas hacia abajo.
+- `mac/instalar.sh`: compila e instala en el iPhone conectado.
