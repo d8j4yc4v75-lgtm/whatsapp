@@ -447,7 +447,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
 <script>
 (() => {
   "use strict";
-  const VERSION = "4.0";
+  const VERSION = "4.1";
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -698,6 +698,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     if (isNum(h.kcal_totales)) hp.push(`gasto total ${n0(h.kcal_totales)} kcal`);
     if (isNum(h.ejercicio_min)) hp.push(`${n0(h.ejercicio_min)} min de ejercicio`);
     if (isNum(h.fc_reposo)) hp.push(`FC en reposo ${n0(h.fc_reposo)} lpm`);
+    if (isNum(h.entreno_min) && h.entreno_min > 0) hp.push(`entrenamientos registrados en el reloj: ${n0(h.entreno_min)} min`);
     const corte = d.healthAt && keyOf(new Date(d.healthAt)) === d.date ? ` (corte a las ${hhmm(new Date(d.healthAt))}${isToday ? "" : "; lo posterior a esa hora no está contado"})` : "";
     L.push(hp.length ? `Apple Salud${corte}: ${hp.join("; ")}.${miss.length ? ` Sin dato de: ${miss.join(", ")}.` : ""}` : "Apple Salud: no llegaron datos este día (no es culpa del usuario: fallo de sincronización).");
     if (t.kcal) L.push(`Metas diarias: ${n0(t.kcal)} kcal, ${n0(t.proteina_g)} g proteína, ${n0(t.pasos)} pasos, ${t.sueno_h} h de sueño.`);
@@ -798,8 +799,56 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     else if (profile.lastSync) { sync.state = "warn"; sync.text = `Salud: ${shortDate.format(new Date(profile.lastSync))}`; }
     else { sync.state = "warn"; sync.text = "Sin datos de Salud"; }
   }
+  // La app Coach del iPhone lee Salud directo y abre esta página con los datos en el #ancla:
+  // #salud~d20261111_t2030_p10532_a1012.8_r1850.5_z408_c64_e13_k103.4_w60~d20261110_t2359_…
+  const APP_KEYS = { p: "pasos", a: "kcal_activas", r: "kcal_reposo", z: "sueno_min", c: "fc_reposo", e: "ejercicio_min", k: "peso_kg", w: "entreno_min" };
+  const APP_RANGE = { pasos: [0, 150000], kcal_activas: [0, 8000], kcal_reposo: [0, 8000], sueno_min: [0, 1440], fc_reposo: [25, 220], ejercicio_min: [0, 1440], peso_kg: [20, 400], entreno_min: [0, 1440] };
+  function readAnchor() {
+    let h = "";
+    try { h = decodeURIComponent(String(location.hash || "").slice(1)); } catch { return []; }
+    if (!/^salud~/.test(h)) return [];
+    const out = [];
+    for (const part of h.split("~").slice(1, 8)) {
+      const f = {};
+      for (const kv of part.split("_")) { const m = kv.match(/^([a-z])(-?\d+(?:\.\d+)?)$/); if (m) f[m[1]] = m[2]; }
+      if (!/^\d{8}$/.test(f.d || "") || !/^\d{3,4}$/.test(f.t || "")) continue;
+      const date = `${f.d.slice(0, 4)}-${f.d.slice(4, 6)}-${f.d.slice(6, 8)}`;
+      const t = f.t.padStart(4, "0");
+      const at = new Date(+f.d.slice(0, 4), +f.d.slice(4, 6) - 1, +f.d.slice(6, 8), Math.min(23, +t.slice(0, 2)), Math.min(59, +t.slice(2)));
+      if (isNaN(at) || at > new Date(Date.now() + 10 * 60000)) continue;
+      const snap = {};
+      for (const [k, name] of Object.entries(APP_KEYS)) if (f[k] != null) { const v = clampNum(Number(f[k]), ...APP_RANGE[name]); if (v != null) snap[name] = v; }
+      out.push({ date, at: at.toISOString(), snap });
+    }
+    return out;
+  }
+  function applyAnchor() {
+    if (!loaded) return 0;
+    let fresh = 0;
+    for (const { date, at, snap } of readAnchor()) {
+      const d = dayOf(date);
+      if (d.healthAt && d.healthAt >= at && d.healthSrc === "app") continue;
+      if (d.healthAt && d.healthAt > at) continue;
+      d.health = { ...snap };
+      d.healthAt = at; d.healthSrc = "app";
+      touch(d); saveDay(d); fresh++;
+      if (isNum(snap.peso_kg)) setMeasure(date, { peso: snap.peso_kg }, false);
+      if (!profile.lastSync || at > profile.lastSync) profile.lastSync = at;
+      logEvent("salud", `app ${date} ${hhmm(new Date(at))} → ${Object.entries(snap).map(([k, v]) => `${k} ${Math.round(v)}`).join(", ")}`);
+    }
+    if (fresh) {
+      if (profile.healthSource !== "app") logEvent("salud", "fuente: app Coach del iPhone");
+      profile.healthSource = "app";
+      persist("profile", profile);
+      settleSync(); renderSync();
+    }
+    return fresh;
+  }
+  const viaApp = () => profile.healthSource === "app";
+
   let syncing = null;
   function syncHealth() {
+    if (viaApp()) { const n = applyAnchor(); settleSync(); sync.last = Date.now(); renderSync(); if (loaded) { renderHealthBanner(); if (n) refreshDay(); } return Promise.resolve(n); }
     if (!syncing) syncing = doSync().finally(() => { syncing = null; });
     return syncing;
   }
@@ -1247,6 +1296,9 @@ Responde SOLO con JSON en español:
       if (sync.action === "allow" || sync.action === "retry") { const x = el("button", "btn sm", sync.action === "allow" ? "Permitir y actualizar" : "Reintentar"); x.onclick = () => syncHealth().then(autoEvaluate); row.append(x); }
       if (row.children.length) b.append(row);
       b.hidden = false;
+    } else if (current === todayKey() && !day().healthAt && loaded && viaApp()) {
+      b.append(el("span", null, "Aún no hay datos de Salud de hoy. Abre la app Coach de tu iPhone para mandarlos; si ya la abriste, revisa en Ajustes del iPhone › Salud › Acceso a datos › Coach que todo esté activado."));
+      b.hidden = false;
     } else if (current === todayKey() && !day().healthAt && loaded) {
       b.append(el("span", null, "Aún no llegan tus datos de Salud de hoy."));
       const row = el("div", "row");
@@ -1627,7 +1679,19 @@ Responde SOLO con JSON en español:
     const put = (k, v) => kv.append(el("dt", null, k), el("dd", null, v));
     const t = days.get(todayKey());
     put("Tus datos", store.kind === "db" ? "Guardados en tu cuenta de Claude" : "Solo en este dispositivo (sin sesión)");
-    put("Apple Salud", profile.lastSync ? `Último envío: ${shortDate.format(new Date(profile.lastSync))} a las ${hhmm(new Date(profile.lastSync))}${t?.healthAt ? "" : " · hoy no ha llegado nada"}` : "Aún no llega ningún envío del atajo");
+    put("Apple Salud", profile.lastSync ? `Último envío: ${shortDate.format(new Date(profile.lastSync))} a las ${hhmm(new Date(profile.lastSync))}${t?.healthAt ? "" : " · hoy no ha llegado nada"}` : "Aún no llega ningún envío");
+    if (viaApp()) {
+      put("Fuente", "App Coach del iPhone (lee Salud directo)");
+      const back = el("button", "btn sm", "Volver a recibir Salud por correo");
+      back.onclick = () => { profile.healthSource = "email"; persist("profile", profile); closeSheet(); syncHealth().then(autoEvaluate); };
+      const dgA = el("details");
+      dgA.append(el("summary", null, "Diagnóstico"));
+      const preA = el("pre", "log", [`Coach Diario v${VERSION} · ${new Date().toLocaleString("es")}`, `datos: ${store.kind} · días: ${sortedDays().length} · fuente: app`, ...diag].join("\n"));
+      const cpA = el("button", "btn sm", "Copiar diagnóstico"); cpA.onclick = () => copyText(preA.textContent, cpA);
+      dgA.append(preA, cpA);
+      openSheet("Conexión y ajustes", [kv, el("p", "small muted", "Cada vez que abres la app Coach en tu iPhone, lee Salud y actualiza esta página. Desliza hacia abajo dentro de la app para actualizar."), dgA, back]);
+      return;
+    }
     put("Gmail", sync.state === "err" ? sync.detail : "Conectado");
     const row = el("div", "row");
     const again = el("button", "btn sm", "Buscar datos nuevos"); again.onclick = () => { closeSheet(); syncHealth().then((n) => { toast(n ? "Datos de Salud actualizados" : "No hay envíos nuevos"); autoEvaluate(); }); };
@@ -1759,7 +1823,7 @@ Responde SOLO con JSON en español:
     if (document.visibilityState === "hidden") { hiddenAt = Date.now(); flushSaves(); return; }
     if (!loaded || Date.now() - sync.last < 45000) return;
     if (Date.now() - hiddenAt > 5 * 60000 && current !== todayKey() && addDays(current, 1) === todayKey()) goTo(todayKey());
-    syncHealth().then((n) => { schedulePolls(); if (n) autoEvaluate(); });
+    syncHealth().then((n) => { if (!viaApp()) schedulePolls(); if (n) autoEvaluate(); });
   });
   window.addEventListener("pagehide", flushSaves);
   $("fatalRetry").onclick = () => { $("fatal").hidden = true; start(); };
@@ -1797,11 +1861,13 @@ Responde SOLO con JSON en español:
     $("planText").value = profile.plan || "";
     $("planBox").open = !profile.plan;
     renderRoutine();
+    if (applyAnchor()) logEvent("salud", "datos recibidos de la app Coach");
     refreshDay();
     await syncHealth();
-    schedulePolls();
+    if (!viaApp()) schedulePolls();
     autoEvaluate();
   }
+  window.addEventListener("hashchange", () => { if (applyAnchor()) { refreshDay(); autoEvaluate(); } });
   refreshDay();
   renderRoutine();
   start();

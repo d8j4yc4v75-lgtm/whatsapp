@@ -19,9 +19,10 @@ jobs:
         run: brew install xcodegen && xcodegen generate
       - name: Compilar (sin firmar)
         run: |
-          xcodebuild build -project Coach.xcodeproj -scheme Coach \
+          xcodebuild -version
+          xcodebuild build -quiet -project Coach.xcodeproj -scheme Coach \
             -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO | xcpretty || exit ${PIPESTATUS[0]}
+            CODE_SIGNING_ALLOWED=NO
 
   testflight:
     needs: build
@@ -54,7 +55,7 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_$ASC_KEY_ID.p8 \
             -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            CURRENT_PROJECT_VERSION=${{ github.run_number }} | xcpretty || exit ${PIPESTATUS[0]}
+            CURRENT_PROJECT_VERSION=${{ github.run_number }}
       - name: Subir a TestFlight
         run: |
           xcodebuild -exportArchive -archivePath build/Coach.xcarchive \
