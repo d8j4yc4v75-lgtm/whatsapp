@@ -610,18 +610,6 @@ app.post('/api/send', route(async req => {
 	return manager.get(accountId).send(jid, { text })
 }))
 
-app.post('/api/send-location', route(async req => {
-	const accountId = accountParam(req)
-	const { latitude, longitude, jid } = req.body
-	if (!Number.isFinite(latitude) || Math.abs(latitude) > 90 ||
-		!Number.isFinite(longitude) || Math.abs(longitude) > 180 || typeof jid !== 'string' || !jid) {
-		throw new Error('La ubicación o el chat no son válidos')
-	}
-	return manager.get(accountId).send(jid, { location: {
-		degreesLatitude: latitude, degreesLongitude: longitude, name: 'Ubicación simulada'
-	} })
-}))
-
 app.post('/api/send-media', upload.single('file'), route(async req => {
 	const accountId = accountParam(req)
 	const file = req.file

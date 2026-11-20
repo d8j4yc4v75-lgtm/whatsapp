@@ -194,7 +194,7 @@ function describe(content) {
 			}
 		case 'locationMessage':
 		case 'liveLocationMessage':
-			return { type: 'location', text: `📍 ${m.name ? m.name + '\n' : ''}https://maps.google.com/?q=${m.degreesLatitude},${m.degreesLongitude}` }
+			return { type: 'location', text: `📍 https://maps.google.com/?q=${m.degreesLatitude},${m.degreesLongitude}` }
 		case 'contactMessage':
 			return { type: 'contact', text: `👤 ${m.displayName || 'Contacto'}` }
 		case 'contactsArrayMessage':
