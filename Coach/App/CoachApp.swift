@@ -16,16 +16,17 @@ struct ShellView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: ShellViewController, context: Context) {}
 }
 
-/// Muestra Coach Diario (la página de Claude) y le pasa lo que lee de Salud en el #ancla
-/// cada vez que se abre la app o se desliza hacia abajo.
-final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
+/// Muestra Coach Diario (la página de Claude) y le pasa lo que lee de Salud.
+/// La primera vez va en el #ancla; después, la página avisa que está lista y se le mandan
+/// las lecturas nuevas sin recargarla, para no perder lo que estés escribiendo.
+final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     static let artifactURL = URL(string: "https://claude.ai/artifact/34AjknhRPw9qqUJG6UMnpb")!
 
     private var webView: WKWebView!
     private var popup: UIViewController?
-    private var lastAnchor: String?
-    private var lastLoad = Date.distantPast
-    private var refreshing = false
+    private var pageFrame: WKFrameInfo?
+    private var backgroundedAt: Date?
+    private var reloading = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -35,6 +36,7 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         config.websiteDataStore = .default()
         config.allowsInlineMediaPlayback = true
         config.applicationNameForUserAgent = "Version/18.0 Mobile/15E148 Safari/604.1"
+        config.userContentController.add(WeakMessageHandler(self), name: "coachHealth")
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
@@ -53,21 +55,32 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         pull.addTarget(self, action: #selector(pulled), for: .valueChanged)
         webView.scrollView.refreshControl = pull
 
-        NotificationCenter.default.addObserver(self, selector: #selector(becameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        // Al volver de otra app (no con avisos del sistema, como el de la cámara)
+        NotificationCenter.default.addObserver(self, selector: #selector(enteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
 
         Task {
             await HealthReader.shared.requestAccess()
-            await refresh(force: true)
+            await reload()
         }
     }
 
-    @objc private func becameActive() {
-        Task { await refresh(force: false) }
+    @objc private func enteredBackground() {
+        backgroundedAt = Date()
+    }
+
+    @objc private func willEnterForeground() {
+        let away = backgroundedAt.map { Date().timeIntervalSince($0) } ?? 0
+        Task {
+            if await push() { return }
+            // Sin canal directo con la página solo se recarga tras un buen rato fuera
+            if away >= 600 || !onArtifact { await reload() }
+        }
     }
 
     @objc private func pulled() {
         Task {
-            await refresh(force: true)
+            if !(await push()) { await reload() }
             webView.scrollView.refreshControl?.endRefreshing()
         }
     }
@@ -77,17 +90,24 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         return url.host == "claude.ai" && url.path.hasPrefix(Self.artifactURL.path)
     }
 
+    /// Manda la lectura de Salud a la página abierta. Devuelve false si la página no ha avisado que está lista.
     @MainActor
-    private func refresh(force: Bool) async {
-        guard !refreshing else { return }
-        refreshing = true
-        defer { refreshing = false }
+    private func push() async -> Bool {
+        guard let frame = pageFrame else { return false }
+        guard let anchor = HealthReader.anchor(await HealthReader.shared.readings()) else { return true }
+        webView.evaluateJavaScript("window.__coachReceive && window.__coachReceive('\(anchor)')", in: frame, in: .page) { [weak self] result in
+            if case .failure = result { self?.pageFrame = nil }
+        }
+        return true
+    }
+
+    @MainActor
+    private func reload() async {
+        guard !reloading else { return }
+        reloading = true
+        defer { reloading = false }
 
         let anchor = HealthReader.anchor(await HealthReader.shared.readings())
-        if !force && onArtifact && (anchor == lastAnchor || Date().timeIntervalSince(lastLoad) < 60) { return }
-        lastAnchor = anchor
-        lastLoad = Date()
-
         if onArtifact, let anchor {
             // Cambiar solo el ancla no recarga la página; se cambia y se recarga para que la lea al arrancar
             webView.evaluateJavaScript("history.replaceState(null, '', '#\(anchor)'); location.reload();", completionHandler: nil)
@@ -96,6 +116,16 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
             parts.fragment = anchor
             webView.load(URLRequest(url: parts.url ?? Self.artifactURL))
         }
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "coachHealth", (message.body as? String) == "ready" else { return }
+        pageFrame = message.frameInfo
+        Task { _ = await push() }
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        if webView === self.webView { pageFrame = nil }
     }
 
     // MARK: - Navegación
@@ -180,5 +210,14 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         var top: UIViewController = self
         while let next = top.presentedViewController { top = next }
         return top
+    }
+}
+
+/// Evita que el controlador de mensajes retenga a la pantalla (WKUserContentController lo retiene fuerte).
+private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+    init(_ target: WKScriptMessageHandler) { self.target = target }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        target?.userContentController(controller, didReceive: message)
     }
 }

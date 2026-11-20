@@ -447,7 +447,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
 <script>
 (() => {
   "use strict";
-  const VERSION = "4.1";
+  const VERSION = "4.2";
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -495,9 +495,17 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
 
   // ---------- Diagnóstico ----------
   const diag = [];
+  let diagT;
   function logEvent(area, msg, code) {
-    diag.push(`${new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", second: "2-digit" })} [${area}]${code ? " " + code : ""} ${String(msg ?? "").slice(0, 260)}`);
-    if (diag.length > 80) diag.shift();
+    const now = new Date();
+    diag.push(`${now.toLocaleDateString("es", { day: "2-digit", month: "2-digit" })} ${now.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", second: "2-digit" })} [${area}]${code ? " " + code : ""} ${String(msg ?? "").slice(0, 260)}`);
+    if (diag.length > 120) diag.shift();
+    // Se guarda en la cuenta (sin avisos si falla) para poder revisar problemas a distancia
+    clearTimeout(diagT);
+    diagT = setTimeout(() => {
+      if (!loaded || store.kind !== "db") return;
+      store.set("diag", { v: VERSION, at: new Date().toISOString(), app: !!window.webkit?.messageHandlers?.coachHealth, ua: navigator.userAgent.slice(0, 200), events: diag.slice(-120) }).catch(() => {});
+    }, 4000);
   }
   let toastT;
   function toast(msg, err = false) {
@@ -531,6 +539,7 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     empty_completion: "Claude no respondió. Inténtalo de nuevo.",
     prompt_too_large: "Hay demasiado texto. Acorta el plan o las notas.",
     no_ai: "Claude no está disponible en esta vista.",
+    cancelled: "Claude tardó demasiado en responder.",
   };
   const explain = (e) => aiCopy[e?.code] || "No se pudo conectar con Claude. Inténtalo de nuevo.";
   async function askJson(prompt, opts = {}) {
@@ -564,6 +573,11 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
       kind: "db",
       async get(k) { const s = await col.doc(k).get(); return s.exists ? s.data() : null; },
       async set(k, v) { await col.doc(k).set(v); },
+      watch(k, next) {
+        const ref = col.doc(k);
+        if (typeof ref.onSnapshot !== "function") return () => {};
+        return ref.onSnapshot((snap) => next(snap.exists ? snap.data() : null, snap.metadata || {}), (e) => logEvent("datos", "suscripción terminada: " + (e?.message || ""), e?.code));
+      },
       async days() {
         let snap;
         try { snap = await col.orderBy("date", "desc").limit(200).get(); }
@@ -803,9 +817,9 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
   // #salud~d20261111_t2030_p10532_a1012.8_r1850.5_z408_c64_e13_k103.4_w60~d20261110_t2359_…
   const APP_KEYS = { p: "pasos", a: "kcal_activas", r: "kcal_reposo", z: "sueno_min", c: "fc_reposo", e: "ejercicio_min", k: "peso_kg", w: "entreno_min" };
   const APP_RANGE = { pasos: [0, 150000], kcal_activas: [0, 8000], kcal_reposo: [0, 8000], sueno_min: [0, 1440], fc_reposo: [25, 220], ejercicio_min: [0, 1440], peso_kg: [20, 400], entreno_min: [0, 1440] };
-  function readAnchor() {
+  function readAnchor(src) {
     let h = "";
-    try { h = decodeURIComponent(String(location.hash || "").slice(1)); } catch { return []; }
+    try { h = decodeURIComponent(String(src ?? location.hash ?? "").replace(/^#/, "")); } catch { return []; }
     if (!/^salud~/.test(h)) return [];
     const out = [];
     for (const part of h.split("~").slice(1, 8)) {
@@ -822,10 +836,10 @@ nav.tabs button[aria-selected="true"] { color: var(--accent); }
     }
     return out;
   }
-  function applyAnchor() {
+  function applyAnchor(src) {
     if (!loaded) return 0;
     let fresh = 0;
-    for (const { date, at, snap } of readAnchor()) {
+    for (const { date, at, snap } of readAnchor(src)) {
       const d = dayOf(date);
       if (d.healthAt && d.healthAt >= at && d.healthSrc === "app") continue;
       if (d.healthAt && d.healthAt > at) continue;
@@ -1036,22 +1050,25 @@ Responde SOLO con JSON:
     const text = $(box).value.trim();
     const photo = photos[kind];
     if (!text && !photo) { status(st, kind === "food" ? "Escribe qué comiste o toma una foto." : "Escribe algo o adjunta una foto.", true); return; }
-    const d = day();
-    const p = plannedFor(d.date);
+    const date = current;
+    const p = plannedFor(date);
     const names = (p?.ejercicios || []).map((e) => e.nombre);
     $(btn).disabled = true;
     status(st, photo ? "Analizando la foto…" : "Registrando…");
+    logEvent("registro", `${kind} ${date}: ${text ? text.length + " letras" : ""}${photo ? " + foto" : ""}`);
     let r = null, failed = null;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), photo ? 120000 : 75000);
     try {
       const now = new Date();
-      let opts = { modelTier: "quick" };
+      let opts = { modelTier: "quick", signal: ctl.signal };
       if (photo) {
         const sample = await cap("sample");
         const lim = sample ? await sample.limits().catch(() => null) : null;
         if (!lim?.images) throw { code: "images_unavailable" };
-        opts = { images: [photo] };
+        opts = { images: [photo], signal: ctl.signal };
       }
-      r = await askJson(`Eres el asistente de registro de una app de entrenamiento y nutrición. El usuario ${text ? "escribió o dictó esto" : "adjuntó una foto"} sobre su día ${d.date} (${labelFor(d.date)}); ahora son las ${hhmm(now)}.
+      r = await askJson(`Eres el asistente de registro de una app de entrenamiento y nutrición. El usuario ${text ? "escribió o dictó esto" : "adjuntó una foto"} sobre su día ${date} (${labelFor(date)}); ahora son las ${hhmm(now)}.
 ${text ? `\nTEXTO:\n"""${text.slice(0, 4000)}"""\n` : ""}${photo ? "\nLa foto adjunta es de una comida (o una captura de Salud o de la báscula). Úsala.\n" : ""}
 Entreno planeado ese día: ${p ? `${p.enfoque}${names.length ? ". Ejercicios: " + names.map((n) => `«${n}»`).join(", ") : ""}` : "ninguno"}.
 
@@ -1064,19 +1081,22 @@ Extrae lo que diga y estima calorías y macros de cada comida con porciones real
 Reglas: una entrada por cada comida distinta; si no dice la hora, dedúcela del contexto o usa ${hhmm(now)}; no inventes comidas, entrenos ni datos de salud que no mencione; números sin unidades.`, opts);
     } catch (e) {
       failed = e;
-      logEvent("registro", e?.message || "", e?.code);
-    }
+      logEvent("registro", "Claude: " + (e?.message || ""), e?.code || "error");
+    } finally { clearTimeout(timer); }
+    // El día pudo actualizarse desde otro lado mientras Claude respondía: se aplica al vigente
+    const d = dayOf(date);
     const done = [];
-    if (r && typeof r === "object") {
+    if (r && typeof r === "object" && !Array.isArray(r)) {
       const foods = Array.isArray(r.comidas) ? r.comidas : [];
+      const added = [];
       for (const f of foods.slice(0, 12)) {
         const desc = str(f?.descripcion, 300);
         if (!desc) continue;
         const time = /^\d{1,2}:\d{2}$/.test(String(f.hora || "")) ? String(f.hora).padStart(5, "0") : hhmm(new Date());
-        d.foods.push({ id: newId(), meal: MEALS.find((m) => plain(m) === plain(f.tipo)) || mealByHour(Number(time.slice(0, 2))), time, text: desc, kcal: clampNum(f.kcal, 0, 6000), prot: clampNum(f.proteina_g, 0, 500), carb: clampNum(f.carbohidratos_g, 0, 1000), fat: clampNum(f.grasa_g, 0, 500) });
+        const item = { id: newId(), meal: MEALS.find((m) => plain(m) === plain(f.tipo)) || mealByHour(Number(time.slice(0, 2))), time, text: desc, kcal: clampNum(f.kcal, 0, 6000), prot: clampNum(f.proteina_g, 0, 500), carb: clampNum(f.carbohidratos_g, 0, 1000), fat: clampNum(f.grasa_g, 0, 500) };
+        d.foods.push(item); added.push(item);
       }
-      const added = d.foods.slice(d.foods.length - Math.min(foods.length, 12)).filter(Boolean);
-      if (foods.length && added.length) {
+      if (added.length) {
         const k = added.reduce((a, x) => a + (x.kcal || 0), 0), pr = added.reduce((a, x) => a + (x.prot || 0), 0);
         done.push(`${added.length} comida${added.length > 1 ? "s" : ""} (≈${n0(k)} kcal, ${n0(pr)} g proteína)`);
       }
@@ -1101,20 +1121,46 @@ Reglas: una entrada por cada comida distinta; si no dice la hora, dedúcela del 
       }
     }
     if (!done.length) {
-      // Nunca se pierde lo escrito: si no se pudo interpretar, queda como nota o como comida sin estimar
-      if (text && kind === "food") { d.foods.push({ id: newId(), meal: mealByHour(new Date().getHours()), time: hhmm(new Date()), text: text.slice(0, 300), kcal: null, prot: null, carb: null, fat: null }); done.push("comida sin estimar"); }
+      // Nunca se pierde lo registrado: si Claude no pudo, queda como comida sin estimar o como nota
+      const blank = (t) => ({ id: newId(), meal: mealByHour(new Date().getHours()), time: hhmm(new Date()), text: t, kcal: null, prot: null, carb: null, fat: null });
+      if (text && (kind === "food" || /comi|desayun|cen[eé]|almorc|taco|torta|pollo|carne|huevo|arroz|pan\b|leche|prote[ií]na|scoop|sandwich|s[aá]ndwich/i.test(text))) { d.foods.push(blank(text.slice(0, 300))); done.push("comida sin estimar"); }
       else if (text) { d.note = d.note ? `${d.note}\n${text}` : text; done.push("nota"); }
+      else if (photo) { d.foods.push(blank("Comida con foto (sin estimar)")); done.push("comida sin estimar; tócala en Comidas para escribir qué era"); }
     }
     if (done.length) {
       touch(d); saveDay(d);
       $(box).value = "";
+      clearDraft(kind);
       setPhoto(kind, null);
       status(st, `${failed ? explain(failed) + " Guardé: " : "Registré: "}${done.join(", ")}.`, !!failed);
+      logEvent("registro", "guardado: " + done.join(", "));
     } else {
-      status(st, failed ? explain(failed) : "No encontré nada que registrar.", true);
+      status(st, failed ? explain(failed) : "No encontré nada que registrar. Escribe qué comiste, con cantidades si puedes.", true);
+      logEvent("registro", "nada que guardar");
     }
     $(btn).disabled = false;
     refreshDay();
+  }
+  // Borradores: lo escrito sobrevive aunque la página se recargue (por ejemplo, al volver a la app)
+  const draftKey = (kind) => LS + "draft:" + kind;
+  function saveDraft(kind) {
+    try {
+      const v = $(kind === "food" ? "foodText" : "logText").value;
+      if (v.trim()) localStorage.setItem(draftKey(kind), JSON.stringify({ date: current, text: v, at: Date.now() }));
+      else localStorage.removeItem(draftKey(kind));
+    } catch {}
+  }
+  function clearDraft(kind) { try { localStorage.removeItem(draftKey(kind)); } catch {} }
+  function restoreDrafts() {
+    for (const kind of ["log", "food"]) {
+      try {
+        const dft = JSON.parse(localStorage.getItem(draftKey(kind)) || "null");
+        if (!dft?.text || Date.now() - dft.at > 12 * 3600e3) { clearDraft(kind); continue; }
+        const box = $(kind === "food" ? "foodText" : "logText");
+        if (!box.value.trim()) box.value = dft.text;
+        status(kind === "food" ? "foodStatus" : "logStatus", "Recuperé lo que estabas escribiendo. Toca el botón para guardarlo.");
+      } catch {}
+    }
   }
   function setPhoto(kind, blob) {
     photos[kind] = blob;
@@ -1737,9 +1783,28 @@ Responde SOLO con JSON en español:
     if (v === "cuerpo") renderBody();
     window.scrollTo(0, 0);
   }
+  // Mantiene al día los documentos de hoy y del día que se ve si se cambian en otro lado
+  const watches = new Map();
+  function watchDays() {
+    if (store.kind !== "db" || !store.watch) return;
+    const want = new Set([todayKey(), current]);
+    for (const [k, off] of watches) if (!want.has(k)) { off(); watches.delete(k); }
+    for (const k of want) {
+      if (watches.has(k)) continue;
+      watches.set(k, store.watch("d-" + k, (data, meta) => {
+        if (!data || meta.hasPendingWrites || pending.has("d-" + k)) return;
+        const mine = days.get(k);
+        if (!data.updatedAt || (mine?.updatedAt && data.updatedAt <= mine.updatedAt)) return;
+        days.set(k, normDay(data));
+        logEvent("datos", `día ${k} actualizado desde otro dispositivo`);
+        if (k === current || k === todayKey()) refreshDay();
+      }));
+    }
+  }
   function goTo(k) {
     flushSaves();
     current = k;
+    watchDays();
     chatTurns = []; $("chat").replaceChildren();
     for (const id of ["logStatus", "foodStatus"]) status(id, "");
     $("viewTitle").textContent = view === "hoy" && current !== todayKey() ? "Día" : TITLES[view];
@@ -1782,6 +1847,7 @@ Responde SOLO con JSON en español:
   $("workoutText").oninput = () => { const d = day(); d.workout = $("workoutText").value.trim().slice(0, 600); touch(d); saveDay(d, true); };
   $("dayNote").oninput = () => { const d = day(); d.note = $("dayNote").value.trim().slice(0, 4000); touch(d); saveDay(d, true); };
   for (const kind of ["log", "food"]) {
+    $(kind === "food" ? "foodText" : "logText").addEventListener("input", () => saveDraft(kind));
     $(kind + "Photo").onchange = async (e) => {
       const f = e.target.files[0];
       if (!f) return;
@@ -1862,12 +1928,21 @@ Responde SOLO con JSON en español:
     $("planBox").open = !profile.plan;
     renderRoutine();
     if (applyAnchor()) logEvent("salud", "datos recibidos de la app Coach");
+    watchDays();
+    restoreDrafts();
     refreshDay();
     await syncHealth();
     if (!viaApp()) schedulePolls();
+    try {
+      const bridge = window.webkit?.messageHandlers?.coachHealth;
+      logEvent("app", bridge ? "puente con la app del iPhone disponible" : "sin puente con la app del iPhone");
+      bridge?.postMessage("ready");
+    } catch (e) { logEvent("app", "puente falló: " + (e?.message || e)); }
     autoEvaluate();
   }
   window.addEventListener("hashchange", () => { if (applyAnchor()) { refreshDay(); autoEvaluate(); } });
+  // La app Coach del iPhone puede mandar lecturas nuevas sin recargar la página
+  window.__coachReceive = (anchor) => { const n = applyAnchor(String(anchor || "")); if (n) { refreshDay(); autoEvaluate(); } return n; };
   refreshDay();
   renderRoutine();
   start();
