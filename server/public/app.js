@@ -1255,6 +1255,100 @@ async function sendText(override, skipReview) {
 	}
 }
 
+async function openSimulatedLocation() {
+	const key = S.active
+	const from = defaultFrom(key)
+	if (!from) return toast('No hay cuentas conectadas')
+	try {
+		const { createMap, drawRoute, makeRoute, validPoint } = await import('/simulated-route.mjs')
+		if (S.active !== key) return
+		sheet('Ubicación simulada', `
+			<div class="pad">
+				<div class="route-controls">
+					<label>Modo <select id="sim-mode"><option value="pin">Punto fijo</option><option value="route">Recorrido</option></select></label>
+					<label id="sim-speed-label" hidden>Velocidad <input id="sim-speed" type="number" min="1" max="150" value="5" inputmode="decimal"> km/h</label>
+				</div>
+				<p id="sim-status" role="status">Toca el mapa para colocar el pin.</p>
+				<div id="sim-map" class="route-map" aria-label="Mapa para elegir la ubicación"></div>
+				<div class="route-controls">
+					<button type="button" class="btn" id="sim-undo" disabled>Quitar último punto</button>
+					<button type="button" class="btn primary" id="sim-send" disabled>Enviar al chat</button>
+				</div>
+			</div>`, el => {
+			const mode = $('#sim-mode', el)
+			const speed = $('#sim-speed', el)
+			const status = $('#sim-status', el)
+			const undo = $('#sim-undo', el)
+			const send = $('#sim-send', el)
+			const map = createMap($('#sim-map', el))
+			const layers = L.layerGroup().addTo(map)
+			el.dispose = () => map.remove()
+			let points = []
+			let sending = false
+
+			function refresh() {
+				const route = mode.value === 'route'
+				$('#sim-speed-label', el).hidden = !route
+				status.textContent = route
+					? `Toca el mapa para trazar el recorrido · ${points.length}/24 puntos`
+					: points.length ? points[0].join(', ') : 'Toca el mapa para colocar el pin.'
+				undo.disabled = sending || !points.length
+				send.disabled = sending || points.length < (route ? 2 : 1)
+				drawRoute(map, points, layers)
+			}
+
+			map.on('click', ({ latlng }) => {
+				if (sending) return
+				const { lat, lng } = latlng.wrap()
+				const point = [Number(lat.toFixed(6)), Number(lng.toFixed(6))]
+				if (!validPoint(point)) return
+				if (mode.value === 'pin') points = [point]
+				else if (points.length < 24) points.push(point)
+				refresh()
+			})
+			mode.onchange = () => {
+				if (mode.value === 'pin') points = points.slice(-1)
+				refresh()
+			}
+			undo.onclick = () => { points.pop(); refresh() }
+			send.onclick = async () => {
+				if (sending || S.active !== key) return
+				const body = { accountId: from, jid: jidOf(key) }
+				let endpoint = '/send-location'
+				try {
+					if (mode.value === 'route') {
+						const kmh = speed.valueAsNumber
+						makeRoute(points, kmh, (a, b) => L.latLng(a).distanceTo(b))
+						const url = new URL('/ruta-simulada.html', location.origin)
+						url.hash = btoa(JSON.stringify({ points, speed: kmh })).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
+						body.text = `📍 Recorrido simulado\n${url.href}`
+						endpoint = '/send'
+					} else {
+						[body.latitude, body.longitude] = points[0]
+					}
+					sending = true
+					mode.disabled = speed.disabled = true
+					refresh()
+					insertMsg(await api('POST', endpoint, body))
+					if ($('#sheet') === el) closeSheet()
+					if (S.active === key) renderMessages(true)
+					toast('Ubicación enviada')
+				} catch (e) {
+					toast(e.message)
+				} finally {
+					sending = false
+					mode.disabled = speed.disabled = false
+					if (el.isConnected) refresh()
+				}
+			}
+			requestAnimationFrame(() => { if (el.isConnected) map.invalidateSize() })
+		})
+	} catch (e) {
+		closeSheet()
+		toast(e.message)
+	}
+}
+
 async function sendFile(file, extra = {}) {
 	const from = defaultFrom(S.active)
 	if (!from) return toast('No hay cuentas conectadas')
@@ -2587,7 +2681,11 @@ function sheet(title, html, bind) {
 	document.body.appendChild(bg)
 	bind?.(bg)
 }
-function closeSheet() { $('#sheet')?.remove() }
+function closeSheet() {
+	const el = $('#sheet')
+	el?.dispose?.()
+	el?.remove()
+}
 
 // ---------- Corrección de texto antes de enviar ----------
 async function aiReview(text) {
@@ -2817,7 +2915,14 @@ document.addEventListener('click', async e => {
 			S.replies = S.replies.filter(r => r.id !== Number(val))
 			return renderSettings()
 		}
-		case 'attach': return $('#file').click()
+		case 'attach': return actionSheet('Adjuntar', [
+			{ act: 'attach-file', text: 'Foto, video o archivo' },
+			{ act: 'attach-simulated-location', text: 'Ubicación simulada' }
+		])
+		case 'attach-file':
+			closeSheet()
+			return $('#file').click()
+		case 'attach-simulated-location': return openSimulatedLocation()
 		case 'send': return $('#text').value.trim() ? sendText() : startRecording()
 		case 'sg-use': {
 			const list = S.msgs[S.active] || []
