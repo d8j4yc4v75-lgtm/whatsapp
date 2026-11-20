@@ -524,7 +524,7 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
 <script>
 (() => {
   "use strict";
-  const VERSION = "4.7";
+  const VERSION = "4.8";
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -624,7 +624,8 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
   async function askJson(prompt, opts = {}) {
     const sample = await cap("sample");
     if (!sample) throw { code: "no_ai" };
-    return sample.json(prompt, { cache: false, ...opts });
+    const r = await sample.json(prompt, { cache: false, ...opts });
+    return r == null ? r : JSON.parse(JSON.stringify(r));
   }
 
   // ---------- Almacenamiento ----------
@@ -648,20 +649,22 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
     try { uid = user ? await user.id() : null; } catch {}
     if (!db || !uid) { logEvent("datos", "sin base de datos de la cuenta; se guarda en este dispositivo"); return; }
     const col = db.collection("data/users/" + uid);
+    // La base entrega los documentos congelados (solo lectura): se copian para poder editarlos
+    const thaw = (v) => (v == null ? null : JSON.parse(JSON.stringify(v)));
     store = {
       kind: "db",
-      async get(k) { const s = await col.doc(k).get(); return s.exists ? s.data() : null; },
+      async get(k) { const s = await col.doc(k).get(); return s.exists ? thaw(s.data()) : null; },
       async set(k, v) { await col.doc(k).set(v); },
       watch(k, next) {
         const ref = col.doc(k);
         if (typeof ref.onSnapshot !== "function") return () => {};
-        return ref.onSnapshot((snap) => next(snap.exists ? snap.data() : null, snap.metadata || {}), (e) => logEvent("datos", "suscripción terminada: " + (e?.message || ""), e?.code));
+        return ref.onSnapshot((snap) => next(snap.exists ? thaw(snap.data()) : null, snap.metadata || {}), (e) => logEvent("datos", "suscripción terminada: " + (e?.message || ""), e?.code));
       },
       async days() {
         let snap;
         try { snap = await col.orderBy("date", "desc").limit(200).get(); }
         catch (e) { logEvent("datos", "consulta ordenada falló: " + (e?.message || ""), e?.code); snap = await col.get(); }
-        return snap.docs.filter((d) => d.id.startsWith("d-")).map((d) => d.data());
+        return snap.docs.filter((d) => d.id.startsWith("d-")).map((d) => thaw(d.data()));
       },
     };
   }
@@ -1190,9 +1193,9 @@ Reglas: una entrada por cada comida distinta; si no dice la hora, dedúcela del 
     return [];
   }
   const MAX_TRIES = 4;
-  // Cada dispositivo analiza lo que registró; si lleva 10 min sin analizarse, cualquiera lo toma
+  // Cada dispositivo analiza lo que registró; si lleva 3 min sin analizarse, cualquiera lo toma
   const DEVICE = (() => { try { let v = localStorage.getItem(LS + "dev"); if (!v) { v = newId(); localStorage.setItem(LS + "dev", v); } return v; } catch { return newId(); } })();
-  const mineOrStale = (it) => !it.dev || it.dev === DEVICE || Date.now() - Date.parse(it.at || 0) > 10 * 60000;
+  const mineOrStale = (it) => !it.dev || it.dev === DEVICE || Date.now() - Date.parse(it.at || 0) > 3 * 60000;
   // Fallas pasajeras (conexión perdida, tiempo agotado): se reintenta. Las demás se guardan sin estimar.
   const TRANSIENT = new Set(["upstream_error", "unavailable", "cancelled", "aborted", "network_error", "timeout", "deadline_exceeded", "internal", "overloaded"]);
   const transient = (e) => e?.retryable === true || TRANSIENT.has(e?.code) || e?.name === "AbortError";
