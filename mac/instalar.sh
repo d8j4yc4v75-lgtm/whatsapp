@@ -5,20 +5,32 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "› Revisando Xcode…"
+if [ ! -d /Applications/Xcode.app ] && ! xcodebuild -version >/dev/null 2>&1; then
+  echo "Falta Xcode. Instálalo desde la App Store, ábrelo una vez y vuelve a correr esto."
+  open "macappstore://apps.apple.com/app/id497799835" 2>/dev/null || true
+  exit 1
+fi
 if ! xcodebuild -version >/dev/null 2>&1; then
-  echo "Falta Xcode. Instálalo desde la App Store, ábrelo una vez y vuelve a correr esto."; exit 1
+  echo "Xcode está instalado pero la Terminal no lo usa. Corre esto (te pedirá la contraseña de la Mac) y vuelve a intentar:"
+  echo "  sudo xcode-select -s /Applications/Xcode.app && sudo xcodebuild -license accept && xcodebuild -runFirstLaunch"
+  exit 1
 fi
 
-if ! command -v xcodegen >/dev/null; then
-  if command -v brew >/dev/null; then brew install xcodegen
-  else echo "Falta XcodeGen. Instala Homebrew (https://brew.sh) y vuelve a correr esto."; exit 1; fi
+# XcodeGen arma el proyecto de Xcode desde project.yml; sin Homebrew se baja el binario oficial
+XCODEGEN=$(command -v xcodegen || true)
+if [ -z "$XCODEGEN" ]; then
+  if command -v brew >/dev/null; then brew install xcodegen; XCODEGEN=$(command -v xcodegen)
+  else
+    mkdir -p .tools && curl -fsSL -o .tools/xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/latest/download/xcodegen.zip
+    (cd .tools && unzip -oq xcodegen.zip) && XCODEGEN="$PWD/.tools/xcodegen/bin/xcodegen"
+  fi
 fi
-xcodegen generate --quiet
+"$XCODEGEN" generate --quiet
 
 # Equipo de firma: el de la cuenta de Apple que agregaste en Xcode › Settings › Accounts
 TEAM="${TEAM:-}"
 if [ -z "$TEAM" ]; then
-  TEAM=$(defaults export com.apple.dt.Xcode - 2>/dev/null | plutil -extract IDEProvisioningTeamByIdentifier json -o - - 2>/dev/null \
+  TEAM=$(defaults export com.apple.dt.Xcode - 2>/dev/null | plutil -convert json -o - - 2>/dev/null \
     | grep -o '"teamID":"[A-Z0-9]*"' | head -1 | cut -d'"' -f4 || true)
 fi
 if [ -z "$TEAM" ]; then

@@ -1,4 +1,6 @@
 *.xcodeproj/
-xcuserdata/
-DerivedData/
 .DS_Store
+.tools/
+DerivedData/
+build/
+xcuserdata/
