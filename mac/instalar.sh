@@ -30,8 +30,9 @@ fi
 # Equipo de firma: el de la cuenta de Apple que agregaste en Xcode › Settings › Accounts
 TEAM="${TEAM:-}"
 if [ -z "$TEAM" ]; then
-  TEAM=$(defaults export com.apple.dt.Xcode - 2>/dev/null | plutil -convert json -o - - 2>/dev/null \
-    | grep -o '"teamID":"[A-Z0-9]*"' | head -1 | cut -d'"' -f4 || true)
+  TEAM=$(for key in IDEProvisioningTeamByIdentifier IDEProvisioningTeams; do
+      defaults export com.apple.dt.Xcode - 2>/dev/null | plutil -extract "$key" xml1 -o - - 2>/dev/null
+    done | grep -A1 '<key>teamID</key>' | grep -o '<string>[A-Z0-9]*</string>' | head -1 | sed 's/<[^>]*>//g' || true)
 fi
 if [ -z "$TEAM" ]; then
   echo "No encontré tu cuenta de Apple en Xcode. Abre Xcode › Settings › Accounts › + › Apple ID, entra y vuelve a correr esto."; exit 1
