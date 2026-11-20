@@ -23,6 +23,9 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
     static let artifactURL = URL(string: "https://claude.ai/artifact/34AjknhRPw9qqUJG6UMnpb")!
 
     private var webView: WKWebView!
+    private let viewport = UIView()
+    private var hideTop: NSLayoutConstraint!
+    private var hideBottom: NSLayoutConstraint!
     private var popup: UIViewController?
     private var pageFrame: WKFrameInfo?
     private var backgroundedAt: Date?
@@ -30,25 +33,45 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        // Mismo fondo que la página para que no se note el borde
+        let pageBackground = UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(red: 10 / 255, green: 10 / 255, blue: 11 / 255, alpha: 1)
+            : UIColor(red: 244 / 255, green: 244 / 255, blue: 245 / 255, alpha: 1) }
+        view.backgroundColor = pageBackground
 
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.allowsInlineMediaPlayback = true
         config.applicationNameForUserAgent = "Version/18.0 Mobile/15E148 Safari/604.1"
         config.userContentController.add(WeakMessageHandler(self), name: "coachHealth")
+        config.userContentController.add(WeakMessageHandler(self), name: "coachLayout")
+        config.userContentController.addUserScript(WKUserScript(source: Self.layoutScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
+        webView.isOpaque = false
+        webView.backgroundColor = pageBackground
+        webView.scrollView.backgroundColor = pageBackground
+
+        // La barra de Claude (título, compartir…) queda fuera de la vista: la web se corre hacia arriba
+        // lo que mide esa barra y el contenedor recorta lo que sobra.
+        viewport.clipsToBounds = true
+        viewport.translatesAutoresizingMaskIntoConstraints = false
         webView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(webView)
+        view.addSubview(viewport)
+        viewport.addSubview(webView)
+        hideTop = webView.topAnchor.constraint(equalTo: viewport.topAnchor)
+        hideBottom = webView.bottomAnchor.constraint(equalTo: viewport.bottomAnchor)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            viewport.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            viewport.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            viewport.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            viewport.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hideTop, hideBottom,
+            webView.leadingAnchor.constraint(equalTo: viewport.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: viewport.trailingAnchor),
         ])
 
         let pull = UIRefreshControl()
@@ -119,13 +142,59 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "coachLayout", let box = message.body as? [String: Any] {
+            let top = min(max((box["top"] as? NSNumber)?.doubleValue ?? 0, 0), 160)
+            let bottom = min(max((box["bottom"] as? NSNumber)?.doubleValue ?? 0, 0), 200)
+            setHidden(top: onArtifact ? top : 0, bottom: onArtifact ? bottom : 0)
+            return
+        }
         guard message.name == "coachHealth", (message.body as? String) == "ready" else { return }
         pageFrame = message.frameInfo
         Task { _ = await push() }
     }
 
+    private func setHidden(top: Double, bottom: Double) {
+        let t = -CGFloat(top), b = CGFloat(bottom)
+        guard hideTop.constant != t || hideBottom.constant != b else { return }
+        hideTop.constant = t
+        hideBottom.constant = b
+        UIView.animate(withDuration: 0.2) { self.view.layoutIfNeeded() }
+    }
+
+    /// Corre en la página de Claude (no en Coach Diario): mide dónde empieza y termina el recuadro
+    /// de la app para esconder lo que hay arriba y abajo de él.
+    private static let layoutScript = """
+    (() => {
+      let last = "";
+      const report = () => {
+        let top = 0, bottom = 0;
+        if (location.hostname === "claude.ai" && location.pathname.startsWith("/artifact/")) {
+          let best = null, area = 0;
+          for (const f of document.querySelectorAll("iframe")) {
+            const r = f.getBoundingClientRect();
+            if (r.width >= innerWidth * 0.8 && r.height >= innerHeight * 0.5 && r.width * r.height > area) { area = r.width * r.height; best = r; }
+          }
+          if (best) { top = Math.max(0, Math.round(best.top)); bottom = Math.max(0, Math.round(innerHeight - best.bottom)); }
+        }
+        const key = top + "," + bottom;
+        if (key === last) return;
+        last = key;
+        window.webkit.messageHandlers.coachLayout.postMessage({ top, bottom });
+      };
+      let queued = false;
+      const soon = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; report(); }); } };
+      new MutationObserver(soon).observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+      addEventListener("resize", soon);
+      addEventListener("scroll", soon, true);
+      setInterval(report, 1500);
+      report();
+    })();
+    """
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        if webView === self.webView { pageFrame = nil }
+        guard webView === self.webView else { return }
+        pageFrame = nil
+        setHidden(top: 0, bottom: 0)
     }
 
     // MARK: - Navegación
