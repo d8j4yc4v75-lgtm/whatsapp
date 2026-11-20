@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="referrer" content="strict-origin">
+	<title>Recorrido simulado · MultiWA</title>
+	<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+	<link rel="stylesheet" href="/simulated-route.css">
+	<script defer src="/vendor/leaflet/leaflet.js"></script>
+	<script type="module" src="/play-simulated-route.mjs"></script>
+</head>
+<body class="route-viewer">
+	<main>
+		<h1>Recorrido simulado</h1>
+		<p id="route-status" role="status">Cargando recorrido…</p>
+		<div id="route-map" class="route-map" aria-label="Mapa del recorrido"></div>
+		<div class="route-controls">
+			<button id="route-toggle" type="button" disabled>Pausar</button>
+			<button id="route-restart" type="button" disabled>Reiniciar</button>
+		</div>
+	</main>
+</body>
+</html>

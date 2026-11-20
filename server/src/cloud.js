@@ -206,6 +206,13 @@ export class CloudSession {
 
 	async send(jid, content, localMedia) {
 		const to = this.toFromJid(jid)
+		if (content.location) {
+			const { degreesLatitude: latitude, degreesLongitude: longitude, name } = content.location
+			const { id } = await this.sendPayload(to, {
+				type: 'location', location: { latitude, longitude, name }
+			}, { type: 'location', text: `${name}\nhttps://maps.google.com/?q=${latitude},${longitude}` })
+			return this.manager.formatMessage(stmt.getMessage.get(this.accountId, id))
+		}
 		if (content.text) {
 			const { id } = await this.sendPayload(to, { type: 'text', text: { body: content.text, preview_url: true } }, { type: 'text', text: content.text })
 			return this.manager.formatMessage(stmt.getMessage.get(this.accountId, id))
