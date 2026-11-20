@@ -4,6 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Trae los cambios más recientes del proyecto antes de compilar
+if [ -d .git ]; then git pull --ff-only --quiet 2>/dev/null && echo "› Proyecto actualizado" || echo "› No pude actualizar el proyecto; compilo la versión que ya tienes"; fi
+
 echo "› Revisando Xcode…"
 if [ ! -d /Applications/Xcode.app ] && ! xcodebuild -version >/dev/null 2>&1; then
   echo "Falta Xcode. Instálalo desde la App Store, ábrelo una vez y vuelve a correr esto."
