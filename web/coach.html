@@ -29,6 +29,7 @@
   --bad-soft: rgba(255, 59, 48, .12);
   --track: rgba(118, 118, 128, .16);
   --tabbar: rgba(250, 250, 252, .82);
+  --bar: rgba(242, 242, 247, .78);
   --scrim: rgba(0, 0, 0, .35);
   --ui: -apple-system, "SF Pro Text", "SF Pro", system-ui, "Helvetica Neue", sans-serif;
   --rounded: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, "Helvetica Neue", sans-serif;
@@ -42,7 +43,7 @@
     --label: #ffffff; --label-2: rgba(235, 235, 245, .6); --label-3: rgba(235, 235, 245, .3); --sep: rgba(84, 84, 88, .55);
     --blue: #0a84ff; --activity: #ff6a33; --move: #ff2d55; --exercise: #a6ff00; --steps: #00e5ff; --sleep: #7d7aff; --heart: #ff375f; --body: #bf5af2; --food: #30d158;
     --good: #30d158; --warn: #ff9f0a; --bad: #ff453a; --good-soft: rgba(48, 209, 88, .16); --warn-soft: rgba(255, 159, 10, .16); --bad-soft: rgba(255, 69, 58, .16);
-    --track: rgba(118, 118, 128, .3); --tabbar: rgba(30, 30, 32, .78); --scrim: rgba(0, 0, 0, .55);
+    --track: rgba(118, 118, 128, .3); --tabbar: rgba(30, 30, 32, .78); --bar: rgba(22, 22, 24, .72); --scrim: rgba(0, 0, 0, .55);
     color-scheme: dark;
   }
 }
@@ -51,7 +52,7 @@
   --label: #ffffff; --label-2: rgba(235, 235, 245, .6); --label-3: rgba(235, 235, 245, .3); --sep: rgba(84, 84, 88, .55);
   --blue: #0a84ff; --activity: #ff6a33; --move: #ff2d55; --exercise: #a6ff00; --steps: #00e5ff; --sleep: #7d7aff; --heart: #ff375f; --body: #bf5af2; --food: #30d158;
   --good: #30d158; --warn: #ff9f0a; --bad: #ff453a; --good-soft: rgba(48, 209, 88, .16); --warn-soft: rgba(255, 159, 10, .16); --bad-soft: rgba(255, 69, 58, .16);
-  --track: rgba(118, 118, 128, .3); --tabbar: rgba(30, 30, 32, .78); --scrim: rgba(0, 0, 0, .55);
+  --track: rgba(118, 118, 128, .3); --tabbar: rgba(30, 30, 32, .78); --bar: rgba(22, 22, 24, .72); --scrim: rgba(0, 0, 0, .55);
   color-scheme: dark;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -59,7 +60,7 @@
 body {
   background: var(--bg); color: var(--label); font: 400 17px/1.3 var(--ui); letter-spacing: -.01em; -webkit-font-smoothing: antialiased;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 0 calc(110px + env(safe-area-inset-bottom, 0px));
+  padding-block: 8px calc(110px + env(safe-area-inset-bottom, 0px));
 }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); }
 .wrap { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
@@ -74,15 +75,18 @@ svg { flex: none; }
 .num { font-variant-numeric: tabular-nums; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 
-/* Barra de navegación */
-header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); margin: 0 -16px; padding: 10px 16px 6px; display: flex; flex-direction: column; gap: 4px; }
-.titlebar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; min-height: 44px; }
-.titlebar h1 { font-size: 17px; font-weight: 600; letter-spacing: -.02em; text-align: center; }
-.tools { display: contents; }
-.titlebar .sync { grid-column: 1; grid-row: 1; }
-.titlebar h1 { grid-column: 2; grid-row: 1; }
-.titlebar #openSettings { grid-column: 3; grid-row: 1; }
-.sync { justify-self: start; display: inline-flex; align-items: center; gap: 6px; font: 400 13px var(--ui); color: var(--label-2); background: none; border: 0; padding: 6px 0; cursor: pointer; min-width: 0; font-variant-numeric: tabular-nums; }
+/* Barra de navegación: título grande que se encoge al deslizar (como Fitness y Salud) */
+.nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; margin: 0 -16px; padding: 0 16px; height: 60px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; border-bottom: .5px solid transparent; pointer-events: none; transition: background-color .2s, border-color .2s; }
+.nav > * { pointer-events: auto; }
+.nav-title { grid-column: 2; font-size: 17px; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; opacity: 0; transform: translateY(6px); transition: opacity .2s, transform .2s; pointer-events: none; }
+.nav-right { grid-column: 3; justify-self: end; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nav.compact { background: var(--bar); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-bottom-color: var(--sep); }
+.nav.compact .nav-title { opacity: 1; transform: none; }
+.nav .sync { transition: opacity .2s; }
+.nav.compact .sync { opacity: 0; pointer-events: none; }
+.large-title { height: 60px; margin-top: -72px; display: flex; align-items: center; padding-right: 160px; }
+.large-title h1 { font-size: 34px; font-weight: 700; letter-spacing: -.035em; line-height: 1.1; white-space: nowrap; }
+.sync { display: inline-flex; align-items: center; gap: 6px; font: 400 13px var(--ui); color: var(--label-2); background: none; border: 0; padding: 6px 0; cursor: pointer; min-width: 0; font-variant-numeric: tabular-nums; }
 .sync span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sync .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--label-3); }
 .sync.ok .dot { background: var(--good); }
@@ -90,10 +94,10 @@ header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; 
 .sync.err .dot { background: var(--bad); }
 .sync.busy .dot { background: var(--blue); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
-#openSettings { justify-self: end; width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--fill); color: var(--label-2); display: grid; place-items: center; cursor: pointer; }
+#openSettings { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--fill); color: var(--label-2); display: grid; place-items: center; cursor: pointer; }
 #openSettings svg { width: 22px; height: 22px; }
-.daybar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 6px; }
-.daybar .label { order: -1; font-size: 24px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; min-width: 0; }
+.daybar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: -8px; }
+.daybar .label { order: -1; font-size: 20px; font-weight: 600; letter-spacing: -.02em; line-height: 1.2; color: var(--label-2); min-width: 0; }
 .daybar .iconbtn { color: var(--blue); }
 .daybar #prevDay { margin-left: auto; }
 .iconbtn { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 0; background: transparent; color: var(--label-2); font-size: 26px; font-weight: 400; cursor: pointer; display: grid; place-items: center; line-height: 1; }
@@ -304,20 +308,19 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
 </style>
 
 <div class="wrap">
-  <header class="top">
-    <div class="titlebar">
-      <h1 id="viewTitle">Hoy</h1>
-      <div class="tools">
-        <button class="sync" id="syncChip" aria-label="Actualizar datos de Salud"><span class="dot"></span><span id="syncText">Cargando…</span></button>
-        <button id="openSettings" aria-label="Conexión y ajustes"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4.2a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8zm0 13.8a8 8 0 0 1-6.3-3.1c1.4-1.6 3.7-2.6 6.3-2.6s4.9 1 6.3 2.6A8 8 0 0 1 12 20z"/></svg></button>
-      </div>
-    </div>
-    <div class="daybar" id="daybar">
-      <button class="iconbtn" id="prevDay" aria-label="Día anterior">‹</button>
-      <div class="label" id="dayLabel">Hoy</div>
-      <button class="iconbtn" id="nextDay" aria-label="Día siguiente">›</button>
+  <header class="nav" id="nav">
+    <span class="nav-title" id="navTitle" aria-hidden="true">Hoy</span>
+    <div class="nav-right">
+      <button class="sync" id="syncChip" aria-label="Actualizar datos de Salud"><span class="dot"></span><span id="syncText">Cargando…</span></button>
+      <button id="openSettings" aria-label="Conexión y ajustes"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4.2a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8zm0 13.8a8 8 0 0 1-6.3-3.1c1.4-1.6 3.7-2.6 6.3-2.6s4.9 1 6.3 2.6A8 8 0 0 1 12 20z"/></svg></button>
     </div>
   </header>
+  <div class="large-title"><h1 id="viewTitle">Hoy</h1></div>
+  <div class="daybar" id="daybar">
+    <button class="iconbtn" id="prevDay" aria-label="Día anterior">‹</button>
+    <div class="label" id="dayLabel">Hoy</div>
+    <button class="iconbtn" id="nextDay" aria-label="Día siguiente">›</button>
+  </div>
 
   <div class="banner err" id="fatal" hidden>
     <span id="fatalText">No pude cargar tus datos.</span>
@@ -511,7 +514,7 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
 <script>
 (() => {
   "use strict";
-  const VERSION = "4.5";
+  const VERSION = "4.6";
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1930,10 +1933,18 @@ Responde SOLO con JSON en español:
 
   // ---------- Navegación ----------
   const TITLES = { hoy: "Hoy", comidas: "Comidas", rutina: "Rutina", cuerpo: "Cuerpo", historial: "Historial" };
+  function setTitle(t) { $("viewTitle").textContent = t; $("navTitle").textContent = t; }
+  let navTick = false;
+  function onScroll() {
+    if (navTick) return;
+    navTick = true;
+    requestAnimationFrame(() => { navTick = false; $("nav").classList.toggle("compact", window.scrollY > 36); });
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
   const titleFor = (v) => (v !== "hoy" ? TITLES[v] : current === todayKey() ? "Hoy" : current === addDays(todayKey(), -1) ? "Ayer" : "Día");
   function refreshDay() {
     $("dayLabel").textContent = cap1(longDate.format(parseKey(current)));
-    $("viewTitle").textContent = titleFor(view);
+    setTitle(titleFor(view));
     $("nextDay").disabled = current >= todayKey();
     renderHealthBanner(); renderForToday(); renderReview(); renderHoyFood(); renderHealth(); renderWorkout(); renderNote(); renderFoods();
     if (view === "cuerpo") renderBody();
@@ -1943,7 +1954,7 @@ Responde SOLO con JSON en español:
     view = v;
     for (const b of document.querySelectorAll("nav.tabs button")) b.setAttribute("aria-selected", String(b.dataset.view === v));
     for (const s of document.querySelectorAll("section.view")) s.hidden = s.id !== "view-" + v;
-    $("viewTitle").textContent = titleFor(v);
+    setTitle(titleFor(v));
     $("daybar").hidden = !(v === "hoy" || v === "comidas");
     if (v === "historial") renderHistory();
     if (v === "cuerpo") renderBody();
@@ -1974,7 +1985,7 @@ Responde SOLO con JSON en español:
     watchDays();
     chatTurns = []; $("chat").replaceChildren();
     for (const id of ["logStatus", "foodStatus"]) status(id, "");
-    $("viewTitle").textContent = titleFor(view);
+    setTitle(titleFor(view));
     refreshDay();
   }
 
