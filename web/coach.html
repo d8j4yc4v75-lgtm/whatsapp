@@ -193,6 +193,14 @@ textarea { resize: none; line-height: 1.35; }
 .row > .grow { flex: 1 1 140px; }
 .status { font-size: 15px; color: var(--label-2); }
 .status:empty { display: none; }
+.pending { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pend { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--fill); border-radius: 14px; padding: 10px 12px; }
+.pend-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.pend-dot.busy { background: var(--blue); animation: pulse 1s infinite; }
+.pend-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pend-what { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pend-state { font-size: 13px; color: var(--label-2); }
+.status:empty { display: none; }
 .status.err { color: var(--bad); }
 .hide-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .preview { width: 100%; max-height: 220px; object-fit: cover; border-radius: 14px; }
@@ -304,7 +312,7 @@ nav.tabs { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc
 nav.tabs button { border: 0; background: none; color: var(--label); font: 500 10px var(--ui); letter-spacing: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0 6px; border-radius: 99px; cursor: pointer; }
 nav.tabs svg { width: 24px; height: 24px; }
 nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--blue); }
-@media (prefers-reduced-motion: reduce) { .sync.busy .dot, .working { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .sync.busy .dot, .working, .pend-dot.busy { animation: none; } }
 </style>
 
 <div class="wrap">
@@ -360,6 +368,7 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
         <button class="btn primary grow" id="logSend">Registrar</button>
       </div>
       <p class="status" id="logStatus" aria-live="polite"></p>
+      <ul class="pending" id="logPending" hidden></ul>
       <details id="noteBox" hidden>
         <summary>Notas del día</summary>
         <textarea id="dayNote" rows="3" style="margin-top:10px"></textarea>
@@ -402,6 +411,7 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
         <button class="btn primary grow" id="foodSend">Guardar</button>
       </div>
       <p class="status" id="foodStatus" aria-live="polite"></p>
+      <ul class="pending" id="foodPending" hidden></ul>
       <div class="block" id="recentBox" hidden>
         <h3>Repetir</h3>
         <div class="chips" id="recentFoods"></div>
@@ -514,7 +524,7 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
 <script>
 (() => {
   "use strict";
-  const VERSION = "4.6";
+  const VERSION = "4.7";
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -574,6 +584,8 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
       store.set("diag", { v: VERSION, at: new Date().toISOString(), app: !!window.webkit?.messageHandlers?.coachHealth, ua: navigator.userAgent.slice(0, 200), events: diag.slice(-120) }).catch(() => {});
     }, 4000);
   }
+  window.addEventListener("error", (e) => logEvent("error", `${e.message || e.error || ""} @${e.lineno || "?"}:${e.colno || "?"}`));
+  window.addEventListener("unhandledrejection", (e) => { const r = e.reason; logEvent("error", "promesa: " + (r?.message || r?.code || String(r)).slice(0, 200)); });
   let toastT;
   function toast(msg, err = false) {
     const t = $("toast");
@@ -691,7 +703,7 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
   const reviewErr = new Map();
   const openReviews = new Set();
 
-  const blankDay = (k) => ({ date: k, health: {}, manual: {}, foods: [], review: null, note: "", done: [], lifts: {}, workout: "" });
+  const blankDay = (k) => ({ date: k, health: {}, manual: {}, foods: [], review: null, note: "", done: [], lifts: {}, workout: "", pending: [] });
   function normDay(raw) {
     const d = { ...blankDay(raw.date), ...raw };
     d.health = d.health && typeof d.health === "object" ? d.health : {};
@@ -699,13 +711,14 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
     d.lifts = d.lifts && typeof d.lifts === "object" ? d.lifts : {};
     d.foods = Array.isArray(d.foods) ? d.foods : [];
     d.done = Array.isArray(d.done) ? d.done : [];
+    d.pending = Array.isArray(d.pending) ? d.pending.filter((x) => x && x.id && typeof x.text === "string") : [];
     d.note = typeof d.note === "string" ? d.note : "";
     d.workout = typeof d.workout === "string" ? d.workout : "";
     return d;
   }
   function dayOf(k) { let d = days.get(k); if (!d) { d = blankDay(k); days.set(k, d); } return d; }
   const day = () => dayOf(current);
-  const hasData = (d) => !!(d && (d.healthAt || Object.keys(d.manual).length || d.foods.length || d.note || d.done.length || d.workout || d.review));
+  const hasData = (d) => !!(d && (d.healthAt || Object.keys(d.manual).length || d.foods.length || d.pending.length || d.note || d.done.length || d.workout || d.review));
   const touch = (d) => { d.updatedAt = new Date().toISOString(); };
   const saveDay = (d, soon = false) => (soon ? saveSoon("d-" + d.date, () => d) : persist("d-" + d.date, d));
   const isStale = (d) => !!(d.review && d.updatedAt && d.review.at && d.updatedAt > d.review.at);
@@ -787,6 +800,7 @@ nav.tabs button[aria-selected="true"] { background: var(--fill); color: var(--bl
       L.push(`Comidas registradas (${s.n}): total ≈ ${n0(s.kcal)} kcal, ${n0(s.prot)} g proteína, ${n0(s.carb)} g carbohidratos, ${n0(s.fat)} g grasa.`);
       for (const f of [...d.foods].sort((a, b) => (a.time || "").localeCompare(b.time || ""))) L.push(`- ${f.time || "--:--"} ${f.meal || ""}: ${f.text}${isNum(f.kcal) ? ` (≈${Math.round(f.kcal)} kcal, ${Math.round(f.prot || 0)} g P)` : ""}`);
     } else L.push("Comidas: no registró ninguna.");
+    if (d.pending.length) L.push(`Registrado por el usuario y aún sin analizar (tómalo en cuenta): ${d.pending.map((x) => `«${x.text.slice(0, 400)}»`).join("; ")}.`);
     if (p) {
       const names = (p.ejercicios || []).map((e) => e.nombre);
       L.push(`Entreno planeado: ${p.enfoque}${names.length ? ` (${names.length} ejercicios)` : ""}${p.cardio ? `; cardio: ${p.cardio}` : ""}.`);
@@ -1112,30 +1126,12 @@ Responde SOLO con JSON:
     if (save) persist("measures", { list: measures });
     else saveSoon("measures", () => ({ list: measures }));
   }
-  async function quickLog(kind) {
-    const box = kind === "food" ? "foodText" : "logText", st = kind === "food" ? "foodStatus" : "logStatus", btn = kind === "food" ? "foodSend" : "logSend";
-    const text = $(box).value.trim();
-    const photo = photos[kind];
-    if (!text && !photo) { status(st, kind === "food" ? "Escribe qué comiste o toma una foto." : "Escribe algo o adjunta una foto.", true); return; }
-    const date = current;
+  // Registro: lo escrito se guarda al instante como pendiente y Claude lo analiza después.
+  // Si la conexión se cae (por ejemplo, al salir de la app), se reintenta solo al volver.
+  const logPrompt = (kind, text, photo, date, now) => {
     const p = plannedFor(date);
     const names = (p?.ejercicios || []).map((e) => e.nombre);
-    $(btn).disabled = true;
-    status(st, photo ? "Analizando la foto…" : "Registrando…");
-    logEvent("registro", `${kind} ${date}: ${text ? text.length + " letras" : ""}${photo ? " + foto" : ""}`);
-    let r = null, failed = null;
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), photo ? 120000 : 75000);
-    try {
-      const now = new Date();
-      let opts = { modelTier: "quick", signal: ctl.signal };
-      if (photo) {
-        const sample = await cap("sample");
-        const lim = sample ? await sample.limits().catch(() => null) : null;
-        if (!lim?.images) throw { code: "images_unavailable" };
-        opts = { images: [photo], signal: ctl.signal };
-      }
-      r = await askJson(`Eres el asistente de registro de una app de entrenamiento y nutrición. El usuario ${text ? "escribió o dictó esto" : "adjuntó una foto"} sobre su día ${date} (${labelFor(date)}); ahora son las ${hhmm(now)}.
+    return `Eres el asistente de registro de una app de entrenamiento y nutrición. El usuario ${text ? "escribió o dictó esto" : "adjuntó una foto"} sobre su día ${date} (${labelFor(date)}); ahora son las ${hhmm(now)}.
 ${text ? `\nTEXTO:\n"""${text.slice(0, 4000)}"""\n` : ""}${photo ? "\nLa foto adjunta es de una comida (o una captura de Salud o de la báscula). Úsala.\n" : ""}
 Entreno planeado ese día: ${p ? `${p.enfoque}${names.length ? ". Ejercicios: " + names.map((n) => `«${n}»`).join(", ") : ""}` : "ninguno"}.
 
@@ -1145,68 +1141,188 @@ Extrae lo que diga y estima calorías y macros de cada comida con porciones real
  "salud": {"sueno_h": número|null, "pasos": número|null, "kcal_activas": número|null, "kcal_reposo": número|null, "fc_reposo": número|null, "ejercicio_min": número|null},
  "peso_kg": número|null, "cintura_cm": número|null, "grasa_pct": número|null,
  "nota": "lo demás que le sirva al coach (cómo se sintió, dolor, alcohol, agua, estrés) o null"}
-Reglas: una entrada por cada comida distinta; si no dice la hora, dedúcela del contexto o usa ${hhmm(now)}; no inventes comidas, entrenos ni datos de salud que no mencione; números sin unidades.`, opts);
+Reglas: una entrada por cada comida distinta; si no dice la hora, dedúcela del contexto o usa ${hhmm(now)}; no inventes comidas, entrenos ni datos de salud que no mencione; números sin unidades.`;
+  };
+  function applyLog(d, kind, r) {
+    const done = [];
+    if (!r || typeof r !== "object" || Array.isArray(r)) return done;
+    const names = (plannedFor(d.date)?.ejercicios || []).map((e) => e.nombre);
+    const foods = Array.isArray(r.comidas) ? r.comidas : [];
+    const added = [];
+    for (const f of foods.slice(0, 12)) {
+      const desc = str(f?.descripcion, 300);
+      if (!desc) continue;
+      const time = /^\d{1,2}:\d{2}$/.test(String(f.hora || "")) ? String(f.hora).padStart(5, "0") : hhmm(new Date());
+      const item = { id: newId(), meal: MEALS.find((m) => plain(m) === plain(f.tipo)) || mealByHour(Number(time.slice(0, 2))), time, text: desc, kcal: clampNum(f.kcal, 0, 6000), prot: clampNum(f.proteina_g, 0, 500), carb: clampNum(f.carbohidratos_g, 0, 1000), fat: clampNum(f.grasa_g, 0, 500) };
+      d.foods.push(item); added.push(item);
+    }
+    if (added.length) {
+      const k = added.reduce((a, x) => a + (x.kcal || 0), 0), pr = added.reduce((a, x) => a + (x.prot || 0), 0);
+      done.push(`${added.length} comida${added.length > 1 ? "s" : ""} (≈${n0(k)} kcal, ${n0(pr)} g proteína)`);
+    }
+    if (kind !== "food") {
+      const w = r.entreno && typeof r.entreno === "object" ? r.entreno : null;
+      if (w) {
+        const made = w.todo_el_plan === true ? names : list(w.ejercicios_hechos, 30, 200).filter((n) => names.includes(n));
+        if (made.length) d.done = [...new Set([...d.done, ...made])];
+        const desc = str(w.descripcion, 300);
+        if (desc) d.workout = d.workout ? `${d.workout}; ${desc}` : desc;
+        if (made.length || desc) done.push("entreno");
+      }
+      const s = r.salud && typeof r.salud === "object" ? r.salud : {};
+      const man = { sueno_min: clampNum(s.sueno_h, 0.5, 24) != null ? Math.round(clampNum(s.sueno_h, 0.5, 24) * 60) : null, pasos: clampNum(s.pasos, 1, 150000), kcal_activas: clampNum(s.kcal_activas, 1, 8000), kcal_reposo: clampNum(s.kcal_reposo, 1, 8000), fc_reposo: clampNum(s.fc_reposo, 25, 220), ejercicio_min: clampNum(s.ejercicio_min, 1, 1440) };
+      const got = Object.entries(man).filter(([, v]) => v != null);
+      for (const [k, v] of got) d.manual[k] = v;
+      if (got.length) done.push("datos de Salud");
+      const peso = clampNum(r.peso_kg, 20, 400), cint = clampNum(r.cintura_cm, 30, 250), grasa = clampNum(r.grasa_pct, 2, 70);
+      if (peso != null || cint != null || grasa != null) { setMeasure(d.date, { peso, cintura: cint, grasa }); done.push("medidas"); }
+      const nota = str(r.nota, 800);
+      if (nota && !/^null$/i.test(nota)) { d.note = d.note ? `${d.note}\n${nota}` : nota; done.push("nota"); }
+    }
+    return done;
+  }
+  // Nunca se pierde lo registrado: si Claude no pudo, queda como comida sin estimar o como nota
+  function rawLog(d, kind, text, photo) {
+    const blank = (t) => ({ id: newId(), meal: mealByHour(new Date().getHours()), time: hhmm(new Date()), text: t, kcal: null, prot: null, carb: null, fat: null });
+    if (text && (kind === "food" || /comi|desayun|cen[eé]|almorc|taco|torta|pollo|carne|huevo|arroz|pan\b|leche|prote[ií]na|scoop|sandwich|s[aá]ndwich|coca|refresco|pizza|hamburguesa/i.test(text))) { d.foods.push(blank(text.slice(0, 300))); return ["comida sin estimar"]; }
+    if (text) { d.note = d.note ? `${d.note}\n${text}` : text; return ["nota"]; }
+    if (photo) { d.foods.push(blank("Comida con foto (sin estimar)")); return ["comida sin estimar; tócala en Comidas para escribir qué era"]; }
+    return [];
+  }
+  const MAX_TRIES = 4;
+  // Cada dispositivo analiza lo que registró; si lleva 10 min sin analizarse, cualquiera lo toma
+  const DEVICE = (() => { try { let v = localStorage.getItem(LS + "dev"); if (!v) { v = newId(); localStorage.setItem(LS + "dev", v); } return v; } catch { return newId(); } })();
+  const mineOrStale = (it) => !it.dev || it.dev === DEVICE || Date.now() - Date.parse(it.at || 0) > 10 * 60000;
+  // Fallas pasajeras (conexión perdida, tiempo agotado): se reintenta. Las demás se guardan sin estimar.
+  const TRANSIENT = new Set(["upstream_error", "unavailable", "cancelled", "aborted", "network_error", "timeout", "deadline_exceeded", "internal", "overloaded"]);
+  const transient = (e) => e?.retryable === true || TRANSIENT.has(e?.code) || e?.name === "AbortError";
+  const analyzing = new Set();
+  async function analyzeLog(date, id) {
+    if (analyzing.has(id)) return;
+    const first = dayOf(date).pending.find((x) => x.id === id);
+    if (!first) return;
+    analyzing.add(id);
+    renderPending();
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 60000);
+    let r = null, failed = null;
+    try {
+      r = await askJson(logPrompt(first.kind, first.text, null, date, new Date(first.at)), { modelTier: "quick", signal: ctl.signal });
+    } catch (e) {
+      failed = e;
+      logEvent("registro", "Claude: " + (e?.message || ""), e?.code || "error");
+    } finally { clearTimeout(timer); analyzing.delete(id); }
+    try {
+      // El día pudo cambiar mientras Claude respondía: se aplica al vigente
+      const d = dayOf(date);
+      const item = d.pending.find((x) => x.id === id);
+      if (!item) return;
+      let done = failed ? [] : applyLog(d, item.kind, r);
+      let msg;
+      if (done.length) msg = `Registré: ${done.join(", ")}.`;
+      else if (!failed) { done = rawLog(d, item.kind, item.text, null); msg = `Guardé: ${done.join(", ")}.`; }
+      else if (!transient(failed)) { done = rawLog(d, item.kind, item.text, null); msg = `${explain(failed)} Guardé: ${done.join(", ")}.`; }
+      else {
+        item.tries = (item.tries || 0) + 1;
+        item.last = Date.now();
+        item.err = failed?.code === "cancelled" || failed?.name === "AbortError" ? "Claude tardó en responder" : "Se cortó la conexión con Claude";
+        if (item.tries >= MAX_TRIES) { done = rawLog(d, item.kind, item.text, null); msg = `${explain(failed)} Guardé: ${done.join(", ")}.`; }
+      }
+      if (done.length) d.pending = d.pending.filter((x) => x.id !== id);
+      touch(d); saveDay(d);
+      if (msg) { status(item.kind === "food" ? "foodStatus" : "logStatus", msg, !!failed); logEvent("registro", "guardado: " + done.join(", ")); }
+      else status(item.kind === "food" ? "foodStatus" : "logStatus", "");
+    } catch (e) {
+      logEvent("registro", "falló al aplicar: " + (e?.message || e), "excepcion");
+    }
+    refreshDay();
+    processPending();
+  }
+  let pendingT = 0;
+  function processPending(force = false) {
+    clearTimeout(pendingT);
+    if (!loaded || document.visibilityState === "hidden") return;
+    let next = Infinity;
+    for (const d of days.values()) {
+      for (const it of d.pending || []) {
+        if (analyzing.has(it.id) || (it.tries || 0) >= MAX_TRIES || !mineOrStale(it)) continue;
+        const wait = force ? 0 : Math.max(0, (it.last || 0) + Math.min(8000 * 2 ** ((it.tries || 1) - 1), 60000) - Date.now());
+        if (wait === 0) analyzeLog(d.date, it.id);
+        else next = Math.min(next, wait);
+      }
+    }
+    if (next < Infinity) pendingT = setTimeout(processPending, next + 50);
+  }
+  function renderPending() {
+    for (const boxId of ["logPending", "foodPending"]) {
+      const box = $(boxId);
+      const items = day().pending || [];
+      box.replaceChildren(...items.map((it) => {
+        const li = el("li", "pend");
+        const busy = analyzing.has(it.id);
+        const txt = el("div", "pend-txt");
+        txt.append(el("span", "pend-what", it.text), el("span", "pend-state" + (busy ? "" : " wait"), busy ? "Guardado. Claude lo está analizando…" : it.err ? `Guardado. ${it.err}; lo reintento solo.` : "Guardado. En espera de Claude."));
+        li.append(el("span", "pend-dot" + (busy ? " busy" : "")), txt);
+        if (!busy) {
+          const again = el("button", "btn sm", "Reintentar");
+          again.onclick = () => analyzeLog(day().date, it.id);
+          li.append(again);
+        }
+        return li;
+      }));
+      box.hidden = !items.length;
+    }
+  }
+  async function quickLog(kind) {
+    const box = kind === "food" ? "foodText" : "logText", st = kind === "food" ? "foodStatus" : "logStatus", btn = kind === "food" ? "foodSend" : "logSend";
+    const text = $(box).value.trim();
+    const photo = photos[kind];
+    if (!text && !photo) { status(st, kind === "food" ? "Escribe qué comiste o toma una foto." : "Escribe algo o adjunta una foto.", true); return; }
+    const date = current;
+    logEvent("registro", `${kind} ${date}: ${text ? text.length + " letras" : ""}${photo ? " + foto" : ""}`);
+    if (!photo) {
+      // Texto: se guarda ya y se analiza en segundo plano
+      const d = dayOf(date);
+      const id = newId();
+      d.pending.push({ id, kind, text: text.slice(0, 4000), at: new Date().toISOString(), tries: 0, dev: DEVICE });
+      touch(d); saveDay(d);
+      $(box).value = ""; clearDraft(kind);
+      status(st, "");
+      renderPending();
+      analyzeLog(date, id);
+      return;
+    }
+    $(btn).disabled = true;
+    status(st, "Analizando la foto…");
+    let r = null, failed = null;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 120000);
+    try {
+      const sample = await cap("sample");
+      const lim = sample ? await sample.limits().catch(() => null) : null;
+      if (!lim?.images) throw { code: "images_unavailable" };
+      r = await askJson(logPrompt(kind, text, photo, date, new Date()), { images: [photo], signal: ctl.signal });
     } catch (e) {
       failed = e;
       logEvent("registro", "Claude: " + (e?.message || ""), e?.code || "error");
     } finally { clearTimeout(timer); }
-    // El día pudo actualizarse desde otro lado mientras Claude respondía: se aplica al vigente
-    const d = dayOf(date);
-    const done = [];
-    if (r && typeof r === "object" && !Array.isArray(r)) {
-      const foods = Array.isArray(r.comidas) ? r.comidas : [];
-      const added = [];
-      for (const f of foods.slice(0, 12)) {
-        const desc = str(f?.descripcion, 300);
-        if (!desc) continue;
-        const time = /^\d{1,2}:\d{2}$/.test(String(f.hora || "")) ? String(f.hora).padStart(5, "0") : hhmm(new Date());
-        const item = { id: newId(), meal: MEALS.find((m) => plain(m) === plain(f.tipo)) || mealByHour(Number(time.slice(0, 2))), time, text: desc, kcal: clampNum(f.kcal, 0, 6000), prot: clampNum(f.proteina_g, 0, 500), carb: clampNum(f.carbohidratos_g, 0, 1000), fat: clampNum(f.grasa_g, 0, 500) };
-        d.foods.push(item); added.push(item);
-      }
-      if (added.length) {
-        const k = added.reduce((a, x) => a + (x.kcal || 0), 0), pr = added.reduce((a, x) => a + (x.prot || 0), 0);
-        done.push(`${added.length} comida${added.length > 1 ? "s" : ""} (≈${n0(k)} kcal, ${n0(pr)} g proteína)`);
-      }
-      if (kind !== "food") {
-        const w = r.entreno && typeof r.entreno === "object" ? r.entreno : null;
-        if (w) {
-          const made = w.todo_el_plan === true ? names : list(w.ejercicios_hechos, 30, 200).filter((n) => names.includes(n));
-          if (made.length) d.done = [...new Set([...d.done, ...made])];
-          const desc = str(w.descripcion, 300);
-          if (desc) d.workout = d.workout ? `${d.workout}; ${desc}` : desc;
-          if (made.length || desc) done.push("entreno");
-        }
-        const s = r.salud && typeof r.salud === "object" ? r.salud : {};
-        const man = { sueno_min: clampNum(s.sueno_h, 0.5, 24) != null ? Math.round(clampNum(s.sueno_h, 0.5, 24) * 60) : null, pasos: clampNum(s.pasos, 1, 150000), kcal_activas: clampNum(s.kcal_activas, 1, 8000), kcal_reposo: clampNum(s.kcal_reposo, 1, 8000), fc_reposo: clampNum(s.fc_reposo, 25, 220), ejercicio_min: clampNum(s.ejercicio_min, 1, 1440) };
-        const got = Object.entries(man).filter(([, v]) => v != null);
-        for (const [k, v] of got) d.manual[k] = v;
-        if (got.length) done.push("datos de Salud");
-        const peso = clampNum(r.peso_kg, 20, 400), cint = clampNum(r.cintura_cm, 30, 250), grasa = clampNum(r.grasa_pct, 2, 70);
-        if (peso != null || cint != null || grasa != null) { setMeasure(d.date, { peso, cintura: cint, grasa }); done.push("medidas"); }
-        const nota = str(r.nota, 800);
-        if (nota && !/^null$/i.test(nota)) { d.note = d.note ? `${d.note}\n${nota}` : nota; done.push("nota"); }
-      }
-    }
-    if (!done.length) {
-      // Nunca se pierde lo registrado: si Claude no pudo, queda como comida sin estimar o como nota
-      const blank = (t) => ({ id: newId(), meal: mealByHour(new Date().getHours()), time: hhmm(new Date()), text: t, kcal: null, prot: null, carb: null, fat: null });
-      if (text && (kind === "food" || /comi|desayun|cen[eé]|almorc|taco|torta|pollo|carne|huevo|arroz|pan\b|leche|prote[ií]na|scoop|sandwich|s[aá]ndwich/i.test(text))) { d.foods.push(blank(text.slice(0, 300))); done.push("comida sin estimar"); }
-      else if (text) { d.note = d.note ? `${d.note}\n${text}` : text; done.push("nota"); }
-      else if (photo) { d.foods.push(blank("Comida con foto (sin estimar)")); done.push("comida sin estimar; tócala en Comidas para escribir qué era"); }
-    }
-    if (done.length) {
+    try {
+      const d = dayOf(date);
+      let done = applyLog(d, kind, r);
+      if (!done.length) done = rawLog(d, kind, text, photo);
       touch(d); saveDay(d);
       $(box).value = "";
       clearDraft(kind);
       setPhoto(kind, null);
       status(st, `${failed ? explain(failed) + " Guardé: " : "Registré: "}${done.join(", ")}.`, !!failed);
       logEvent("registro", "guardado: " + done.join(", "));
-    } else {
-      status(st, failed ? explain(failed) : "No encontré nada que registrar. Escribe qué comiste, con cantidades si puedes.", true);
-      logEvent("registro", "nada que guardar");
+    } catch (e) {
+      status(st, "No se pudo guardar. Inténtalo de nuevo.", true);
+      logEvent("registro", "falló al aplicar: " + (e?.message || e), "excepcion");
+    } finally {
+      $(btn).disabled = false;
+      refreshDay();
     }
-    $(btn).disabled = false;
-    refreshDay();
   }
   // Borradores: lo escrito sobrevive aunque la página se recargue (por ejemplo, al volver a la app)
   const draftKey = (kind) => LS + "draft:" + kind;
@@ -1946,7 +2062,7 @@ Responde SOLO con JSON en español:
     $("dayLabel").textContent = cap1(longDate.format(parseKey(current)));
     setTitle(titleFor(view));
     $("nextDay").disabled = current >= todayKey();
-    renderHealthBanner(); renderForToday(); renderReview(); renderHoyFood(); renderHealth(); renderWorkout(); renderNote(); renderFoods();
+    renderHealthBanner(); renderForToday(); renderReview(); renderHoyFood(); renderHealth(); renderWorkout(); renderNote(); renderFoods(); renderPending();
     if (view === "cuerpo") renderBody();
     if (view === "historial") renderHistory();
   }
@@ -2066,6 +2182,7 @@ Responde SOLO con JSON en español:
   let hiddenAt = 0;
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") { hiddenAt = Date.now(); flushSaves(); return; }
+    processPending(true);
     if (!loaded || Date.now() - sync.last < 45000) return;
     if (Date.now() - hiddenAt > 5 * 60000 && current !== todayKey() && addDays(current, 1) === todayKey()) goTo(todayKey());
     syncHealth().then((n) => { if (!viaApp()) schedulePolls(); if (n) autoEvaluate(); });
@@ -2110,6 +2227,7 @@ Responde SOLO con JSON en español:
     watchDays();
     restoreDrafts();
     refreshDay();
+    processPending(true);
     await syncHealth();
     if (!viaApp()) schedulePolls();
     try {
@@ -2121,7 +2239,7 @@ Responde SOLO con JSON en español:
   }
   window.addEventListener("hashchange", () => { if (applyAnchor()) { refreshDay(); autoEvaluate(); } });
   // La app Coach del iPhone puede mandar lecturas nuevas sin recargar la página
-  window.__coachReceive = (anchor) => { const n = applyAnchor(String(anchor || "")); if (n) { refreshDay(); autoEvaluate(); } return n; };
+  window.__coachReceive = (anchor) => { const n = applyAnchor(String(anchor || "")); if (n) { refreshDay(); autoEvaluate(); } processPending(true); return n; };
   refreshDay();
   renderRoutine();
   start();
