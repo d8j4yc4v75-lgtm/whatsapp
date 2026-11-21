@@ -2408,7 +2408,9 @@ function renderWarmupBox(st) {
 		: n.slow ? `🐢 Sus mensajes tardan en llegar: habla a la mitad · ${n.sentToday} de ${n.target} hoy`
 		: n.grace ? 'Recién vinculado: solo recibe sus primeras 24 h'
 			: n.resting && n.target > 0 ? `En descanso de masivos: charla ligera · ${n.sentToday} de ${n.target} hoy`
-				: n.target > 0 ? `${n.sentToday} de ${n.target} hoy${n.atCap && st.hot ? ' (tope por antigüedad)' : ''} · recibió ${n.receivedToday} · ${n.ageDays} día(s)${n.campaignToday ? ` · ${n.campaignToday} masivos hoy` : ''}`
+				: n.target > 0 && n.sentToday >= n.target ? `✅ Ya cumplió su cupo de hoy (${n.target}). Sube la intensidad si quieres que hable más · habló con ${n.peersToday} número(s)`
+				: n.target > 0 && n.busyReal ? `Atendiendo clientes o un masivo: retoma en unos minutos · ${n.sentToday} de ${n.target} hoy`
+				: n.target > 0 ? `${n.sentToday} de ${n.target} hoy${n.atCap && st.hot ? ' (tope por antigüedad)' : ''} · habló con ${n.peersToday} número(s) · recibió ${n.receivedToday} · ${n.ageDays} día(s)${n.campaignToday ? ` · ${n.campaignToday} masivos hoy` : ''}`
 					: 'Hoy no envía (rechazos o mensajes sin entregar); solo recibe'
 	const bar = (v, max, color = 'var(--accent)') => `<div style="height:4px;border-radius:2px;background:var(--fill);margin-top:6px;overflow:hidden"><div style="height:100%;width:${Math.min(100, max ? Math.round(v / max * 100) : 0)}%;background:${color}"></div></div>`
 	const matColor = sc => sc >= 70 ? 'var(--accent)' : sc >= 40 ? 'var(--warn)' : 'var(--danger)'
@@ -2425,7 +2427,7 @@ function renderWarmupBox(st) {
 			${n.godchildren?.length ? `<small style="margin-top:4px">🧑‍🏫 Padrino de: ${n.godchildren.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · habla más con él y sigue con los demás</small>` : ''}
 			<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-act="warmup-mentors" data-val="${n.id}">🤝 ${n.mentors?.length ? 'Cambiar padrinos' : 'Elegir padrinos'}</button><button class="chip" data-act="warmup-prep" data-val="${n.id}">📅 ${n.prepAt ? 'Cambiar fecha de masivo' : 'Preparar para masivo'}</button></div>
 			${n.flagged ? `<button class="btn" style="margin-top:8px" data-act="warmup-unflag" data-val="${n.id}">Reanudar ya</button>` : ''}
-		</span>${n.inConvo ? '<span class="pill ok">💬 charlando</span>' : n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`
+		</span>${n.inConvo ? `<span class="pill ok">💬 ${n.convos > 1 ? `${n.convos} charlas` : 'charlando'}</span>` : n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`
 	}).join('')
 	const wk = p.week || []
 	const wkMax = Math.max(1, ...wk)
@@ -2435,7 +2437,7 @@ function renderWarmupBox(st) {
 		<div style="display:flex;align-items:flex-end;gap:6px;height:56px;margin-top:8px">${wk.map((v, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><span class="muted" style="font-size:10px">${v || ''}</span><div style="width:100%;max-width:26px;height:${Math.max(2, Math.round(v / wkMax * 34))}px;border-radius:3px;background:${i === 6 ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 40%, transparent)'}"></div><span class="muted" style="font-size:10px">${days[(today - 6 + i + 7) % 7]}</span></div>`).join('')}</div></div>` : ''
 	const manual = st.auto ? `<div class="item" style="display:block"><span class="grow">Intensidad</span>
 		<div class="chips" style="padding:8px 0 0">${[['suave', 'Suave'], ['normal', 'Normal'], ['intenso', 'Intenso'], ['turbo', '⚡ Turbo'], ['maximo', '🔥 Máximo']].map(([k, t]) => `<button class="chip ${st.intensity === k ? 'on' : ''}" style="--c:#25D366" data-act="warmup-intensity" data-val="${k}">${t}</button>`).join('')}</div></div>` : `
-		<div class="item"><span class="grow">Tope por número al día</span><input type="number" id="wu-perday" min="1" max="40" value="${st.perDay}" class="num"></div>
+		<div class="item"><span class="grow">Tope por número al día</span><input type="number" id="wu-perday" min="1" max="150" value="${st.perDay}" class="num"></div>
 		${st.allDay ? '' : `<div class="item"><span class="grow">Horario</span><input type="number" id="wu-start" min="0" max="23" value="${st.startHour}" class="num"><span class="muted">a</span><input type="number" id="wu-end" min="1" max="24" value="${st.endHour}" class="num"></div>`}
 		<div class="item"><span class="grow">Pausa entre charlas (min)</span><input type="number" id="wu-min" min="5" max="360" value="${st.minDelay}" class="num"><span class="muted">–</span><input type="number" id="wu-max" min="5" max="720" value="${st.maxDelay}" class="num"></div>
 		<button class="btn" data-act="warmup-save">Guardar</button>`
@@ -2477,7 +2479,7 @@ function renderWarmupBox(st) {
 		${st.enabled && st.eligible >= 2 ? `
 		<div class="item"><span class="grow">Hoy<small>${p.sentToday || 0} de ${p.totalPerDay || 0} mensajes · queda ${p.dayLeft ?? 0}% de la actividad del día</small>${bar(p.sentToday || 0, p.totalPerDay || 0)}</span></div>
 		<div class="item"><span class="grow">Actividad en este momento</span><span class="muted">${act[p.activity] || '—'}</span></div>
-		<div class="item"><span class="grow">Próxima charla</span><span class="muted">${p.nextConvoIn == null ? '—' : p.nextConvoIn < 1 ? 'en un momento' : p.nextConvoIn >= 90 ? `en ~${Math.round(p.nextConvoIn / 60)} h` : `en ~${p.nextConvoIn} min`}${p.activeConvos ? ` · ${p.activeConvos} en curso` : ''}</span></div>
+		<div class="item"><span class="grow">Próxima charla</span><span class="muted">${p.nextConvoIn == null ? '—' : p.nextConvoIn < 1 ? 'en un momento' : p.nextConvoIn >= 90 ? `en ~${Math.round(p.nextConvoIn / 60)} h` : `en ~${p.nextConvoIn} min`}${p.activeConvos ? ` · ${p.activeConvos} en curso` : ''}${p.typingNow ? ` · ${p.typingNow} escribiendo` : ''}</span></div>
 		${chart}
 		<button class="btn" data-act="warmup-now">Iniciar una charla ahora</button>` : ''}
 		${nums ? `<div class="item sub-head"><span class="grow">Números</span></div>${nums}` : ''}

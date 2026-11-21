@@ -38,6 +38,8 @@ import {
 // - Si los mensajes de un número tardan en llegar a tus otros números, baja su ritmo antes de que lo restrinjan.
 // - Stickers, GIFs, mensajes borrados «para todos», respuestas tardías, charlas de llamadas perdidas y cambios de perfil.
 // - Madurez diaria por número: aviso cuando uno queda listo y reporte semanal los lunes.
+// - Varios números escriben a la vez y cada uno puede estar en 2–3 charlas; si a esta hora hay pocos platicando y va
+//   atrasado, arranca más charlas. Cupos más altos (6–35 al día según antigüedad) y más variedad de con quién habla.
 // - Intensidad Turbo (×2), Máximo (×3) y «sesión intensiva» (×2.5 por 1–6 h): más charlas a la vez, respuestas más rápidas, charlas que
 //   cambian de tema y más grupo. Solo acelera a números sanos y nunca pasa el tope diario según su antigüedad.
 
@@ -91,6 +93,7 @@ const q = {
 	vol: db.prepare('SELECT account_id AS id, COUNT(*) AS n, COUNT(DISTINCT peer_id) AS peers FROM warmup_log WHERE ts > ? GROUP BY account_id'),
 	pairs: db.prepare('SELECT account_id AS a, peer_id AS b, MAX(ts) AS t FROM warmup_log WHERE ts > ? AND peer_id IS NOT NULL GROUP BY account_id, peer_id'),
 	perDay: db.prepare('SELECT ts FROM warmup_log WHERE ts > ?'),
+	peersToday: db.prepare('SELECT account_id AS id, COUNT(DISTINCT peer_id) AS n FROM warmup_log WHERE ts > ? AND peer_id IS NOT NULL GROUP BY account_id'),
 	prune: db.prepare('DELETE FROM warmup_log WHERE ts < ?'),
 	accounts: db.prepare("SELECT id, name, phone, linked_at, rest_ended_at, rest_until, restricted_until FROM accounts WHERE (kind IS NULL OR kind != 'cloud') AND phone IS NOT NULL AND phone != ''"),
 	getSetting: db.prepare('SELECT value FROM app_settings WHERE key = ?'),
@@ -192,14 +195,17 @@ export const library = {
 }
 
 const AVG_LINES = SCRIPTS.reduce((n, s) => n + s.lines.length, 0) / SCRIPTS.length
-const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 6, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, profiles: true, mentors: {}, prep: {} }
+const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 20, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, profiles: true, mentors: {}, prep: {} }
 const INTENSITY = { suave: 0.6, normal: 1, intenso: 1.4, turbo: 2, maximo: 3 }
 const BOOST = 2.5 // «sesión intensiva»: multiplica la actividad por unas horas
 // Tope diario por antigüedad que ninguna intensidad puede pasar (para no quemar números nuevos)
-const capFor = age => (age < 1 ? 8 : age < 3 ? 15 : age < 7 ? 30 : age < 14 ? 50 : 80)
+const capFor = age => (age < 1 ? 10 : age < 3 ? 25 : age < 7 ? 50 : age < 14 ? 80 : 120)
 const GRACE_HOURS = Number(process.env.WARMUP_GRACE_HOURS || 24) // espera tras vincular antes de enviar
-const GRACE_RECEIVE = 6 // mensajes que puede recibir al día un número recién vinculado
-const MAX_ACTIVE = 4 // charlas a la vez como máximo
+const GRACE_RECEIVE = 12 // mensajes que puede recibir al día un número recién vinculado
+const MAX_ACTIVE = 12 // charlas a la vez como máximo (en total)
+const PER_NUMBER = 2 // charlas a la vez por número (como una persona que platica con dos o tres)
+const PARALLEL = 3 // números escribiendo al mismo tiempo
+const PAIR_PER_DAY = 3 // charlas al día como máximo entre los mismos dos números
 const OVERFLOW = 3 // mensajes extra para terminar una charla ya empezada aunque se acabe el cupo
 const FAILS_TO_FLAG = 3
 const FLAG_HOURS = 12
@@ -257,6 +263,9 @@ export class WarmupManager {
 		this.manager = manager
 		this.busy = false
 		this.convos = new Map() // charlas en curso
+		this.speaking = new Set() // números escribiendo en este momento
+		this.nextFree = {} // cuándo puede volver a escribir cada número
+		this.nextFillAt = 0
 		this.queue = [] // { at, kind: 'say' | 'read' | 'view', ... }
 		this.checks = [] // pruebas de entrega pendientes { at, id, from, to }
 		this.fails = {} // fallos de entrega seguidos por número
@@ -297,7 +306,7 @@ export class WarmupManager {
 	settings() { return { ...this.s } }
 	save(partial) {
 		const s = { ...this.s, ...partial }
-		s.perDay = clamp(Number(s.perDay) || DEFAULTS.perDay, 1, 40)
+		s.perDay = clamp(Number(s.perDay) || DEFAULTS.perDay, 1, 150)
 		s.minDelay = clamp(Number(s.minDelay) || DEFAULTS.minDelay, 5, 360)
 		s.maxDelay = clamp(Number(s.maxDelay) || DEFAULTS.maxDelay, s.minDelay, 720)
 		s.startHour = clamp(Math.floor(Number(s.startHour) || 0), 0, 23)
@@ -437,19 +446,18 @@ export class WarmupManager {
 	// MODO AUTOMÁTICO: según estado, rechazos, antigüedad, masivos de hoy e intensidad
 	autoBase(a, h, camp) {
 		if (!h || a.grace) return 0
-		if (h.restrictedUntil) return 3 // restringido: no puede iniciar chats nuevos, solo contesta un poco
-		if (h.restUntil) return h.rejections24h >= 2 ? 0 : 2 // descanso de masivos: charla ligera para recuperarse
+		if (h.restrictedUntil) return 4 // restringido: no puede iniciar chats nuevos, solo contesta un poco
+		if (h.restUntil) return h.rejections24h >= 2 ? 0 : 4 // descanso de masivos: charla ligera para recuperarse
 		if (h.level === 'red') return 0
 		const age = h.ageDays
 		let base
-		if (age < 1) base = 2
-		else if (age < 3) base = 2 + age
-		else if (h.level === 'yellow') base = 3
-		else if (age < 7) base = 6
-		else if (age < 14) base = 8
-		else if (age < 30 || h.level !== 'green') base = 10
-		else base = 12
-		if (camp >= 20 && h.level === 'green') base += Math.min(4, 1 + Math.floor(camp / 40))
+		if (age < 3) base = 6 + 3 * age
+		else if (h.level === 'yellow') base = 8
+		else if (age < 7) base = 18
+		else if (age < 14) base = 25
+		else if (age < 30 || h.level !== 'green') base = 30
+		else base = 35
+		if (camp >= 20 && h.level === 'green') base += Math.min(8, 2 + Math.floor(camp / 30))
 		if (a.recovering) base *= 0.5 // acaba de salir de una restricción: regresa poco a poco
 		return base * this.prepFactor(a) * this.multiplierFor(a)
 	}
@@ -630,6 +638,8 @@ export class WarmupManager {
 			}
 		} catch {}
 		const speakers = list.filter(a => !a.grace && a.target > 0).length
+		let peers = new Map()
+		try { peers = new Map(q.peersToday.all(sod).map(r => [r.id, r.n])) } catch {}
 		const g = this.group()
 		const files = library.list()
 		return {
@@ -642,6 +652,7 @@ export class WarmupManager {
 				activity: !this.inWindow(h) ? 'fuera' : w >= 0.7 ? 'alta' : w >= 0.3 ? 'media' : 'baja',
 				nextConvoIn: s.enabled ? Math.max(0, Math.round((this.nextConvoAt - Date.now()) / MIN)) : null,
 				activeConvos: this.convos.size,
+				typingNow: this.speaking.size,
 				startHour: s.allDay ? 0 : s.startHour,
 				endHour: s.allDay ? 24 : s.endHour,
 				week,
@@ -660,7 +671,8 @@ export class WarmupManager {
 				level: a.level, campaignToday: a.campaign, flagged: this.flagged(a.id) ? this.flags[a.id] : null,
 				restrictedUntil: a.restrictedUntil, recovering: a.recovering,
 				mentors: this.mentorsOf(a.id), godchildren: this.godchildrenOf(a.id), mentorsPaused: this.mentorsOf(a.id).filter(m => !this.mentorOk(m)),
-				slow: a.slow, prepAt: this.s.prep?.[a.id] || null, cap: a.cap, atCap: a.target >= a.cap, weekDelta: this.weekDelta(a.id, a.mature.score),
+				slow: a.slow, prepAt: this.s.prep?.[a.id] || null, cap: a.cap, atCap: a.target >= a.cap,
+				peersToday: peers.get(a.id) || 0, convos: this.convCount(a.id), busyReal: this.busyReal(a.id), weekDelta: this.weekDelta(a.id, a.mature.score),
 				maturity: a.mature,
 				inConvo: [...this.convos.values()].some(c => c.members.includes(a.id))
 			}))
@@ -672,7 +684,7 @@ export class WarmupManager {
 		if (this.busy || !this.s.enabled) return
 		const now = Date.now()
 		// Sin nada pendiente no se toca la base de datos
-		const due = now >= this.nextConvoAt || now >= this.nextHousekeeping || this.queue.some(e => e.at <= now) || this.checks.some(c => c.at <= now)
+		const due = now >= this.nextConvoAt || now >= this.nextFillAt || now >= this.nextHousekeeping || this.queue.some(e => e.at <= now) || this.checks.some(c => c.at <= now)
 		if (!due) return
 		this.busy = true
 		try {
@@ -696,31 +708,47 @@ export class WarmupManager {
 					else await session.markRead(ev.group || this.chatJid(id, ev.fromPhone))
 				} catch {}
 			}
-			// 2) Un mensaje a la vez, con respiro entre envíos
+			// 2) Varios números pueden escribir a la vez (cada uno en su teléfono), pero cada número un mensaje a la vez
 			let acted = false
-			if (Date.now() >= this.lastActionAt) {
-				const ev = this.queue.filter(e => e.kind === 'say' && e.at <= Date.now()).sort((a, b) => a.at - b.at)[0]
-				if (ev) {
-					this.queue = this.queue.filter(e => e !== ev)
+			const maxPar = this.hot() ? PARALLEL + 2 : PARALLEL
+			for (const ev of this.queue.filter(e => e.kind === 'say' && e.at <= Date.now()).sort((a, b) => a.at - b.at)) {
+				if (this.speaking.size >= maxPar) break
+				const c = this.convos.get(ev.convoId)
+				if (!c) { this.queue = this.queue.filter(e => e !== ev); this.dirty = true; continue }
+				const sp = c.order[c.i]
+				if (this.speaking.has(sp) || (this.nextFree[sp] || 0) > Date.now()) continue
+				this.queue = this.queue.filter(e => e !== ev)
+				this.dirty = true
+				this.speaking.add(sp)
+				acted = true
+				this.say(ev, snap).catch(() => {}).finally(() => {
+					this.speaking.delete(sp)
+					this.nextFree[sp] = Date.now() + irnd(4, 12) * 1000 // respiro de ese número antes de su siguiente mensaje
 					this.dirty = true
-					await this.say(ev, snap)
-					acted = true
-				}
+					this.persist()
+				})
 			}
-			// 3) ¿Empieza otra charla?
-			if (Date.now() >= this.nextConvoAt) {
-				const { h, wd } = tzNow()
+			// 3) ¿Empieza otra charla? Además del ritmo planeado, si hay pocos platicando a esta hora y va atrasado, arranca otra
+			const { h, m, wd } = tzNow()
+			let fill = false
+			if (Date.now() >= this.nextFillAt) {
+				this.nextFillAt = Date.now() + rnd(0.5, 1.5) * MIN
+				fill = this.needsFill(snap, h, m, wd)
+			}
+			const regular = Date.now() >= this.nextConvoAt
+			if (regular || fill) {
 				const force = this.forceNext
 				this.forceNext = false
-				const go = force || (!this.replanOnly && this.inWindow(h))
+				const go = force || fill || (!this.replanOnly && this.inWindow(h))
 				const r = go ? this.spawn(snap, h, wd, force) : 'skip'
+				if (fill && !regular) this.nextFillAt = Date.now() + rnd(1, 4) * MIN
 				// Si todos están ocupados en otras charlas, la nueva solo se pospone unos minutos
-				if (r === 'busy') { this.nextConvoAt = Date.now() + rnd(3, 10) * MIN; this.replanOnly = false }
+				else if (r === 'busy') { this.nextConvoAt = Date.now() + rnd(2, 6) * MIN; this.replanOnly = false }
 				else this.scheduleNextConvo(snap)
 				this.dirty = true
 			}
-			// 4) Tareas de fondo: perfil, grupo y estados (sin cruzarse con un envío)
-			if (!acted && Date.now() >= this.nextHousekeeping && Date.now() >= this.lastActionAt) {
+			// 4) Tareas de fondo: perfil, grupo y estados
+			if (!acted && Date.now() >= this.nextHousekeeping) {
 				this.nextHousekeeping = Date.now() + rnd(4, 9) * MIN
 				await this.housekeeping(snap)
 			}
@@ -879,11 +907,37 @@ export class WarmupManager {
 		return 1
 	}
 
+	// Charlas que «deberían» ir en curso a esta hora: ~30% de los números despiertos con cupo (50% acelerado).
+	// Solo rellena si va atrasado respecto a la curva del día, para que el cupo alcance hasta la noche.
+	needsFill(snap, h, m, wd) {
+		if (!this.inWindow(h) || CURVE[h] < 0.4) return false
+		const awake = snap.list.filter(a => this.canSpeak(a, false) && this.awake(a, h, wd) >= 0.5)
+		const desired = Math.floor(awake.length * (this.hot() ? 0.5 : 0.3) * CURVE[h])
+		if (this.convos.size >= desired) return false
+		const total = snap.list.reduce((n, a) => n + a.target, 0)
+		if (!total) return false
+		const sent = snap.list.reduce((n, a) => n + Math.min(a.target, this.sentToday(a.id)), 0)
+		const end = this.s.allDay ? 24 : this.s.endHour
+		const daySum = this.s.allDay ? DAY_SUM : curveSpan(this.s.startHour, this.s.endHour)
+		const expected = 1 - curveLeft(h, m, end) / daySum
+		return sent / total < expected + 0.08
+	}
+	convCount(id) { let n = 0; for (const c of this.convos.values()) if (c.members.includes(id)) n++; return n }
+	inConvoWith(a, b) { for (const c of this.convos.values()) if (c.members.includes(a) && c.members.includes(b)) return true; return false }
+	pairToday(a, b) {
+		const d = dayKey()
+		if (this.pairDay !== d) { this.pairDay = d; this.pairCount = {} }
+		return this.pairCount[a < b ? `${a}:${b}` : `${b}:${a}`] || 0
+	}
+	countPair(a, b) { this.pairToday(a, b); const k = a < b ? `${a}:${b}` : `${b}:${a}`; this.pairCount[k] = (this.pairCount[k] || 0) + 1 }
+
 	spawn(snap, hour, wd, force = false) {
 		const list = snap.list
-		const maxActive = Math.min(this.hot() ? (this.s.intensity === 'maximo' ? 10 : 8) : MAX_ACTIVE, Math.floor(list.length / 2))
+		const hot = this.hot()
+		const maxActive = Math.min(hot ? MAX_ACTIVE + 6 : MAX_ACTIVE, list.length * (hot ? 1.5 : 1))
 		if (this.convos.size >= maxActive) return 'busy'
-		const busyIds = new Set([...this.convos.values()].flatMap(c => c.members))
+		const perNumber = hot ? PER_NUMBER + 1 : PER_NUMBER
+		const busyIds = new Set([...this.convos.values()].flatMap(c => c.members).filter(id => this.convCount(id) >= perNumber))
 		const free = a => !busyIds.has(a.id) && this.live(a.id) && !this.flagged(a.id) && !this.busyReal(a.id)
 		const ready = list.filter(a => free(a) && this.canSpeak(a, false) && !a.restricted) // un restringido no inicia charlas
 		const mo = moments(hour, wd)
@@ -914,7 +968,7 @@ export class WarmupManager {
 			}
 		}
 		// Con quién puede hablar cada uno (respeta los padrinos que elegiste)
-		const partnersOf = st => list.filter(x => x.id !== st.id && free(x) && this.allowedPair(st.id, x.id) && (!x.grace || this.recvToday(x.id) < GRACE_RECEIVE))
+		const partnersOf = st => list.filter(x => x.id !== st.id && free(x) && !this.inConvoWith(st.id, x.id) && this.allowedPair(st.id, x.id) && (!x.grace || this.recvToday(x.id) < GRACE_RECEIVE))
 		// Quién empieza: el que está despierto y aún tiene cupo; los padrinos con su ahijado libre, más
 		const starter = weighted(ready, a => {
 			if (!partnersOf(a).length) return 0
@@ -925,9 +979,11 @@ export class WarmupManager {
 		// Con quién: quien no ha hablado con él hace tiempo, despierto, y más si hoy hizo masivos.
 		// Los maduros platican más con los nuevos y los nuevos menos entre sí; con padrinos, mucho más.
 		const partners = partnersOf(starter)
+		// Variedad: los que nunca han platicado, mucho más; los que ya platicaron 3 veces hoy, casi nada
 		const partner = weighted(partners, x =>
 			(0.2 + this.awake(x, hour, wd)) *
-			clamp((Date.now() - this.lastPair(starter.id, x.id)) / DAY, 0.15, 1.5) *
+			(this.lastPair(starter.id, x.id) ? clamp((Date.now() - this.lastPair(starter.id, x.id)) / DAY, 0.15, 1.5) : 2.5) *
+			(this.pairToday(starter.id, x.id) >= PAIR_PER_DAY ? 0.08 : 1) *
 			(1 + Math.min(1.5, x.campaign / 40)) *
 			(x.grace ? 0.7 : this.canSpeak(x, false) ? 1 : 0.35) *
 			this.pairBoost(starter, x))
@@ -942,6 +998,7 @@ export class WarmupManager {
 			lines[0] = `${mo.morning ? GREET.morning : hour >= 12 && hour < 19 ? GREET.afternoon : GREET.night}||${lines[0]}`
 		}
 		const order = lines.map((_, i) => (i % 2 === 0 ? starter.id : partner.id))
+		this.countPair(starter.id, partner.id)
 		return this.startConvo({ members: [starter.id, partner.id], order, lines, when: script.when }, script, force)
 	}
 	pickScript(hour, wd) {
@@ -1152,7 +1209,7 @@ export class WarmupManager {
 		// Fin del guion, o a veces se queda "en visto".
 		// Un "buenas noches" a alguien dormido solo se lee en la mañana, no se contesta.
 		// En modo acelerado, a veces la charla sigue con otro tema («Oye, otra cosa…») en vez de terminar
-		if (c.i >= c.lines.length && !c.group && this.hot() && (c.chained || 0) < 3 && Math.random() < 0.6) {
+		if (c.i >= c.lines.length && !c.group && (c.chained || 0) < (this.hot() ? 3 : 1) && Math.random() < (this.hot() ? 0.6 : 0.3)) {
 			const other = c.members.find(id => id !== speaker.id)
 			const o = snap.byId.get(other)
 			const sc = o && this.canSpeak(o, true) && this.canSpeak(speaker, true) && this.awake(o, h, wd) >= 0.5 ? this.pickScript(h, wd) : null
