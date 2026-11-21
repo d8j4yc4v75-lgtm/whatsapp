@@ -129,6 +129,13 @@ export function accountHealth(accountId, status) {
 		a.rest_ended_at = a.rest_until
 		a.rest_until = null
 	}
+	// Al terminar una restricción de WhatsApp, el número vuelve a subir desde abajo (como si tuviera 3 días):
+	// límite de masivos más bajo y el calentamiento lo vuelve a madurar, para que no lo restrinjan otra vez
+	if (a.restricted_until && a.restricted_until <= now && Math.max(a.linked_at || 0, a.rest_ended_at || 0) < a.restricted_until - 3 * DAY) {
+		const restart = a.restricted_until - 3 * DAY
+		db.prepare('UPDATE accounts SET rest_ended_at = ? WHERE id = ?').run(restart, accountId)
+		a.rest_ended_at = restart
+	}
 	const since = Math.max(a.linked_at || 0, a.rest_ended_at || 0)
 	const ageDays = since ? Math.floor((now - since) / DAY) : 0
 	const st = status || a.status

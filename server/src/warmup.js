@@ -7,7 +7,7 @@ import { accountHealth } from './health.js'
 import { localHour } from './smart.js'
 import { vary } from './text.js'
 import { sendPush } from './push.js'
-import { hasFfmpeg, toOpus, toMp4, toSticker, toSquareJpeg, variantImage, variantAudio, variantSticker, variantGif } from './ffmpeg.js'
+import { hasFfmpeg, toOpus, toMp4, toSticker, toSquareJpeg, variantImage, variantAudio, variantSticker, variantGif, cardFont, makeCard, makeTextSticker } from './ffmpeg.js'
 import { isOwnJid, resetOwnCache } from './sessions.js'
 import {
 	SCRIPTS, GROUP_SCRIPTS, GROUP_NAMES, STORY_TEXTS, STORY_COLORS, REACTS, GREET, CONTACT_NAMES,
@@ -17,7 +17,7 @@ import {
 import {
 	personaNames, birthdayOf, RELS, relOf, relWeight, REL_SCRIPTS, FORWARD_SCRIPTS, GROUP_POLLS, pollConvo,
 	STATUS_REPLIES, STATUS_ANSWERS, BIRTHDAY, BIRTHDAY_GROUP, ARCS, buildArc,
-	generateConvo, GROUP_KINDS, GROUP_KIND_SCRIPTS, GROUP_KIND_POLLS, groupWeight
+	generateConvo, GROUP_KINDS, GROUP_KIND_SCRIPTS, GROUP_KIND_POLLS, groupWeight, cardSpec, stickerTextFor, holidayOf
 } from './warmup-life.js'
 
 // Calentamiento: tus propios números conversan entre sí para que las cuentas se vean activas
@@ -54,6 +54,9 @@ import {
 // - v4: modo precaución (si WhatsApp bloquea uno de tus números, todos bajan el ritmo 24 h), bitácora de decisiones,
 //   «sesiones de uso» (al revisar el celular contesta varios chats en ráfaga), horario según la lada de cada número,
 //   generador de charlas, grupos de familia/trabajo/amigos y fotos/audios únicos en cada envío.
+// - v5: tarjetas generadas («Buenos días», «Feliz viernes», «Feliz cumpleaños Andrea») y stickers de texto, distintos cada vez,
+//   sin subir nada; fechas especiales de México (Navidad, Día de las Madres, fiestas patrias…); prueba de entrega a demanda
+//   y diaria; rehabilitación tras una restricción; padrinos automáticos para los nuevos y ficha detallada por número.
 // - Intensidad Turbo (×2), Máximo (×3) y «sesión intensiva» (×2.5 por 1–6 h): más charlas a la vez, respuestas más rápidas, charlas que
 //   cambian de tema y más grupo. Solo acelera a números sanos y nunca pasa el tope diario según su antigüedad.
 
@@ -525,6 +528,7 @@ export class WarmupManager {
 		// Mezcla con masivos: por cada 4 mensajes de masivo, uno de charla con tus números (hasta 15 más)
 		if (camp >= 10 && h.level === 'green') base += Math.min(15, Math.round(camp * 0.25))
 		if (a.recovering) base *= 0.5 // acaba de salir de una restricción: regresa poco a poco
+		if (holidayOf()) base *= 1.15 // en días festivos la gente platica más
 		return base * this.prepFactor(a) * this.multiplierFor(a) * this.streakBonus(a)
 	}
 	boostActive() { return Number(this.s.boostUntil) > Date.now() }
@@ -655,6 +659,7 @@ export class WarmupManager {
 			const a = { ...row, grace: this.ageHours(row) < GRACE_HOURS, campaign: camp.get(row.id) || 0 }
 			let h = null
 			try { h = accountHealth(a.id, 'connected') } catch {}
+			a.h = h
 			a.level = h?.level || 'red'
 			a.resting = Boolean(h?.restUntil || (a.rest_until && a.rest_until > now))
 			a.restricted = Boolean(h?.restrictedUntil)
@@ -662,7 +667,18 @@ export class WarmupManager {
 			a.slow = this.isSlow(a.id)
 			// Horario según la lada: un número de Tijuana vive dos horas antes que uno de la Ciudad de México
 			try { const lh = localHour(a.phone, now); a.zoneShift = ((lh - tzNow(now).h + 36) % 24) - 12 } catch { a.zoneShift = 0 }
-			if (a.restricted && !this.restrictSeen.has(a.id)) { this.restrictSeen.add(a.id); this.logEvent('⛔', `WhatsApp restringió a ${a.name}: solo contesta hasta que se le quite`) }
+			if (a.restricted && !this.restrictSeen.has(a.id)) {
+				this.restrictSeen.add(a.id)
+				this.logEvent('⛔', `WhatsApp restringió a ${a.name}: solo contesta hasta que se le quite`)
+				// Dos o más restricciones en 24 h: WhatsApp está más estricto con tus números → modo precaución 12 h
+				this.restrictTimes = [...(this.restrictTimes || []).filter(t => now - t < DAY), now]
+				if (this.restrictTimes.length >= 2 && !this.cautionActive()) {
+					this.caution = { until: now + 12 * 36e5, reason: `${this.restrictTimes.length} de tus números fueron restringidos en 24 h`, at: now }
+					this.dirty = true
+					this.logEvent('🛡️', `${this.restrictTimes.length} restricciones en 24 h: modo precaución 12 h`)
+					sendPush({ title: '🛡️ Modo precaución: varias restricciones', body: `WhatsApp restringió a ${this.restrictTimes.length} de tus números en 24 h. El calentamiento bajó el ritmo 12 h.`, url: '/#/warmup' })
+				}
+			}
 			else if (!a.restricted && this.restrictSeen.has(a.id)) { this.restrictSeen.delete(a.id); this.logEvent('🩹', `A ${a.name} se le quitó la restricción: regresa poco a poco`) }
 			a.recovering = !a.restricted && Boolean(a.restricted_until && a.restricted_until <= now && now - a.restricted_until < RECOVER_DAYS * DAY)
 			let base
@@ -687,6 +703,9 @@ export class WarmupManager {
 			list.push(a)
 		}
 		this.snap = { at: now, list, byId: new Map(list.map(a => [a.id, a])) }
+		// Padrinos automáticos: un número nuevo sin padrinos elegidos recibe a los 3 más maduros y sanos
+		const elders = list.filter(x => (x.phase ?? 0) >= 3 && this.mentorOk(x.id)).sort((x, y) => (y.mature?.score ?? 0) - (x.mature?.score ?? 0))
+		for (const a of list) a.autoMentors = (a.phase ?? 4) <= 1 && !this.mentorsOf(a.id).length ? elders.filter(x => x.id !== a.id).slice(0, 3).map(x => x.id) : []
 		this.lastList = list
 		this.trackMaturity(list)
 		return this.snap
@@ -748,7 +767,8 @@ export class WarmupManager {
 	kindOf(g) { return g?.kind || (/famil|primo/i.test(g?.subject || '') ? 'familia' : 'amigos') }
 	available() {
 		const m = this.s.media
-		return { image: m && library.count('image') > 0, audio: m && library.count('audio') > 0, sticker: m && library.count('sticker') > 0, gif: m && library.count('gif') > 0, location: m, contact: m }
+		const card = Boolean(m && cardFont())
+		return { image: m && library.count('image') > 0, audio: m && library.count('audio') > 0, sticker: m && library.count('sticker') > 0, gif: m && library.count('gif') > 0, location: m, contact: m, card, textSticker: card }
 	}
 
 	// Red de quién platica con quién (últimos 7 días) con su relación
@@ -819,6 +839,9 @@ export class WarmupManager {
 			events: (this.events || []).slice(0, 25),
 			caution: this.cautionActive() ? this.caution : null,
 			uniqueMedia: this.uniqueSent || 0,
+			generatedMedia: this.genSent || 0,
+			holiday: holidayOf()?.title || null,
+			test: this.test ? { ...this.test, results: this.test.results.map(r => ({ id: r.id, name: r.name, toName: r.toName, state: r.state, ms: r.ms, error: r.error })) } : null,
 			pendingFollows: this.follows.length,
 			boostUntil: this.boostActive() ? this.s.boostUntil : 0,
 			hot: this.hot(),
@@ -842,6 +865,7 @@ export class WarmupManager {
 				inConvo: [...this.convos.values()].some(c => c.members.includes(a.id)),
 				persona: this.names.get(a.id) || null,
 				phase: a.phase, phaseLabel: PHASES[a.phase]?.label, phaseDesc: PHASES[a.phase]?.desc, phaseNext: PHASES[a.phase]?.next, phaseProgress: this.phaseProgress(a),
+				autoMentors: a.autoMentors || [],
 				streak: this.streak[a.id]?.n || 0, streakBonus: Math.round((this.streakBonus(a) - 1) * 100),
 				contacts: Object.entries(this.saved).filter(([k, v]) => v?.ok && k.startsWith(`${a.id}>`)).length
 			}))
@@ -974,6 +998,15 @@ export class WarmupManager {
 			} catch { this.profiles.set(stale.id, { ...(this.profiles.get(stale.id) || {}), at: now - 11 * 36e5 }) }
 		}
 		try { this.weeklyReport(snap) } catch {}
+		// Prueba de entrega automática: una vez al día, entre 9 y 11
+		{
+			const { h: hh } = tzNow()
+			const d = String(dayKey())
+			if (hh >= 9 && hh < 11 && getJSON('warmup_lasttest', null) !== d && !this.test?.running && snap.list.length >= 2) {
+				setJSON('warmup_lasttest', d)
+				this.runTest('auto').catch(() => {})
+			}
+		}
 		const { h, wd } = tzNow()
 		if (!this.inWindow(h) || CURVE[h] < 0.6) return
 		await this.maybeProfileChange(snap).catch(() => {})
@@ -1031,10 +1064,11 @@ export class WarmupManager {
 
 	// Estados (historias): cada número publica uno cada 2–4 días; tus otros números lo ven
 	async maybeStory(snap, h, wd) {
-		if (!this.s.stories || Math.random() > 0.35) return
+		if (!this.s.stories || Math.random() > (holidayOf() ? 0.7 : 0.35)) return
 		const now = Date.now()
+		const holi = Boolean(holidayOf())
 		const due = snap.list.filter(a => !a.grace && (a.phase ?? 4) >= 2 && a.level !== 'red' && !this.flagged(a.id) && this.awake(a, h, wd) >= 0.6 &&
-			now - (this.stories[a.id] || 0) > (1.6 + hash01(a.id, this.day) * 2.4) * DAY && !this.busyReal(a.id))
+			now - (this.stories[a.id] || 0) > (holi ? 0.6 : 1.6 + hash01(a.id, this.day) * 2.4) * DAY && !this.busyReal(a.id))
 		const a = pick(due)
 		if (!a) return
 		// Solo lo ven tus otros números vinculados (nunca contactos ni clientes)
@@ -1042,10 +1076,19 @@ export class WarmupManager {
 		if (!viewers.length) return
 		const session = this.manager.sessions.get(a.id)
 		const jids = viewers.map(x => jidOf(x.phone))
-		const img = this.s.media && Math.random() < 0.4 ? this.pickMedia('image') : null
+		const hol = holidayOf()
+		const useCard = this.available().card && (hol || Math.random() < 0.45)
+		const img = !useCard && this.s.media && Math.random() < 0.4 ? this.pickMedia('image') : null
 		let storyText = ''
 		const text = () => (storyText = styleText(vary(pick(STORY_TEXTS)), a.persona))
-		const res = img
+		let res
+		if (useCard) {
+			// Tarjeta del momento: la fecha especial, buenos días, buenas noches, fin de semana o bendiciones
+			const spec = cardSpec(hol ? 'holiday' : h < 12 ? 'morning' : h >= 20 ? 'night' : [5, 6, 0].includes(wd) ? 'weekend' : 'blessing', { wd, holiday: hol })
+			storyText = spec.title
+			res = await session.postStatus({ image: await makeCard(spec), mimetype: 'image/jpeg', caption: Math.random() < 0.3 ? text() : undefined }, jids)
+			this.genSent = (this.genSent || 0) + 1
+		} else res = img
 			? await session.postStatus({ image: (await this.uniqueMedia('image', img.path)).buffer, mimetype: 'image/jpeg', caption: Math.random() < 0.6 ? text() : undefined }, jids)
 			: await session.postStatus({ text: text() }, jids, { backgroundColor: pick(STORY_COLORS), font: irnd(0, 4) })
 		this.stories[a.id] = now
@@ -1131,6 +1174,7 @@ export class WarmupManager {
 	}
 	pairBoost(a, b) {
 		// Padrino ↔ ahijado: bastante más seguido, pero sin acaparar al padrino (sigue hablando con los demás)
+		if (a.autoMentors?.includes(b.id) || b.autoMentors?.includes(a.id)) return this.lastPair(a.id, b.id) > Date.now() - 3 * 36e5 ? 1.2 : 3
 		if ((this.mentorsOf(a.id).includes(b.id) && this.mentorOk(b.id)) || (this.mentorsOf(b.id).includes(a.id) && this.mentorOk(a.id))) return this.lastPair(a.id, b.id) > Date.now() - 3 * 36e5 ? 1.2 : 3
 		const sa = a.mature?.score ?? 0, sb = b.mature?.score ?? 0
 		const newA = sa < 40 || this.ageDays(a) < 7, newB = sb < 40 || this.ageDays(b) < 7
@@ -1201,7 +1245,10 @@ export class WarmupManager {
 						this.bdays[`${d}:g:${b.id}`] = 1
 						const two = weightedSample(others, () => 1, 2)
 						const lines = BIRTHDAY_GROUP(name)
-						return this.startConvo({ group: g.jid, members: [...two.map(x => x.id), b.id], order: [two[0].id, two[1].id, b.id], lines, birthday: true }, { lines }, force)
+						// Primero la tarjeta con su nombre y luego los mensajes
+						if (this.available().card) { lines.unshift({ media: 'card', card: 'birthday', name, fallback: `¡Feliz cumpleaños ${name}! 🎂` }); two.unshift(two[0]) }
+						const order = lines.length === 4 ? [two[0].id, two[1].id, two[2].id, b.id] : [two[0].id, two[1].id, b.id]
+						return this.startConvo({ group: g.jid, members: [...new Set([...two.map(x => x.id), b.id])], order, lines, birthday: true }, { lines }, force)
 					}
 				}
 				const friends = ready.filter(x => x.id !== b.id && ['familia', 'amigos'].includes(relOf(x.id, b.id)) && !this.bdays[`${d}:${x.id}:${b.id}`] && this.allowedPair(x.id, b.id) && !this.inConvoWith(x.id, b.id))
@@ -1209,9 +1256,41 @@ export class WarmupManager {
 				if (x && Math.random() < 0.6) {
 					this.bdays[`${d}:${x.id}:${b.id}`] = 1
 					const lines = BIRTHDAY(name)
+					// A veces primero le manda una tarjeta de cumpleaños con su nombre
+					if (this.available().card && x.phase >= 2 && Math.random() < 0.4) lines[0] = { media: 'card', card: 'birthday', name, fallback: lines[0] }
 					if (!this.bdays[`${d}:log:${b.id}`]) { this.bdays[`${d}:log:${b.id}`] = 1; this.logEvent('🎂', `Hoy «cumple años» ${name} (${b.name}): lo felicitan sus amigos y familia`) }
 					return this.startConvo({ members: [x.id, b.id], order: [x.id, b.id, x.id], lines, birthday: true }, { lines }, force)
 				}
+			}
+		}
+		// 2b) Fechas especiales (Navidad, Día de las Madres…): se felicitan en los grupos y entre familia y amigos
+		const hol = holidayOf(now)
+		if (hol && hour >= 9 && hour <= 21) {
+			const d = dayKey()
+			if (!this.bdays[`${d}:hlog`]) { this.bdays[`${d}:hlog`] = 1; this.logEvent('🎉', `Hoy es «${hol.title}»: tus números se felicitan y publican estados`) }
+			const card = this.available().card
+			for (const gg of this.s.groups ? this.groupsList() : []) {
+				if (this.bdays[`${d}:hg:${gg.jid}`]) continue
+				const mem = ready.filter(x => gg.members.includes(x.id) && x.phase >= 2)
+				if (mem.length < 2) continue
+				this.bdays[`${d}:hg:${gg.jid}`] = 1
+				const ppl = weightedSample(mem, () => 1, Math.min(3, mem.length))
+				const lines = [card ? { media: 'card', card: 'holiday', fallback: pick(hol.greet) } : pick(hol.greet), pick(hol.reply), pick(ppl.length > 2 ? hol.reply : hol.greet)]
+				const order = [ppl[0].id, ppl[1].id, (ppl[2] || ppl[0]).id]
+				return this.startConvo({ group: gg.jid, members: ppl.map(x => x.id), order, lines, holiday: hol.key }, { lines }, force)
+			}
+			const pairsH = []
+			for (const x of ready) for (const y of list) {
+				if (y.id === x.id || !free(y) || !['familia', 'amigos'].includes(relOf(x.id, y.id)) || this.bdays[`${d}:h:${pairKey(x.id, y.id)}`]) continue
+				if (!this.allowedPair(x.id, y.id) || this.inConvoWith(x.id, y.id)) continue
+				pairsH.push([x, y])
+			}
+			const ph = pick(pairsH)
+			if (ph && Math.random() < 0.5) {
+				const [x, y] = ph
+				this.bdays[`${d}:h:${pairKey(x.id, y.id)}`] = 1
+				const lines = [card && x.phase >= 2 && Math.random() < 0.5 ? { media: 'card', card: 'holiday', fallback: pick(hol.greet) } : pick(hol.greet), pick(hol.reply)]
+				return this.startConvo({ members: [x.id, y.id], order: [x.id, y.id], lines, holiday: hol.key }, { lines }, force)
 			}
 		}
 		// 3) Seguimiento de una charla de días anteriores («¿cómo te fue en el banco?»)
@@ -1419,13 +1498,16 @@ export class WarmupManager {
 		if (typeof line === 'string') {
 			const av = (speaker.phase ?? 4) >= 2 ? this.available() : {}
 			// Respuesta corta → a veces solo un sticker
-			if (ctx.reply && av.sticker && line.replace(/\{[^}]*\}/g, 'xx').length <= 30 && Math.random() < 0.05 + 0.08 * (p.emoji || 0)) {
-				const f = this.pickMedia('sticker')
-				if (f) {
+			if (ctx.reply && (av.sticker || av.textSticker) && line.replace(/\{[^}]*\}/g, 'xx').length <= 30 && Math.random() < 0.05 + 0.08 * (p.emoji || 0)) {
+				// De tu biblioteca o, si no hay, uno de texto hecho al momento («Jajaja», «Va», «Gracias»…)
+				const f = av.sticker && (!av.textSticker || Math.random() < 0.6) ? this.pickMedia('sticker') : null
+				let sticker = null
+				try { sticker = f ? (await this.uniqueMedia('sticker', f.path)).buffer : await makeTextSticker(stickerTextFor(line, tzNow().h)) } catch {}
+				if (sticker) {
 					await session.setPresence(toJid, 'composing')
 					await sleep(irnd(1500, 3500))
-					const r = await session.send(toJid, { sticker: (await this.uniqueMedia('sticker', f.path)).buffer })
-					if (r?.id) { ids.push(r.id); return ids }
+					const r = await session.send(toJid, { sticker })
+					if (r?.id) { this.genSent = (this.genSent || 0) + (f ? 0 : 1); ids.push(r.id); return ids }
 				}
 			}
 			await sendText(line, ctx.quoted)
@@ -1464,6 +1546,16 @@ export class WarmupManager {
 			const r = await session.send(toJid, { text }, undefined, { quoted })
 			if (r?.id) ids.push(r.id)
 			return ids
+		} else if (line.media === 'card') {
+			// Tarjeta hecha al momento («Buenos días», «Feliz cumpleaños …», fecha especial)
+			try {
+				const { wd } = tzNow()
+				const img = await makeCard(cardSpec(line.card, { name: line.name, wd, holiday: holidayOf() }))
+				await session.setPresence(toJid, 'composing')
+				await sleep(irnd(2000, 5000))
+				content = { image: img, mimetype: 'image/jpeg', caption: line.caption ? styleText(vary(line.caption), p) : undefined }
+				this.genSent = (this.genSent || 0) + 1
+			} catch {}
 		} else if (line.media === 'image') {
 			const f = this.pickMedia('image')
 			if (f) {
@@ -1714,6 +1806,120 @@ export class WarmupManager {
 			url: '/#/warmup'
 		})
 		this.logEvent('📈', `Reporte semanal: ${up} de ${snap.list.length} subieron de madurez; listos: ${ready.length ? ready.join(', ') : 'ninguno'}`)
+	}
+
+	// ---- Prueba de entrega ----
+	// Cada número le escribe a otro de tus números y se mide si llegó y en cuánto tiempo. La charla sigue normal.
+	async runTest(trigger = 'manual') {
+		if (this.test?.running) return this.test
+		const snap = this.snapshot(true)
+		const list = snap.list.filter(a => this.live(a.id) && !a.grace)
+		if (list.length < 2) throw new Error('Se necesitan al menos 2 números conectados (y con más de 24 h)')
+		this.test = { running: true, trigger, startedAt: Date.now(), results: list.map(a => ({ id: a.id, name: a.name, state: 'pending' })) }
+		this.testInner(snap, list).catch(() => {}).finally(() => {
+			const t = this.test
+			t.running = false
+			t.finishedAt = Date.now()
+			const ok = t.results.filter(r => r.state === 'ok'), bad = t.results.filter(r => r.state === 'fail' || r.state === 'error')
+			this.logEvent('🧪', `Prueba de entrega${t.trigger === 'auto' ? ' diaria' : ''}: ${ok.length} de ${t.results.length} llegaron${bad.length ? ` · no llegaron: ${bad.map(r => r.name).join(', ')}` : ''}`)
+			if (bad.length) sendPush({ title: `🧪 ${bad.length} número(s) no entregaron`, body: `${bad.map(r => r.name).join(', ')}: sus mensajes no llegaron a tus otros números. Evita usarlos en masivos por ahora.`, url: '/#/warmup' })
+			this.snap = null
+		})
+		return this.test
+	}
+	async testInner(snap, list) {
+		const { h, wd } = tzNow()
+		// Revisa las entregas mientras sigue enviando (cada 2 s), para medir bien cuánto tardó cada uno
+		let sending = true
+		const check = () => {
+			for (const r of this.test.results.filter(x => x.state === 'sent')) {
+				if (q.hasMsg.get(r.to, r.msgId)) Object.assign(r, { state: 'ok', ms: Date.now() - r.sentAt })
+				else if (Date.now() - r.sentAt > 90 * 1000) r.state = 'fail'
+			}
+		}
+		const watcher = (async () => { while (sending || this.test.results.some(r => r.state === 'sent')) { check(); await sleep(2000) } })()
+		for (const a of list) {
+			const r = this.test.results.find(x => x.id === a.id)
+			const others = list.filter(x => x.id !== a.id).sort((x, y) => (y.mature?.score ?? 0) - (x.mature?.score ?? 0))
+			const b = others[Math.floor(Math.random() * Math.min(3, others.length))]
+			r.to = b.id; r.toName = b.name
+			try {
+				const session = this.manager.sessions.get(a.id)
+				const text = styleText(vary(pick(['{Hola|Qué onda|Buenas}, ¿{todo bien|cómo vas|qué tal tu día}?', '¿{Estás por ahí|Andas ocupado}?', '{Oye|Hey}, ¿{qué haces|en qué andas}?'])), a.persona)
+				await session.setPresence(jidOf(b.phone), 'composing')
+				await sleep(irnd(800, 2000))
+				const sent = await session.send(jidOf(b.phone), { text })
+				if (!sent?.id) throw new Error('No se envió')
+				this.log(a.id, b.id)
+				Object.assign(r, { state: 'sent', sentAt: Date.now(), msgId: sent.id })
+				// La charla sigue: el otro contesta cuando lo vea
+				const id = ++this.seq
+				this.convos.set(id, { id, members: [a.id, b.id], order: [a.id, b.id], lines: [text, pick(['{Todo bien|Bien, ¿y tú?|Aquí andamos} {🙌|}', '{Sí, dime|Un poco, ¿qué pasó?}', '{Nada|Trabajando} {jaja|}, ¿tú?'])], when: null, follow: null, preview: text.slice(0, 70), startedAt: Date.now(), i: 1, n: 1, postponed: 0, lastAt: Date.now(), test: true })
+				const t = this.replyTiming(b, h, wd)
+				this.queue.push({ at: Date.now() + t.readIn, kind: 'read', readerId: b.id, fromPhone: a.phone, msgId: sent.id })
+				this.queue.push({ at: Date.now() + t.readIn + t.replyIn, kind: 'say', convoId: id })
+				this.dirty = true
+			} catch (e) { Object.assign(r, { state: 'error', error: String(e?.message || e).slice(0, 80) }) }
+			check()
+			await sleep(irnd(2000, 5000))
+		}
+		// Espera a que lleguen los que faltan (hasta 90 s cada uno)
+		sending = false
+		await watcher
+		for (const r of this.test.results) {
+			if (r.state === 'ok') this.addQuality(r.id, r.ms > 30000 ? 'slow' : 'ok', snap)
+			else if (r.state === 'fail' && this.live(r.to)) this.addQuality(r.id, 'fail', snap)
+		}
+	}
+
+	// ---- Ficha de un número ----
+	numberDetail(id) {
+		const snap = this.snapshot()
+		const a = snap.byId.get(id)
+		if (!a) throw Object.assign(new Error('Ese número no está conectado'), { status: 404 })
+		const sod = startOfDay()
+		const from = sod - 13 * DAY
+		const bucket = ts => Math.floor((ts - from) / DAY)
+		const days = Array.from({ length: 14 }, (_, i) => ({ day: from + i * DAY, sent: 0, received: 0, campaign: 0 }))
+		try {
+			for (const { ts } of db.prepare('SELECT ts FROM warmup_log WHERE account_id = ? AND ts > ?').all(id, from)) { const i = bucket(ts); if (days[i]) days[i].sent++ }
+			for (const { ts } of db.prepare('SELECT ts FROM warmup_log WHERE peer_id = ? AND ts > ?').all(id, from)) { const i = bucket(ts); if (days[i]) days[i].received++ }
+			for (const { t } of db.prepare("SELECT sent_at AS t FROM campaign_items WHERE sent_by = ? AND status = 'sent' AND sent_at > ?").all(id, from)) { const i = bucket(t); if (days[i]) days[i].campaign++ }
+		} catch {}
+		const partners = new Map()
+		try {
+			for (const r of q.pairs7.all(Date.now() - 7 * DAY)) {
+				if (r.a !== id && r.b !== id) continue
+				const o = r.a === id ? r.b : r.a
+				partners.set(o, (partners.get(o) || 0) + r.n)
+			}
+		} catch {}
+		// Plan de los próximos 7 días (si sigue sano): cuánto platicaría cada día
+		const plan = []
+		if (this.s.auto && a.h) {
+			for (let k = 1; k <= 7; k++) {
+				const age = (a.h.ageDays || 0) + k
+				const fake = { ...a, grace: false, recovering: a.recovering && k < 3 }
+				const savedStreak = this.streak[id]
+				this.streak[id] = { n: (savedStreak?.n || 0) + k, day: null }
+				let base = this.autoBase(fake, { ...a.h, ageDays: age }, 0)
+				this.streak[id] = savedStreak
+				if (!savedStreak) delete this.streak[id]
+				plan.push({ day: sod + k * DAY, target: Math.min(capFor(age), Math.round(base)) })
+			}
+		}
+		const age = this.ageDays(a)
+		const etaDays = a.phase >= 4 ? 0 : Math.max(0, Math.ceil(14 - age), a.mature?.readyIn || 0)
+		return {
+			id, name: a.name, persona: this.names.get(id) || null, phase: a.phase, phaseLabel: PHASES[a.phase]?.label, phaseNext: PHASES[a.phase]?.next,
+			phaseProgress: this.phaseProgress(a), maturity: a.mature, target: a.target, sentToday: this.sentToday(id), ageDays: age, etaDays,
+			days, plan, zoneShift: a.zoneShift || 0, streak: this.streak[id]?.n || 0,
+			partners: [...partners].sort((x, y) => y[1] - x[1]).map(([o, n]) => ({ id: o, name: snap.byId.get(o)?.name || `#${o}`, n, rel: relOf(id, o) })),
+			groups: this.groupsList().filter(g => g.members.includes(id)).map(g => ({ subject: g.subject, kind: this.kindOf(g), members: g.members.length })),
+			quality: this.quality[id] || [],
+			mentors: this.mentorsOf(id), autoMentors: a.autoMentors || [],
+			events: (this.events || []).filter(e => e.text.includes(a.name)).slice(0, 10)
+		}
 	}
 
 	// Cuándo lee y cuándo contesta, según qué tan despierto está y qué tan rápido suele contestar

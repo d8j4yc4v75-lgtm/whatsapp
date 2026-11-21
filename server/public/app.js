@@ -752,6 +752,52 @@ function openProxy(id) {
 	})
 }
 
+// ---------- Ficha de un número en el calentamiento ----------
+async function openWarmupDetail(id) {
+	sheet('Ficha', '<div class="ci-loading">Cargando…</div>')
+	$('#sheet .sheet')?.classList.add('full')
+	let d
+	try { d = await api('GET', `/warmup/number/${id}`) } catch (e) { const b = $('#sheet .sheet-body'); if (b) b.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
+	const body = $('#sheet .sheet-body'); if (!body) return
+	const title = $('#sheet .sheet-bar h1'); if (title) title.textContent = d.name
+	const rels = S.warmup?.rels || {}
+	const m = d.maturity || { score: 0, label: '—' }
+	const max = Math.max(1, ...d.days.map(x => Math.max(x.sent + x.received, x.campaign)))
+	const dayL = t => new Date(t).toLocaleDateString('es-MX', { weekday: 'narrow' })
+	const chart = `<div class="wu-days">${d.days.map(x => `<div title="${new Date(x.day).toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric' })}: ${x.sent} enviados, ${x.received} recibidos, ${x.campaign} de masivos">
+		<div class="bars"><i class="s" style="height:${Math.round(x.sent / max * 70)}px"></i><i class="r" style="height:${Math.round(x.received / max * 70)}px"></i><i class="c" style="height:${Math.round(x.campaign / max * 70)}px"></i></div><span>${dayL(x.day)}</span></div>`).join('')}</div>
+		<div class="wu-legend"><span><i style="background:var(--accent)"></i>Charla enviada</span><span><i style="background:color-mix(in srgb, var(--accent) 40%, transparent)"></i>Recibida</span><span><i style="background:#0A84FF"></i>Masivos</span></div>`
+	const pMax = Math.max(1, ...d.plan.map(x => x.target))
+	const plan = d.plan.length ? `<div class="wu-days plan">${d.plan.map(x => `<div title="${x.target} mensajes"><div class="bars"><i class="s" style="height:${Math.round(x.target / pMax * 50)}px;opacity:.65"></i></div><b>${x.target}</b><span>${dayL(x.day)}</span></div>`).join('')}</div>` : '<p class="hint">El plan aparece con el modo automático.</p>'
+	const q = d.quality.slice(-10).map(x => ({ ok: '✅', slow: '🐢', fail: '❌' })[x] || '•').join(' ')
+	const nm = id2 => esc(account(id2)?.name || '#' + id2)
+	body.innerHTML = `
+		<div class="ci-head" style="padding-bottom:8px">
+			<span class="wu-ph" style="width:56px;height:56px;font-size:24px;background:${PHASE_COLOR[d.phase]}">${d.phase + 1}</span>
+			<h2 style="margin-top:10px">${esc(d.name)}</h2>
+			<div class="ci-push">Fase ${d.phase + 1} de 5 · ${esc(d.phaseLabel || '')}${d.persona ? ` · se presenta como ${esc(d.persona.first)}` : ''}</div>
+			<div class="ci-push" style="margin-top:6px">Madurez <b>${m.score}/100</b> · ${d.etaDays ? `lista para masivos en ~${d.etaDays} día(s)` : '✅ lista para masivos'}</div>
+		</div>
+		<div class="group">
+			<div class="item"><span class="grow">Hoy</span><span class="muted">${d.sentToday} de ${d.target} mensajes</span></div>
+			<div class="item"><span class="grow">Días desde que se vinculó (o descansó)</span><span class="muted">${d.ageDays}</span></div>
+			${d.streak ? `<div class="item"><span class="grow">Racha sana</span><span class="muted">🔥 ${d.streak} día(s)</span></div>` : ''}
+			${d.zoneShift ? `<div class="item"><span class="grow">Horario por su lada</span><span class="muted">${d.zoneShift > 0 ? '+' : ''}${d.zoneShift} h que la Ciudad de México</span></div>` : ''}
+			${d.phaseNext ? `<div class="item"><span class="grow">Siguiente fase</span><span class="muted">${esc(d.phaseNext)}</span></div>` : ''}
+		</div>
+		<div class="section">Últimos 14 días</div>
+		<div class="group"><div class="item" style="display:block">${chart}</div></div>
+		<div class="section">Plan de los próximos 7 días (si sigue sano)</div>
+		<div class="group"><div class="item" style="display:block">${plan}</div></div>
+		<div class="section">Con quién platica (7 días)</div>
+		<div class="group">${d.partners.length ? d.partners.slice(0, 12).map(p => `<div class="item"><i class="dot" style="width:10px;height:10px;border-radius:50%;background:${rels[p.rel]?.color || '#999'}"></i><span class="grow">${esc(p.name)}<small>${rels[p.rel]?.label || ''}</small></span><span class="muted">${p.n}</span></div>`).join('') : '<div class="item"><span class="grow muted">Aún no platica con nadie</span></div>'}</div>
+		${d.mentors.length || d.autoMentors.length ? `<div class="section">Padrinos</div><div class="group"><div class="item"><span class="grow">${(d.mentors.length ? d.mentors : d.autoMentors).map(nm).join(', ')}<small>${d.mentors.length ? 'Elegidos por ti' : 'Automáticos mientras es nuevo'}</small></span></div></div>` : ''}
+		${d.groups.length ? `<div class="section">Grupos</div><div class="group">${d.groups.map(g => `<div class="item"><span class="grow">${({ familia: '🏡', trabajo: '💼', amigos: '🍻' })[g.kind] || '👥'} ${esc(g.subject)}</span><span class="muted">${g.members}</span></div>`).join('')}</div>` : ''}
+		<div class="section">Pruebas de entrega recientes</div>
+		<div class="group"><div class="item"><span class="grow" style="letter-spacing:2px">${q || '<span class="muted" style="letter-spacing:0">Aún no hay</span>'}</span></div></div>
+		${d.events.length ? `<div class="section">Bitácora del número</div><div class="group">${d.events.map(e => `<div class="item" style="align-items:flex-start"><span style="width:22px;text-align:center">${e.icon}</span><span class="grow" style="font-size:15px">${esc(e.text)}<small>${new Date(e.at).toLocaleString('es-MX', { weekday: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small></span></div>`).join('')}</div>` : ''}`
+}
+
 // ---------- Padrinos del calentamiento ----------
 function openMentors(id) {
 	const st = S.warmup || {}
@@ -2466,18 +2512,29 @@ function renderWarmupOverview(st) {
 	const arcs = (st.arcs || []).map(a => `<div class="item"><span class="grow">${ARC_ICON[a.key] || '📖'} ${ARC_NAME[a.key] || a.key} · ${esc(nameOf(a.a))} y ${esc(nameOf(a.b))}<small>${a.nextAt ? `Siguiente paso: ${dt(a.nextAt)} · paso ${a.step + 1} de ${a.steps}` : 'Terminando'}</small></span></div>`).join('')
 	const bdays = (st.birthdays || []).map(id => { const n = nums.find(x => x.id === id); return `<div class="item"><span class="grow">🎂 Hoy cumple ${esc(n?.persona?.first || '')} (${esc(nameOf(id))})<small>Su familia y amigos lo felicitan, también en el grupo</small></span></div>` }).join('')
 	const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} d` }
+	const tst = st.test
+	const tIcon = r => ({ pending: '⏳', sent: '⏳', ok: r.ms > 30000 ? '🐢' : '✅', fail: '❌', error: '⚠️' })[r.state] || '•'
+	const tText = r => r.state === 'ok' ? `llegó a ${esc(r.toName || '')} en ${Math.max(1, Math.round(r.ms / 1000))} s${r.ms > 30000 ? ' (lento)' : ''}` : r.state === 'fail' ? `no le llegó a ${esc(r.toName || '')} en 90 s` : r.state === 'error' ? `no se pudo enviar: ${esc(r.error || '')}` : r.state === 'sent' ? `enviado a ${esc(r.toName || '')}, esperando…` : 'en espera'
+	const testHtml = `${tst ? `<div class="item"><span class="grow">${tst.running ? 'Probando…' : `Última prueba ${tst.trigger === 'auto' ? '(automática) ' : ''}${new Date(tst.finishedAt || tst.startedAt).toLocaleString('es-MX', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`}<small>${tst.results.filter(r => r.state === 'ok').length} de ${tst.results.length} llegaron</small></span></div>
+		${tst.results.map(r => `<div class="item"><span style="width:22px;text-align:center">${tIcon(r)}</span><span class="grow" style="font-size:15px">${esc(r.name)}<small>${tText(r)}</small></span></div>`).join('')}` : ''}
+		<button class="btn" data-act="warmup-test" ${tst?.running ? 'disabled' : ''}>🧪 ${tst?.running ? 'Probando entrega…' : 'Probar entrega ahora'}</button>`
+	if (tst?.running) { clearTimeout(S.wuTestTimer); S.wuTestTimer = setTimeout(() => { if ($('#wu-overview')) loadWarmup() }, 4000) }
 	const events = (st.events || []).slice(0, 12).map(e => `<div class="item" style="align-items:flex-start"><span style="width:22px;text-align:center">${e.icon}</span><span class="grow" style="font-size:15px">${esc(e.text)}</span><span class="muted" style="font-size:12px;white-space:nowrap">${ago(e.at)}</span></div>`).join('')
 	el.innerHTML = `
+		${st.holiday ? `<div class="wu-caution" style="background:color-mix(in srgb, var(--accent) 14%, var(--card))">🎉 Hoy es <b>${esc(st.holiday)}</b>: tus números se felicitan, publican estados con tarjeta y platican un poco más.</div>` : ''}
 		${st.caution ? `<div class="wu-caution">🛡️ <b>Modo precaución</b> hasta ${new Date(st.caution.until).toLocaleString('es-MX', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}: ${esc(st.caution.reason)}. Todos tus números hablan menos, sin historias nuevas, sin cambios de perfil ni contactos nuevos.</div>` : ''}
 		<div class="wu-tiles">
 			${tile(`${p.sentToday || 0}<small>/${p.totalPerDay || 0}</small>`, 'Mensajes hoy', p.activity ? `Actividad ${({ alta: 'alta', media: 'media', baja: 'baja', fuera: 'fuera de horario' })[p.activity]}` : '')}
 			${tile(p.activeConvos || 0, 'Charlas en curso', p.typingNow ? `${p.typingNow} escribiendo` : '')}
 			${tile(`${ready}<small>/${nums.length}</small>`, 'Listos para masivos')}
-			${tile(st.contactsSaved || 0, 'Contactos guardados', 'entre tus números')}
+			${tile(st.contactsSaved || 0, 'Contactos guardados', st.generatedMedia ? `${st.generatedMedia} tarjetas y stickers creados` : 'entre tus números')}
 		</div>
 		<div class="section">Hoy, por hora</div>
 		<div class="group"><div class="item" style="display:block">${hours}</div></div>
 		${bdays || arcs ? `<div class="section">Historias en curso</div><div class="group">${bdays}${arcs}</div>` : ''}
+		<div class="section">Prueba de entrega</div>
+		<div class="group">${testHtml}</div>
+		<p class="hint">Cada número le escribe a otro de tus números y se mide si llegó y en cuánto tiempo (la charla sigue normal). Se hace sola cada mañana; úsala antes de lanzar un masivo para no usar números que WhatsApp está frenando.</p>
 		${events ? `<div class="section">Bitácora</div><div class="group">${events}</div>` : ''}
 		<div class="section">Quién platica con quién (7 días)</div>
 		<div class="group"><div class="item" style="display:block">${svg}</div></div>
@@ -2532,8 +2589,9 @@ function renderWarmupBox(st) {
 			${bar(m.score, 100, matColor(m.score))}
 			${m.tips?.length ? `<small style="margin-top:4px">💡 ${m.tips.map(esc).join(' · ')}</small>` : ''}
 			${n.mentors?.length ? `<small style="margin-top:4px">🤝 Padrinos: ${n.mentors.map(id => esc(account(id)?.name || '#' + id) + (n.mentorsPaused?.includes(id) ? ' (en pausa)' : '')).join(', ')} · el nuevo solo habla con ellos${n.mentorsPaused?.length === n.mentors.length ? ' · ninguno está sano: mientras, habla con otros números sanos' : ''}</small>` : ''}
+			${n.autoMentors?.length ? `<small style="margin-top:4px">🤝 Padrinos automáticos: ${n.autoMentors.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · platican más con él mientras es nuevo</small>` : ''}
 			${n.godchildren?.length ? `<small style="margin-top:4px">🧑‍🏫 Padrino de: ${n.godchildren.map(id => esc(account(id)?.name || '#' + id)).join(', ')} · habla más con él y sigue con los demás</small>` : ''}
-			<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-act="warmup-mentors" data-val="${n.id}">🤝 ${n.mentors?.length ? 'Cambiar padrinos' : 'Elegir padrinos'}</button><button class="chip" data-act="warmup-prep" data-val="${n.id}">📅 ${n.prepAt ? 'Cambiar fecha de masivo' : 'Preparar para masivo'}</button></div>
+			<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-act="warmup-detail" data-val="${n.id}">📊 Ver ficha</button><button class="chip" data-act="warmup-mentors" data-val="${n.id}">🤝 ${n.mentors?.length ? 'Cambiar padrinos' : 'Elegir padrinos'}</button><button class="chip" data-act="warmup-prep" data-val="${n.id}">📅 ${n.prepAt ? 'Cambiar fecha de masivo' : 'Preparar para masivo'}</button></div>
 			${n.flagged ? `<button class="btn" style="margin-top:8px" data-act="warmup-unflag" data-val="${n.id}">Reanudar ya</button>` : ''}
 		</span>${n.inConvo ? `<span class="pill ok">💬 ${n.convos > 1 ? `${n.convos} charlas` : 'charlando'}</span>` : n.asleep ? '<span class="pill">😴 durmiendo</span>' : ''}</div>`
 	}).join('')
@@ -2796,6 +2854,11 @@ document.addEventListener('click', async e => {
 		}
 		case 'contact-info': return openContactInfo()
 		case 'warmup-mentors': return openMentors(Number(val))
+		case 'warmup-detail': return openWarmupDetail(Number(val))
+		case 'warmup-test': {
+			try { renderWarmupBox(await api('POST', '/warmup/test')); toast('🧪 Probando entrega…') } catch (err) { toast(err.message) }
+			return
+		}
 		case 'ac-proxy': return openProxy(Number(val))
 		case 'warmup-boost': {
 			const h = Number(val)

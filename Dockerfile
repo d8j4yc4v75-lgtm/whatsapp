@@ -1,9 +1,9 @@
 FROM node:22-bookworm-slim
 
-# ffmpeg convierte notas de voz y videos al formato de WhatsApp;
+# ffmpeg convierte notas de voz y videos al formato de WhatsApp (y con la fuente DejaVu dibuja las tarjetas del calentamiento);
 # python3, make y g++ compilan better-sqlite3 cuando no hay binario precompilado
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends ffmpeg ca-certificates python3 make g++ \
+	&& apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core ca-certificates python3 make g++ \
 	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

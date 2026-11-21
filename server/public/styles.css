@@ -849,3 +849,15 @@ select option { background: var(--card); color: var(--text); }
 .wu-ph { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; flex-shrink: 0; }
 .wu-ph.sm { width: 16px; height: 16px; font-size: 10px; vertical-align: -3px; }
 .wu-caution { margin: 8px 16px 4px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--warn) 16%, var(--card)); font-size: 14px; line-height: 1.4; }
+.wu-days { display: grid; grid-template-columns: repeat(14, 1fr); gap: 3px; align-items: end; }
+.wu-days.plan { grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.wu-days > div { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.wu-days .bars { display: flex; align-items: flex-end; gap: 1px; height: 72px; }
+.wu-days.plan .bars { height: 52px; }
+.wu-days .bars i { display: block; width: 5px; border-radius: 2px 2px 0 0; min-height: 1px; }
+.wu-days.plan .bars i { width: 18px; }
+.wu-days .bars i.s { background: var(--accent); }
+.wu-days .bars i.r { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+.wu-days .bars i.c { background: #0A84FF; }
+.wu-days span { font-size: 10px; color: var(--muted); }
+.wu-days b { font-size: 11px; }

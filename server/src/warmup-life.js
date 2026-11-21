@@ -282,3 +282,69 @@ export const GROUP_KIND_POLLS = {
 }
 /** Qué tanto platica cada tipo de grupo a esta hora */
 export const groupWeight = (kind, hour, wd) => relWeight(GROUP_KINDS[kind]?.rel || 'amigos', hour, wd)
+
+// ---- Tarjetas generadas (imágenes tipo «Buenos días») ----
+const pk = arr => arr[Math.floor(Math.random() * arr.length)]
+const CARD_SUBS = {
+	morning: ['Que tengas un excelente día', 'Dios te bendiga', 'A darle con todo', 'Bendiciones para hoy', 'Que todo te salga bien', 'Sonríe, hoy es un gran día'],
+	night: ['Que descanses', 'Dios te cuide', 'Hasta mañana', 'Que sueñes bonito'],
+	blessing: ['Para ti y tu familia', 'Dios te cuide hoy y siempre', 'Que nunca te falte nada'],
+	weekend: ['A disfrutar en familia', 'Descansa y disfruta', 'Te lo ganaste'],
+	birthday: ['Que cumplas muchos más', 'Que Dios te bendiga', 'Pásala increíble', 'Con mucho cariño']
+}
+/** Qué dice y de qué color es una tarjeta, según el tipo, el día y la hora */
+export function cardSpec(kind, { name = '', wd = 1, holiday = null } = {}) {
+	if (kind === 'holiday' && holiday) return { title: holiday.title, subtitle: holiday.sub, palette: holiday.palette }
+	if (kind === 'birthday') return { title: `Feliz cumpleaños${name ? ` ${name}` : ''}`, subtitle: pk(CARD_SUBS.birthday), palette: pk(['amor', 'morado', 'oro']) }
+	if (kind === 'night') return { title: pk(['Buenas noches', 'Dulces sueños', 'Descansa']), subtitle: pk(CARD_SUBS.night), palette: pk(['noche', 'morado']) }
+	if (kind === 'weekend') return { title: wd === 5 ? pk(['Feliz viernes', 'Feliz fin de semana']) : wd === 0 ? pk(['Feliz domingo', 'Feliz fin de semana']) : 'Feliz fin de semana', subtitle: pk(CARD_SUBS.weekend), palette: pk(['cielo', 'verde', 'oro']) }
+	if (kind === 'blessing') return { title: 'Bendiciones', subtitle: pk(CARD_SUBS.blessing), palette: pk(['oro', 'cielo', 'rosa']) }
+	const title = wd === 1 && Math.random() < 0.5 ? 'Feliz lunes' : wd === 5 && Math.random() < 0.5 ? 'Feliz viernes' : pk(['¡Buenos días!', 'Buenos días', 'Feliz día'])
+	return { title, subtitle: pk(CARD_SUBS.morning), palette: pk(['amanecer', 'cielo', 'oro', 'verde', 'rosa']) }
+}
+/** Texto del sticker según lo que iba a contestar */
+export function stickerTextFor(line, hour = 12) {
+	const t = String(line).toLowerCase()
+	if (/ja|😂|🤣|jsjs/.test(t)) return pk(['Jajaja', 'JAJAJA', 'Me muero', 'XD'])
+	if (/gracias/.test(t)) return pk(['Gracias', 'Mil gracias'])
+	if (/noche|dorm|descans/.test(t) || hour >= 22) return pk(['Buenas noches', 'A dormir'])
+	if (/buenos d|buen d/.test(t)) return 'Buenos días'
+	if (/ánimo|animo|fuerza|💪/.test(t)) return pk(['Ánimo', 'Tú puedes', 'Fuerza'])
+	if (/❤️|abrazo|quiero/.test(t)) return pk(['Un abrazo', 'Te quiero'])
+	return pk(['Ok', 'Va', 'Sale', 'Okis', 'Listo', 'Ni modo', 'Órale'])
+}
+
+// Más guiones con tarjetas (se suman a los de cada relación y tipo de grupo)
+REL_SCRIPTS.familia.push(
+	{ when: 'morning', lines: [{ media: 'card', card: 'morning', fallback: '{Buenos días|Buen día} {☀️|❤️}' }, '{Buenos días|Buen día} {🙏|❤️|☀️|}', '{Que tengas bonito día|Bendiciones} {🙏|}'] },
+	{ when: 'night', lines: [{ media: 'card', card: 'night', fallback: 'Buenas noches {🌙|}' }, '{Buenas noches|Descansa} {🙏|😴|}'] }
+)
+REL_SCRIPTS.amigos.push({ when: 'weekend', lines: [{ media: 'card', card: 'weekend', fallback: '¡Feliz fin de semana! {🎉|}' }, '{Igualmente|Igual} {🍻|🙌|}'] })
+GROUP_KIND_SCRIPTS.familia.push({ when: 'morning', lines: [{ media: 'card', card: 'morning', fallback: '{Buenos días|Buen día} familia ☀️' }, '{Buenos días|Buen día} {❤️|🙏}', '{Buen día a todos|Bendiciones} {🙏|}'] })
+GROUP_KIND_SCRIPTS.amigos.push({ when: 'weekend', lines: [{ media: 'card', card: 'weekend', fallback: '¡Feliz fin de semana! 🍻' }, '{Igualmente|Igual} {🍻|🎉}', '{A disfrutar|Descansen} {😎|}'] })
+
+// ---- Fechas especiales de México ----
+const MD_FMT = new Intl.DateTimeFormat('en-US', { timeZone: process.env.TZ_CAMPAIGNS || 'America/Mexico_City', month: 'numeric', day: 'numeric', weekday: 'short' })
+const HOLIDAYS = [
+	{ m: 1, d: 1, key: 'anionuevo', title: '¡Feliz Año Nuevo!', sub: 'Que este año venga lleno de bendiciones', palette: 'oro', greet: ['¡Feliz Año Nuevo! {🎉|🥂|🎆} {Que te vaya increíble este año|Un abrazo|Lo mejor para ti y tu familia}'], reply: ['¡Igualmente! {🎉|🙏|❤️} {Feliz año|Un abrazo}'] },
+	{ m: 2, d: 14, key: 'amistad', title: 'Feliz día del amor y la amistad', sub: 'Gracias por tu amistad', palette: 'amor', greet: ['¡Feliz día del amor y la amistad! {❤️|🌹|🤗}'], reply: ['¡Igualmente! {❤️|🤗}'] },
+	{ m: 4, d: 30, key: 'nino', title: 'Feliz Día del Niño', sub: 'Que nunca se nos quite lo niño', palette: 'cielo', greet: ['¡Feliz día del niño! {🎈|🧸|😄} {jaja|}'], reply: ['{Jaja|Gracias}, ¡igualmente! {🎈|}'] },
+	{ m: 5, d: 10, key: 'madres', title: 'Feliz Día de las Madres', sub: 'Con todo el cariño', palette: 'rosa', greet: ['¡Feliz día de las madres! {🌹|💐|❤️} Un abrazo para tu mamá', '¿Ya felicitaste a tu mamá? {🌹|💐}'], reply: ['¡Gracias! {❤️|🙏} Igualmente para la tuya', 'Sí, ya fuimos a comer con ella {❤️|}'] },
+	{ fathers: true, key: 'padres', title: 'Feliz Día del Padre', sub: 'Gracias por todo', palette: 'cielo', greet: ['¡Feliz día del padre! {👔|🍻|🙌}', '¿Ya felicitaste a tu papá? {👔|}'], reply: ['¡Gracias! {🙌|🙏}', 'Sí, hoy comemos con él {🍻|}'] },
+	{ m: 9, d: 15, key: 'patrias', title: '¡Viva México!', sub: 'Felices fiestas patrias', palette: 'mexico', greet: ['¡Viva México! {🇲🇽|🎉} ¿Qué van a cenar?', '¡Felices fiestas patrias! {🇲🇽|}'], reply: ['¡Viva! {🇲🇽|} {Pozole|Tostadas|Enchiladas} {😋|}'] },
+	{ m: 9, d: 16, key: 'patrias', title: '¡Viva México!', sub: 'Felices fiestas patrias', palette: 'mexico', greet: ['¡Felices fiestas patrias! {🇲🇽|🎉}'], reply: ['¡Igualmente! {🇲🇽|} ¿Viste el desfile?'] },
+	{ m: 11, d: 2, key: 'muertos', title: 'Día de Muertos', sub: 'Recordando a los que ya no están', palette: 'oro', greet: ['¿Ya pusieron su ofrenda? {🕯️|🌼}', '¿Van a ir al panteón? {🌼|}'], reply: ['{Sí, ya quedó|Hoy la ponemos|Sí, con pan de muerto} {🕯️|🌼}'] },
+	{ m: 12, d: 12, key: 'guadalupe', title: 'Felicidades a todas las Lupitas', sub: 'Día de la Virgen de Guadalupe', palette: 'cielo', greet: ['¿Van a ir a la Villa? {🙏|🌹}'], reply: ['{No, aquí desde casa|Sí, en la mañana|Este año no} {🙏|}'] },
+	{ m: 12, d: 24, key: 'nochebuena', title: 'Feliz Nochebuena', sub: 'Que la pasen bonito en familia', palette: 'navidad', greet: ['¡Feliz Nochebuena! {🎄|⭐|❤️}'], reply: ['¡Igualmente! {🎄|🙏} Pásala bonito'] },
+	{ m: 12, d: 25, key: 'navidad', title: '¡Feliz Navidad!', sub: 'Paz y amor en tu hogar', palette: 'navidad', greet: ['¡Feliz Navidad! {🎄|🎅|❤️} Un abrazo'], reply: ['¡Feliz Navidad! {🎄|🙏}'] },
+	{ m: 12, d: 31, key: 'finanio', title: 'Feliz fin de año', sub: 'Gracias por todo este año', palette: 'oro', greet: ['¡Feliz fin de año! {🥂|🎆} Que te vaya muy bien en el año nuevo'], reply: ['¡Igualmente! {🥂|🎉} Un abrazo'] }
+]
+/** La fecha especial de hoy (o null) */
+export function holidayOf(t = Date.now()) {
+	const p = {}
+	for (const x of MD_FMT.formatToParts(new Date(t))) p[x.type] = x.value
+	const m = Number(p.month), d = Number(p.day)
+	// Día del Padre: tercer domingo de junio
+	if (m === 6 && p.weekday === 'Sun' && d >= 15 && d <= 21) return HOLIDAYS.find(h => h.fathers)
+	return HOLIDAYS.find(h => h.m === m && h.d === d) || null
+}
