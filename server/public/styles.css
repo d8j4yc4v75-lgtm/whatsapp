@@ -543,7 +543,8 @@ details summary { cursor: pointer; }
 .ci-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .ci-note { white-space: pre-wrap; }
 .ci-stats { font-size: 15px; }
-.sheet button.item { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; }
+button.item { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+button.item:active { background: var(--fill); }
 .sheet .item.danger, .sheet .item.danger .ci-ic { color: var(--danger); }
 .sheet .item .ic { flex-shrink: 0; }
 
@@ -861,3 +862,4 @@ select option { background: var(--card); color: var(--text); }
 .wu-days .bars i.c { background: #0A84FF; }
 .wu-days span { font-size: 10px; color: var(--muted); }
 .wu-days b { font-size: 11px; }
+.hint code { word-break: break-all; font-size: 12px; background: var(--fill); padding: 1px 4px; border-radius: 4px; }

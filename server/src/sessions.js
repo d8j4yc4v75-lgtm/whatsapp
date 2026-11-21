@@ -27,6 +27,7 @@ import { CloudSession, normalizePhone } from './cloud.js'
 import { clearAuth, hasAuth, useSqliteAuthState } from './auth-store.js'
 import { onLidMerged, repairLids, saveLidMapping } from './lidfix.js'
 import { accountHealth, markLinked, markUnlinked, maybeRest, setRest } from './health.js'
+import { ensureAssigned, onProxyFailure, onProxyOk } from './proxies.js'
 
 // Los avisos de Baileys también se guardan en el diagnóstico
 const logger = pino({ level: process.env.LOG_LEVEL || 'warn' }, {
@@ -350,6 +351,8 @@ export class Session {
 		this.userLogout = false
 		const { state, saveCreds } = useSqliteAuthState(this.accountId, this.authDir)
 		const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }))
+		// Proxies automáticos: si el número no tiene proxy aún, se le asigna uno antes de conectar (también antes de vincular)
+		try { ensureAssigned(this.accountId) } catch {}
 		// Dispositivo: los ya vinculados conservan el suyo; los que se van a vincular reciben uno distinto
 		const acc = stmt.getAccount.get(this.accountId) || {}
 		let device = acc.device
@@ -363,12 +366,23 @@ export class Session {
 			try { agent = await proxyAgent(acc.proxy) }
 			catch (e) {
 				note(this.accountId, 'proxy-error', e.message)
+				// En automático se cambia solo a otro proxy; uno puesto a mano espera a que lo corrijas
+				const did = acc.proxy_auto !== 0 ? onProxyFailure(this.accountId, e.message) : null
+				if (did) {
+					note(this.accountId, 'proxy-switch', did)
+					this.setStatus('reconnecting')
+					setTimeout(() => !this.stopped && this.start().catch(err => note(this.accountId, 'start-error', err.message)), 3000)
+					return
+				}
 				this.proxyError = `No se pudo usar el proxy: ${e.message}`
 				this.setStatus('error')
 				return
 			}
 		}
 		this.proxyError = null
+		// Para saber si una falla es del proxy (no llegó a WhatsApp) o de WhatsApp
+		this.usingProxy = Boolean(agent)
+		this.reachedWa = false
 		const sock = makeWASocket({
 			version,
 			logger,
@@ -438,6 +452,7 @@ export class Session {
 	async onConnection({ connection, lastDisconnect, qr, reachoutTimeLock }) {
 		// WhatsApp avisa cuando pone o quita una restricción a la cuenta
 		if (reachoutTimeLock) this.setRestriction(reachoutTimeLock)
+		if (qr) this.reachedWa = true // llegó a WhatsApp: el proxy funciona
 		if (qr) {
 			this.qr = await QRCode.toDataURL(qr, { margin: 1, width: 512 })
 			this.setStatus('qr')
@@ -446,6 +461,9 @@ export class Session {
 		if (connection === 'open') {
 			this.qr = null
 			this.retries = 0
+			this.reachedWa = true
+			this.proxyFails = 0
+			if (this.usingProxy) { try { onProxyOk(this.accountId) } catch {} }
 			this.loggedOutRetries = 0
 			const phone = this.sock.user?.id ? jidNormalizedUser(this.sock.user.id).split('@')[0] : null
 			note(this.accountId, 'open')
@@ -491,6 +509,16 @@ export class Session {
 				try { db.prepare('UPDATE accounts SET device = NULL WHERE id = ?').run(this.accountId) } catch {}
 				this.setStatus('logged_out')
 				return
+			}
+			// Si ni siquiera llegó a WhatsApp por el proxy varias veces seguidas, el problema es el proxy: se cambia solo
+			if (this.usingProxy && !this.reachedWa && ![401, 403, 411, 440, 515].includes(code)) {
+				this.proxyFails = (this.proxyFails || 0) + 1
+				if (this.proxyFails >= 3) {
+					this.proxyFails = 0
+					let did = null
+					try { did = onProxyFailure(this.accountId, lastDisconnect?.error?.message) } catch {}
+					if (did) { note(this.accountId, 'proxy-switch', did); this.retries = 0 }
+				}
 			}
 			// WhatsApp rechaza la conexión (403): la cuenta está bloqueada o restringida. Tras varios intentos
 			// seguidos se deja de insistir, para no seguir tocando a WhatsApp desde el mismo servidor.
@@ -1055,6 +1083,7 @@ export class SessionManager extends EventEmitter {
 			info.health = accountHealth(id, info.status)
 			info.device = deviceLabel(a.device)
 			info.proxy = a.proxy ? proxyLabel(a.proxy) : null
+			info.proxyMode = a.proxy_auto === 0 ? (a.proxy ? 'manual' : 'none') : 'auto'
 			info.proxyError = s?.proxyError || null
 			info.reserve = Boolean(a.reserve)
 			info.restAllow = a.rest_allow || 0

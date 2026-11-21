@@ -460,6 +460,7 @@ function render() {
 	else if (r.name === 'account') renderAccount(Number(r.arg), changed)
 	else if (r.name === 'settings') { if (changed) renderSettings() }
 	else if (r.name === 'warmup') { if (changed) renderWarmupPage() }
+	else if (r.name === 'proxies') { if (changed) renderProxiesPage() }
 	else if (r.name === 'mail') { if (changed) renderMail() }
 	else {
 		renderInbox(changed)
@@ -492,7 +493,7 @@ async function renderMail() {
 
 function tabs(active) {
 	const t = (name, icon, text, href) =>
-		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') || (name === 'settings' && active === 'warmup') ? 'active' : ''}">${icon}<span>${text}</span>${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
+		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') || (name === 'settings' && active === 'warmup') || (name === 'accounts' && active === 'proxies') ? 'active' : ''}">${icon}<span>${text}</span>${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
 	const sends = S.accounts.length ? t('campaigns', IC.send, 'Envíos', '#/campaigns') : ''
 	return `<nav class="tabs">${t('inbox', IC.chats, 'Chats', '#/')}${sends}${t('mail', IC.mail, 'Correos', '#/mail')}${t('accounts', IC.phone, 'Cuentas', '#/accounts')}${t('settings', IC.gear, 'Ajustes', '#/settings')}</nav>`
 }
@@ -732,6 +733,52 @@ function renderChatHeader() {
 	}
 }
 
+// ---------- Proxies automáticos ----------
+const FLAG = cc => cc && /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 0x1F1E6 + c.charCodeAt(0) - 65)) : ''
+function renderProxiesPage() {
+	$('#view').innerHTML = `${navBar('Proxies', '#/accounts', 'Cuentas')}<div class="settings" id="px-page"><div class="empty">Cargando…</div></div>`
+	loadProxies()
+}
+async function loadProxies() {
+	const el = $('#px-page'); if (!el) return
+	let st
+	try { st = await api('GET', '/proxies') } catch (e) { el.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
+	renderProxies(st)
+}
+function renderProxies(st) {
+	const el = $('#px-page'); if (!el) return
+	S.proxies = st
+	const mode = S.pxMode || st.mode
+	const chip = (k, t) => `<button class="chip ${mode === k ? 'on' : ''}" style="--c:#25D366" data-act="px-mode" data-val="${k}">${t}</button>`
+	const state = c => !c ? '<span class="muted">sin probar</span>' : c.ok ? `✅ ${c.ms != null ? `${c.ms} ms` : ''}` : `❌ ${esc(c.error || 'falla')}`
+	const where = c => c?.ip ? `${FLAG(c.country)} ${esc(c.ip)}${c.city ? ` · ${esc(c.city)}` : ''}` : ''
+	el.innerHTML = `
+		<div class="group" style="margin-top:12px"><div class="item" style="display:block"><span class="grow">Modo</span>
+			<div class="chips" style="padding:8px 0 0;flex-wrap:wrap;overflow:visible">${chip('off', 'Apagado')}${chip('list', 'Lista de proxies')}${chip('gateway', 'Dirección con sesiones')}</div></div></div>
+		<p class="hint">${mode === 'off' ? 'Todos tus números salen a internet por la misma IP (la del servidor). Para WhatsApp eso parece una granja de números.'
+			: mode === 'list' ? 'Pega los proxies que te dio tu proveedor, uno por línea. La app le da uno distinto a cada número (también a los nuevos antes de vincularse), los prueba cada 30 minutos y si uno falla cambia al número a otro solo.'
+				: 'Pega la dirección de tu proxy residencial con <b>{sesion}</b> donde va el número de sesión. Cada número recibe su propia sesión = su propia IP fija; si falla, la app le da otra sola.'}</p>
+		${mode === 'list' ? `<div class="group"><div class="item"><textarea id="px-list" rows="7" spellcheck="false" autocapitalize="off" placeholder="http://usuario:contraseña@host:puerto&#10;host:puerto:usuario:contraseña&#10;socks5://usuario:contraseña@host:puerto"></textarea></div></div>` : ''}
+		${mode === 'gateway' ? `<div class="group"><div class="item"><input type="text" id="px-gw" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="http://usuario-session-{sesion}:contraseña@gate.proveedor.com:7000"></div></div>
+			<p class="hint">Ejemplos (cambia usuario y contraseña por los tuyos):<br>Decodo/Smartproxy: <code>http://user-USUARIO-country-mx-session-{sesion}-sessionduration-1440:CLAVE@gate.decodo.com:7000</code><br>Bright Data: <code>http://brd-customer-ID-zone-ZONA-country-mx-session-{sesion}:CLAVE@brd.superproxy.io:33335</code><br>IPRoyal: <code>http://USUARIO:CLAVE_country-mx_session-{sesion}_lifetime-24h@geo.iproyal.com:12321</code></p>` : ''}
+		${mode !== 'off' ? `<div class="group"><div class="item"><span class="grow">Si ningún proxy funciona, conectar sin proxy<small>Así el número no se queda desconectado mientras se arregla</small></span><label class="switch"><input type="checkbox" id="px-fallback" ${st.fallback ? 'checked' : ''}><i></i></label></div></div>` : ''}
+		<div class="pad"><button class="btn primary" data-act="px-save">${mode === 'off' ? 'Guardar' : 'Guardar y probar'}</button></div>
+		${st.warnings.length ? `<div class="wu-caution" style="margin-top:4px">${st.warnings.map(w => `⚠️ ${esc(w)}`).join('<br>')}</div>` : ''}
+		${st.mode === 'list' && st.list.length ? `<div class="section">Tus proxies (${st.list.length})${st.checking ? ' · probando…' : ''}</div>
+			<div class="group">${st.list.map(p => `<div class="item" style="align-items:flex-start"><span class="grow">${esc(p.label)}<small>${state(p.check)}${where(p.check) ? ` · ${where(p.check)}` : ''}</small>${p.used.length ? `<small>Lo usa: ${p.used.map(esc).join(', ')}</small>` : '<small>Libre</small>'}</span></div>`).join('')}
+			<button class="btn" data-act="px-check" ${st.checking ? 'disabled' : ''}>🔄 Probar ahora</button></div>` : ''}
+		${st.mode !== 'off' ? `<div class="section">Tus números</div>
+			<div class="group">${st.accounts.map(a => `<a class="item" href="#/account/${a.id}"><span class="grow">${esc(a.name)}<small>${a.mode === 'manual' ? `A mano · ${esc(a.proxy || '')}` : a.mode === 'none' ? 'Sin proxy (lo sacaste del automático)' : a.proxy ? `Automático · ${esc(a.proxy)}${where(a.check) ? ` · ${where(a.check)}` : ''}` : 'Automático · esperando proxy'}</small></span>${a.check ? (a.check.ok ? '✅' : '❌') : ''}${IC.chevron}</a>`).join('')}</div>
+			<p class="hint">Un número con proxy puesto a mano no se toca. Al activar el modo automático los números se reconectan uno por uno (20–40 s entre cada uno) para no moverlos todos al mismo tiempo. Una conexión que ya funciona por su proxy no se corta.</p>` : ''}
+		<p class="hint">Lo ideal: un proxy <b>residencial o móvil de México</b> por número. No uses proxies gratuitos: sus IPs ya están quemadas y dañan a tus números.</p>`
+	const ta = $('#px-list'); if (ta) ta.value = S.pxDraftList ?? st.listText
+	const gw = $('#px-gw'); if (gw) gw.value = S.pxDraftGw ?? st.gateway
+	if (ta) ta.oninput = () => { S.pxDraftList = ta.value }
+	if (gw) gw.oninput = () => { S.pxDraftGw = gw.value }
+	clearTimeout(S.pxTimer)
+	if (st.checking) S.pxTimer = setTimeout(() => { if ($('#px-page')) loadProxies() }, 3000)
+}
+
 // ---------- Proxy de un número ----------
 function openProxy(id) {
 	const a = account(id)
@@ -739,16 +786,19 @@ function openProxy(id) {
 		<p class="hint" style="padding-top:12px">Con un proxy, este número se conecta a WhatsApp desde otra IP y no desde la del servidor que comparten todos tus números. Lo ideal es un proxy <b>residencial o móvil de México</b>, uno distinto para cada número. ${a?.proxy ? `Ahora sale por <b>${esc(a.proxy)}</b>.` : ''}</p>
 		<div class="group" style="margin-top:10px"><div class="item"><input type="text" id="px-url" placeholder="http://usuario:contraseña@host:puerto" autocomplete="off" autocapitalize="off" spellcheck="false"></div></div>
 		<p class="hint">También acepta https:// y socks5://. Al guardar, el número se reconecta por el proxy. Si el proxy falla, el número se queda desconectado hasta que lo corrijas o lo quites.</p>
-		<div class="pad"><button class="btn primary" id="px-save">Guardar</button>${a?.proxy ? '<button class="btn danger" id="px-clear" style="margin-top:8px">Quitar proxy</button>' : ''}</div>`, el => {
+		<div class="pad"><button class="btn primary" id="px-save">Guardar a mano</button>
+			<button class="btn" id="px-auto" style="margin-top:8px">🌐 Usar proxies automáticos</button>
+			<button class="btn danger" id="px-clear" style="margin-top:8px">Sin proxy</button></div>`, el => {
 		const save = async proxy => {
 			try {
 				const info = await api('PATCH', `/accounts/${id}`, { proxy })
 				S.accounts = S.accounts.map(x => (x.id === id ? { ...x, ...info } : x))
-				closeSheet(); toast(proxy ? 'Proxy guardado: reconectando…' : 'Proxy quitado: reconectando…'); render()
+				closeSheet(); toast(proxy === 'auto' ? 'Proxies automáticos: reconectando…' : proxy ? 'Proxy guardado: reconectando…' : 'Sin proxy: reconectando…'); render()
 			} catch (e) { toast(e.message) }
 		}
 		$('#px-save', el).onclick = () => { const v = $('#px-url', el).value.trim(); if (!v) return toast('Escribe el proxy'); save(v) }
-		const clr = $('#px-clear', el); if (clr) clr.onclick = () => save('')
+		$('#px-auto', el).onclick = () => save('auto')
+		$('#px-clear', el).onclick = () => save('')
 	})
 }
 
@@ -1911,7 +1961,17 @@ function accountsBanner() {
 	return out.join('')
 }
 
+function loadProxySummary() {
+	api('GET', '/proxies').then(st => {
+		const ok = st.list.filter(p => p.check?.ok).length
+		S.proxySum = st.mode === 'off' ? 'Apagado: todos tus números salen por la IP del servidor'
+			: st.mode === 'gateway' ? `Con sesiones: ${st.accounts.filter(a => a.mode === 'auto' && a.proxy).length} número(s) con su propia IP`
+				: `${st.list.length} proxies · ${ok} funcionan · ${st.accounts.filter(a => a.mode === 'auto' && a.proxy).length} número(s) asignados`
+		const el = $('#px-sum'); if (el) el.textContent = S.proxySum
+	}).catch(() => {})
+}
 function renderAccounts() {
+	loadProxySummary()
 	$('#view').innerHTML = `
 		${largeBar('Cuentas', `<button class="icon-btn" data-act="add-account" aria-label="Agregar">${IC.plus}</button>`)}
 		<div class="settings" style="min-height:100%">
@@ -1922,6 +1982,7 @@ function renderAccounts() {
 				<span class="grow"><b>${esc(a.name)} ${a.status === 'connected' ? healthDot(a) : ''}${a.reserve ? ' <small style="display:inline;color:#7C5CFF">reserva</small>' : ''}</b><small>${a.phone ? esc(fmtPhone(a.phone)) : 'Sin vincular'}${a.health && a.status === 'connected' ? ' · ' + esc(a.health.reason) : ''}${a.health?.replyRate != null ? ` · le contestan ${a.health.replyRate}%` : ''}</small></span>
 				<span class="status" style="color:${statusColor(a)}">${statusText(a)}</span>${IC.chevron}
 			</a>`).join('')}</div>` : `<div class="empty"><div class="big">📱</div>Toca <b>＋</b> para agregar tu primer WhatsApp.</div>`}
+		<div class="group" style="margin-top:14px"><a class="item" href="#/proxies"><span class="grow">🌐 Proxies automáticos<small id="px-sum">${S.proxySum || 'Cada número sale a internet por su propia IP'}</small></span>${IC.chevron}</a></div>
 		<p class="hint">Cada cuenta se vincula como «dispositivo vinculado», igual que WhatsApp Web. El teléfono de cada cuenta no necesita estar encendido, pero debe abrir WhatsApp al menos una vez cada 14 días.</p>
 		</div>`
 }
@@ -2256,7 +2317,7 @@ function renderAccount(id, full) {
 			<div class="section">Identidad ante WhatsApp</div>
 			<div class="group">
 				<div class="item"><span class="grow">Se vinculó como<small>Cada número se vincula como un dispositivo distinto (los nuevos lo reciben al vincularse)</small></span><span class="muted">${esc(a.device || '—')}</span></div>
-				<button class="item" data-act="ac-proxy" data-val="${a.id}"><span class="grow">Proxy<small style="${a.proxyError ? 'color:var(--danger)' : ''}">${a.proxyError ? esc(a.proxyError) : a.proxy ? `Sale por ${esc(a.proxy)}` : 'Sin proxy: sale por la IP del servidor, igual que tus demás números'}</small></span>${IC.chevron}</button>
+				<button class="item" data-act="ac-proxy" data-val="${a.id}"><span class="grow">Proxy<small style="${a.proxyError ? 'color:var(--danger)' : ''}">${a.proxyError ? esc(a.proxyError) : a.proxyMode === 'manual' ? `A mano: sale por ${esc(a.proxy)}` : a.proxyMode === 'none' ? 'Sin proxy (fuera del automático)' : a.proxy ? `Automático: sale por ${esc(a.proxy)}` : 'Automático: sin proxy asignado (actívalo en Cuentas → Proxies automáticos)'}</small></span>${IC.chevron}</button>
 			</div>
 `
 		if (hEl.innerHTML.trim() !== (html + ident).trim()) hEl.innerHTML = html + ident
@@ -2860,6 +2921,25 @@ document.addEventListener('click', async e => {
 			return
 		}
 		case 'ac-proxy': return openProxy(Number(val))
+		case 'px-mode': S.pxMode = val; return S.proxies && renderProxies(S.proxies)
+		case 'px-save': {
+			const mode = S.pxMode || S.proxies?.mode || 'off'
+			const body = { mode }
+			if (mode === 'list') body.list = $('#px-list')?.value || ''
+			if (mode === 'gateway') body.gateway = $('#px-gw')?.value || ''
+			const fb = $('#px-fallback'); if (fb) body.fallback = fb.checked
+			try {
+				const st = await api('PUT', '/proxies', body)
+				S.pxMode = null; S.pxDraftList = null; S.pxDraftGw = null
+				renderProxies(st)
+				toast(mode === 'off' ? 'Proxies automáticos apagados' : 'Guardado: probando y asignando proxies…')
+			} catch (err) { toast(err.message) }
+			return
+		}
+		case 'px-check': {
+			try { renderProxies(await api('POST', '/proxies/check')); toast('Probando proxies…') } catch (err) { toast(err.message) }
+			return
+		}
 		case 'warmup-boost': {
 			const h = Number(val)
 			try {

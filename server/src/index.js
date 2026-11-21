@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws'
 import { db } from './db.js'
 import { API_TOKEN, PORT, DATA_DIR } from './config.js'
 import { SessionManager, diag, note, accountHistory, normalizeProxy } from './sessions.js'
+import { proxyState, saveProxyConfig, checkAll, ensureAssigned, startProxyMonitor } from './proxies.js'
 import { VAPID_PUBLIC_KEY, saveSubscription, sendPush } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 import { checkToken, createDevice, listDevices, pruneDevices, removeDevice, removeOthers, touch, touchNow } from './devices.js'
@@ -209,8 +210,14 @@ app.patch('/api/accounts/:id', route(req => {
 	if (req.body.restAllow !== undefined) db.prepare('UPDATE accounts SET rest_allow = ? WHERE id = ?').run(Math.max(0, Math.min(50, Math.floor(Number(req.body.restAllow) || 0))), id)
 	// Proxy propio: al cambiarlo, la conexión se rehace por el nuevo camino
 	if (req.body.proxy !== undefined) {
-		const proxy = normalizeProxy(req.body.proxy)
-		db.prepare('UPDATE accounts SET proxy = ? WHERE id = ?').run(proxy, id)
+		// 'auto' = proxies automáticos · '' = sin proxy (fuera del automático) · URL = puesto a mano
+		if (req.body.proxy === 'auto') {
+			db.prepare('UPDATE accounts SET proxy = NULL, proxy_auto = 1 WHERE id = ?').run(id)
+			ensureAssigned(id)
+		} else {
+			const proxy = normalizeProxy(req.body.proxy)
+			db.prepare('UPDATE accounts SET proxy = ?, proxy_auto = 0 WHERE id = ?').run(proxy, id)
+		}
 		const s = manager.sessions.get(id)
 		if (s?.sock) s.sock.end(new Error('Cambio de proxy'))
 		else if (s && s.status !== 'logged_out') s.start().catch(() => {})
@@ -484,6 +491,15 @@ app.post('/api/ai/rewrite', route(req => rewrite(req.body || {})))
 app.get('/api/warmup', route(() => warmup.status()))
 app.post('/api/warmup', route(req => { warmup.save(req.body || {}); return warmup.status() }))
 app.post('/api/warmup/now', route(() => { warmup.kick(); return warmup.status() }))
+// ---- Proxies automáticos ----
+app.get('/api/proxies', route(() => proxyState()))
+app.put('/api/proxies', route(req => {
+	saveProxyConfig(req.body || {})
+	checkAll(manager).catch(() => {}) // prueba los proxies y los asigna (reconecta escalonado)
+	return { ...proxyState(), checking: true }
+}))
+app.post('/api/proxies/check', route(() => { checkAll(manager).catch(() => {}); return { ...proxyState(), checking: true } }))
+
 app.post('/api/warmup/test', route(async () => { await warmup.runTest('manual'); return warmup.status() }))
 app.get('/api/warmup/number/:id', route(req => warmup.numberDetail(Number(req.params.id))))
 app.post('/api/warmup/unflag/:id', route(req => { warmup.unflag(Number(req.params.id)); return warmup.status() }))
@@ -774,6 +790,7 @@ server.listen(PORT, '0.0.0.0', async () => {
 	for (const ip of ips) console.log(`  URL: http://${ip}:${PORT}`)
 	console.log(`  Abre esa dirección en Safari y crea tu contraseña.\n`)
 	startMaintenance()
+	startProxyMonitor(manager)
 	mail?.startMail().catch(e => note(null, 'mail-error', e.message))
 	await manager.startAll()
 })
