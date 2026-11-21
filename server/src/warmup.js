@@ -13,6 +13,10 @@ import {
 	ABOUTS, WRONG, WRONG_SORRY, LATE_SORRY, CALL_SCRIPTS,
 	hash01, parseCustom, persona, styleText
 } from './warmup-scripts.js'
+import {
+	personaNames, birthdayOf, RELS, relOf, relWeight, REL_SCRIPTS, FORWARD_SCRIPTS, GROUP_POLLS, pollConvo,
+	STATUS_REPLIES, STATUS_ANSWERS, BIRTHDAY, BIRTHDAY_GROUP, ARCS, buildArc
+} from './warmup-life.js'
 
 // Calentamiento: tus propios números conversan entre sí para que las cuentas se vean activas
 // y "maduren" antes de usarlas en envíos. Solo son TUS números hablando entre ellos.
@@ -40,6 +44,11 @@ import {
 // - Madurez diaria por número: aviso cuando uno queda listo y reporte semanal los lunes.
 // - Varios números escriben a la vez y cada uno puede estar en 2–3 charlas; si a esta hora hay pocos platicando y va
 //   atrasado, arranca más charlas. Cupos más altos (6–35 al día según antigüedad) y más variedad de con quién habla.
+// - Vida simulada (v3): cada número tiene nombre, cumpleaños y relaciones (familia, amigos, trabajo, conocidos) que deciden
+//   cuándo y de qué platican; historias de varios días con fechas reales; programa por fases (recién vinculado → listo);
+//   tus números se guardan como contactos entre sí, fijan chats, destacan mensajes, responden estados, reenvían,
+//   hacen encuestas en el grupo y «revisan el celular» sin escribir. Racha sana: si un número va bien, cada día habla un poco más.
+//   Mezcla con masivos: un número que está haciendo masivos también platica con tus números.
 // - Intensidad Turbo (×2), Máximo (×3) y «sesión intensiva» (×2.5 por 1–6 h): más charlas a la vez, respuestas más rápidas, charlas que
 //   cambian de tema y más grupo. Solo acelera a números sanos y nunca pasa el tope diario según su antigüedad.
 
@@ -102,7 +111,9 @@ const q = {
 	chatTs: db.prepare('SELECT last_ts FROM chats WHERE account_id = ? AND jid = ?'),
 	lastIn: db.prepare('SELECT id, remote_jid, participant, text FROM messages WHERE account_id = ? AND jid = ? AND from_me = 0 ORDER BY ts DESC LIMIT 1'),
 	hasMsg: db.prepare('SELECT 1 FROM messages WHERE account_id = ? AND id = ?'),
-	recentOut: db.prepare('SELECT jid FROM messages WHERE account_id = ? AND from_me = 1 AND ts > ? ORDER BY ts DESC LIMIT 30')
+	recentOut: db.prepare('SELECT jid FROM messages m WHERE account_id = ? AND from_me = 1 AND ts > ? AND NOT EXISTS (SELECT 1 FROM campaign_items c WHERE c.message_id = m.id) ORDER BY ts DESC LIMIT 30'),
+	pairs7: db.prepare('SELECT account_id AS a, peer_id AS b, COUNT(*) AS n FROM warmup_log WHERE ts > ? AND peer_id IS NOT NULL GROUP BY account_id, peer_id'),
+	recentOwnIn: db.prepare("SELECT id, jid, remote_jid, text FROM messages WHERE account_id = ? AND from_me = 0 AND ts > ? AND type = 'text' AND length(text) > 15 ORDER BY ts DESC LIMIT 40")
 }
 let campStmt = null
 let campRecentStmt = null
@@ -195,7 +206,7 @@ export const library = {
 }
 
 const AVG_LINES = SCRIPTS.reduce((n, s) => n + s.lines.length, 0) / SCRIPTS.length
-const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 20, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, profiles: true, mentors: {}, prep: {} }
+const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 20, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, profiles: true, contacts: true, mentors: {}, prep: {} }
 const INTENSITY = { suave: 0.6, normal: 1, intenso: 1.4, turbo: 2, maximo: 3 }
 const BOOST = 2.5 // «sesión intensiva»: multiplica la actividad por unas horas
 // Tope diario por antigüedad que ninguna intensidad puede pasar (para no quemar números nuevos)
@@ -238,10 +249,27 @@ function moments(h, wd) {
 		afternoon: h >= 16 && h < 21,
 		night: h >= 21 || h < 3,
 		monday: wd === 1 && h < 14,
-		weekend: wd === 5 ? h >= 14 : wd === 6 || wd === 0
+		weekend: wd === 5 ? h >= 14 : wd === 6 || wd === 0,
+		work: wd >= 1 && wd <= 5 && h >= 9 && h < 18
 	}
 }
-const MOMENT_BOOST = { morning: 2, lunch: 2, afternoon: 1.5, night: 3, monday: 2, weekend: 1.5 }
+const MOMENT_BOOST = { morning: 2, lunch: 2, afternoon: 1.5, night: 3, monday: 2, weekend: 1.5, work: 1.5 }
+// Programa por fases de cada número
+const PHASES = [
+	{ label: 'Recién vinculado', desc: 'Solo recibe mensajes de tus números maduros y ve sus estados', next: 'Al cumplir 24 h' },
+	{ label: 'Primeros pasos', desc: 'Platica solo con números maduros (o sus padrinos); solo texto', next: 'Al cumplir 3 días' },
+	{ label: 'Socializando', desc: 'Habla con todos: fotos, audios, stickers, grupo e historias de varios días', next: 'Al cumplir 7 días' },
+	{ label: 'Activo', desc: 'Estados, encuestas, reenvíos y más volumen', next: '14 días, madurez 70 y en verde' },
+	{ label: 'Listo', desc: 'Volumen completo; recomendado para envíos masivos', next: '' }
+]
+const DOY_FMT = new Intl.DateTimeFormat('en-US', { timeZone: process.env.TZ_CAMPAIGNS || 'America/Mexico_City', month: 'numeric', day: 'numeric' })
+const MONTH_START = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+function dayOfYear(t = Date.now()) {
+	const p = {}
+	for (const x of DOY_FMT.formatToParts(new Date(t))) p[x.type] = x.value
+	return MONTH_START[Number(p.month) - 1] + Number(p.day) - 1
+}
+const pairKey = (a, b) => (a < b ? `${a}:${b}` : `${b}:${a}`)
 const needs = sc => new Set(sc.lines.filter(l => typeof l === 'object').map(l => l.media))
 const keyOf = sc => (typeof sc.lines[0] === 'string' ? sc.lines[0] : JSON.stringify(sc.lines[0])).slice(0, 80)
 
@@ -266,6 +294,15 @@ export class WarmupManager {
 		this.speaking = new Set() // números escribiendo en este momento
 		this.nextFree = {} // cuándo puede volver a escribir cada número
 		this.nextFillAt = 0
+		this.arcs = [] // historias de varios días en curso
+		this.bdays = {} // felicitaciones de cumpleaños ya enviadas (día:de:para)
+		this.streak = {} // días seguidos sanos por número
+		this.nextPing = {} // cuándo «revisa el celular» cada número
+		this.memo = new Map() // textos enviados hace poco por número (para no repetirse)
+		this.names = new Map()
+		this.saved = getJSON('warmup_contacts', {}) // contactos guardados entre tus números
+		this.pinned = getJSON('warmup_pinned', {}) // chats fijados por número
+		this.muted = {}
 		this.queue = [] // { at, kind: 'say' | 'read' | 'view', ... }
 		this.checks = [] // pruebas de entrega pendientes { at, id, from, to }
 		this.fails = {} // fallos de entrega seguidos por número
@@ -311,7 +348,7 @@ export class WarmupManager {
 		s.maxDelay = clamp(Number(s.maxDelay) || DEFAULTS.maxDelay, s.minDelay, 720)
 		s.startHour = clamp(Math.floor(Number(s.startHour) || 0), 0, 23)
 		s.endHour = clamp(Math.floor(Number(s.endHour) || 24), s.startHour + 1, 24)
-		for (const k of ['enabled', 'auto', 'allDay', 'media', 'stories', 'groups', 'profiles']) s[k] = s[k] === undefined ? DEFAULTS[k] : Boolean(s[k])
+		for (const k of ['enabled', 'auto', 'allDay', 'media', 'stories', 'groups', 'profiles', 'contacts']) s[k] = s[k] === undefined ? DEFAULTS[k] : Boolean(s[k])
 		if (!INTENSITY[s.intensity]) s.intensity = 'normal'
 		s.boostUntil = Number(s.boostUntil) > Date.now() ? Math.min(Number(s.boostUntil), Date.now() + 12 * 36e5) : 0
 		// Padrinos: { númeroNuevo: [números maduros que hablan con él] }
@@ -370,7 +407,8 @@ export class WarmupManager {
 		this.dirty = false
 		setJSON('warmup_state', {
 			convos: [...this.convos.values()], queue: this.queue, checks: this.checks, fails: this.fails, flags: this.flags,
-			nextConvoAt: this.nextConvoAt, recent: this.recent, seq: this.seq, avgLines: this.avgLines, follows: this.follows, quality: this.quality
+			nextConvoAt: this.nextConvoAt, recent: this.recent, seq: this.seq, avgLines: this.avgLines, follows: this.follows, quality: this.quality,
+			arcs: this.arcs, bdays: this.bdays, streak: this.streak
 		})
 		setJSON('warmup_history', this.history.slice(0, MAX_HISTORY))
 	}
@@ -381,6 +419,9 @@ export class WarmupManager {
 		this.fails = st.fails || {}
 		this.follows = (st.follows || []).filter(f => f?.lines?.length && now - f.at < 5 * DAY)
 		this.quality = st.quality && typeof st.quality === 'object' ? st.quality : {}
+		this.streak = st.streak && typeof st.streak === 'object' ? st.streak : {}
+		this.bdays = st.bdays && typeof st.bdays === 'object' ? Object.fromEntries(Object.entries(st.bdays).filter(([k]) => Number(k.split(':')[0]) >= dayKey() - 1)) : {}
+		this.arcs = (st.arcs || []).filter(a => a?.steps?.length && a.i < a.steps.length && now - a.steps[a.steps.length - 1].at < 2 * DAY)
 		for (const [id, f] of Object.entries(st.flags || {})) if (f?.until > now) this.flags[id] = f
 		if (!this.s.enabled) return
 		this.seq = st.seq || 0
@@ -400,6 +441,8 @@ export class WarmupManager {
 	loadCounters() {
 		const d = dayKey()
 		if (this.day === d) return
+		// Al cambiar de día: suma un día a la racha de los que fueron sanos ayer (o la reinicia)
+		if (this.day != null && this.lastList) this.updateStreaks(this.lastList, d)
 		this.day = d
 		const since = startOfDay()
 		this.sent = new Map(q.sentSince.all(since).map(r => [r.id, r.n]))
@@ -457,9 +500,10 @@ export class WarmupManager {
 		else if (age < 14) base = 25
 		else if (age < 30 || h.level !== 'green') base = 30
 		else base = 35
-		if (camp >= 20 && h.level === 'green') base += Math.min(8, 2 + Math.floor(camp / 30))
+		// Mezcla con masivos: por cada 4 mensajes de masivo, uno de charla con tus números (hasta 15 más)
+		if (camp >= 10 && h.level === 'green') base += Math.min(15, Math.round(camp * 0.25))
 		if (a.recovering) base *= 0.5 // acaba de salir de una restricción: regresa poco a poco
-		return base * this.prepFactor(a) * this.multiplierFor(a)
+		return base * this.prepFactor(a) * this.multiplierFor(a) * this.streakBonus(a)
 	}
 	boostActive() { return Number(this.s.boostUntil) > Date.now() }
 	// ¿Modo acelerado? (Turbo o sesión intensiva)
@@ -469,6 +513,40 @@ export class WarmupManager {
 		const m = INTENSITY[this.s.intensity || 'normal'] * (this.boostActive() ? BOOST : 1)
 		const healthy = a.level === 'green' && !a.restricted && !a.slow && !a.recovering && !a.resting
 		return healthy ? m : Math.min(1, m)
+	}
+	// Racha sana: +4% por cada día seguido sin problemas (hasta +50%)
+	streakBonus(a) {
+		const healthy = a.level === 'green' && !a.restricted && !a.slow && !a.resting
+		return healthy ? 1 + Math.min(0.5, 0.04 * (this.streak[a.id]?.n || 0)) : 1
+	}
+	updateStreaks(list, d) {
+		for (const a of list) {
+			const st = this.streak[a.id] ||= { n: 0, day: null }
+			if (st.day === d) continue
+			const healthy = a.level === 'green' && !a.restricted && !a.slow && !this.flagged(a.id) && !a.resting
+			st.n = healthy ? st.n + 1 : 0
+			st.day = d
+		}
+		this.dirty = true
+	}
+	// Fase del programa: 0 recién vinculado · 1 primeros pasos · 2 socializando · 3 activo · 4 listo
+	phaseOf(a) {
+		if (a.grace) return 0
+		const age = this.ageDays(a)
+		if (age < 3) return 1
+		if (age < 7) return 2
+		if (age < 14 || (a.mature?.score ?? 0) < 70 || a.level !== 'green') return 3
+		return 4
+	}
+	phaseProgress(a) {
+		const hrs = this.ageHours(a)
+		switch (a.phase) {
+			case 0: return clamp(hrs / GRACE_HOURS, 0, 1)
+			case 1: return clamp((hrs - 24) / 48, 0, 1)
+			case 2: return clamp((hrs / 24 - 3) / 4, 0, 1)
+			case 3: return clamp(Math.min(this.ageDays(a) / 14, (a.mature?.score ?? 0) / 70), 0, 1)
+			default: return 1
+		}
 	}
 
 	// Preparar para masivo: los 5 días previos sube poco a poco (hasta ×1.75); 2 días después, charla de recuperación
@@ -535,7 +613,9 @@ export class WarmupManager {
 		const vol = new Map(q.vol.all(now - 14 * DAY).map(r => [r.id, r]))
 		const recv14 = new Map(q.recvSince.all(now - 14 * DAY).map(r => [r.id, r.n]))
 		const list = []
-		for (const row of q.accounts.all()) {
+		const rows = q.accounts.all()
+		this.names = personaNames(rows.map(r => r.id))
+		for (const row of rows) {
 			if (this.manager.sessions.get(row.id)?.status !== 'connected') continue
 			const a = { ...row, grace: this.ageHours(row) < GRACE_HOURS, campaign: camp.get(row.id) || 0 }
 			let h = null
@@ -557,9 +637,11 @@ export class WarmupManager {
 			if (this.flagged(a.id)) a.target = 0
 			a.persona = persona(a.id)
 			a.mature = this.maturity(a, vol.get(a.id), recv14.get(a.id))
+			a.phase = this.phaseOf(a)
 			list.push(a)
 		}
 		this.snap = { at: now, list, byId: new Map(list.map(a => [a.id, a])) }
+		this.lastList = list
 		this.trackMaturity(list)
 		return this.snap
 	}
@@ -594,9 +676,9 @@ export class WarmupManager {
 	live(id) { return this.manager.sessions.get(id)?.status === 'connected' }
 	canSpeak(a, continuing) { return !a.grace && a.target > 0 && this.sentToday(a.id) < a.target + (continuing ? OVERFLOW : 0) }
 	// ¿Está ocupado en algo real? (un chat con un cliente o un envío masivo en los últimos minutos)
+	// (los masivos ya no cuentan: un número que hace masivos también platica con tus números, como una persona)
 	busyReal(id) {
 		const since = Date.now() - 3 * MIN
-		if (campaignRecent(id, since)) return true
 		try { return q.recentOut.all(id, since).some(r => !isOwnJid(r.jid)) } catch { return false }
 	}
 	inWindow(hour) {
@@ -618,6 +700,28 @@ export class WarmupManager {
 	available() {
 		const m = this.s.media
 		return { image: m && library.count('image') > 0, audio: m && library.count('audio') > 0, sticker: m && library.count('sticker') > 0, gif: m && library.count('gif') > 0, location: m, contact: m }
+	}
+
+	// Red de quién platica con quién (últimos 7 días) con su relación
+	network(list) {
+		const ids = new Set(list.map(a => a.id))
+		const agg = new Map()
+		try {
+			for (const r of q.pairs7.all(Date.now() - 7 * DAY)) {
+				if (!ids.has(r.a) || !ids.has(r.b)) continue
+				const k = pairKey(r.a, r.b)
+				agg.set(k, (agg.get(k) || 0) + r.n)
+			}
+		} catch {}
+		return {
+			nodes: list.map(a => ({ id: a.id, name: a.name, phase: a.phase, score: a.mature?.score ?? 0 })),
+			edges: [...agg].map(([k, n]) => { const [a, b] = k.split(':').map(Number); return { a, b, n, rel: relOf(a, b) } })
+		}
+	}
+	hourlyToday(sod) {
+		const out = Array(24).fill(0)
+		try { for (const { ts } of q.perDay.all(sod)) out[tzNow(ts).h]++ } catch {}
+		return out
 	}
 
 	// ---- Estado para la pantalla ----
@@ -665,6 +769,13 @@ export class WarmupManager {
 			boostUntil: this.boostActive() ? this.s.boostUntil : 0,
 			hot: this.hot(),
 			history: this.history.slice(0, 15),
+			network: this.network(list),
+			hourly: this.hourlyToday(sod),
+			phases: PHASES.map(x => ({ label: x.label, desc: x.desc })),
+			rels: RELS,
+			arcs: this.arcs.slice(0, 12).map(x => ({ key: x.key, a: x.a, b: x.b, eventAt: x.eventAt, step: x.i, steps: x.steps.length, nextAt: x.steps[x.i]?.at || null })),
+			birthdays: list.filter(a => birthdayOf(a.id) === dayOfYear()).map(a => a.id),
+			contactsSaved: Object.values(this.saved).filter(x => x?.ok).length,
 			numbers: list.map(a => ({
 				id: a.id, name: a.name, sentToday: this.sentToday(a.id), receivedToday: this.recvToday(a.id), target: a.target,
 				ageDays: this.ageDays(a), asleep: this.awake(a, h, wd) < 0.15, grace: a.grace, resting: a.resting,
@@ -674,7 +785,11 @@ export class WarmupManager {
 				slow: a.slow, prepAt: this.s.prep?.[a.id] || null, cap: a.cap, atCap: a.target >= a.cap,
 				peersToday: peers.get(a.id) || 0, convos: this.convCount(a.id), busyReal: this.busyReal(a.id), weekDelta: this.weekDelta(a.id, a.mature.score),
 				maturity: a.mature,
-				inConvo: [...this.convos.values()].some(c => c.members.includes(a.id))
+				inConvo: [...this.convos.values()].some(c => c.members.includes(a.id)),
+				persona: this.names.get(a.id) || null,
+				phase: a.phase, phaseLabel: PHASES[a.phase]?.label, phaseDesc: PHASES[a.phase]?.desc, phaseNext: PHASES[a.phase]?.next, phaseProgress: this.phaseProgress(a),
+				streak: this.streak[a.id]?.n || 0, streakBonus: Math.round((this.streakBonus(a) - 1) * 100),
+				contacts: Object.entries(this.saved).filter(([k, v]) => v?.ok && k.startsWith(`${a.id}>`)).length
 			}))
 		}
 	}
@@ -695,6 +810,17 @@ export class WarmupManager {
 				if (now >= this.nextHousekeeping) this.nextHousekeeping = now + 10 * MIN
 				return
 			}
+			// 0) «Revisa el celular»: cada número se conecta un momento varias veces al día, sin escribir
+			{
+				const { h: hh, wd: wdd } = tzNow()
+				for (const a of snap.list) {
+					if (this.nextPing[a.id] == null) { this.nextPing[a.id] = now + rnd(1, 40) * MIN; continue }
+					if (this.nextPing[a.id] > now) continue
+					const w = this.awake(a, hh, wdd)
+					this.nextPing[a.id] = now + (w < 0.3 ? rnd(90, 240) : rnd(25, 100) / Math.max(w, 0.3)) * MIN
+					if (w >= 0.3 && !this.speaking.has(a.id)) this.manager.sessions.get(a.id)?.online(irnd(15, 60) * 1000)?.catch?.(() => {})
+				}
+			}
 			// 1) Lecturas y vistas de estados pendientes: el que recibió se conecta y abre el chat
 			for (const ev of this.queue.filter(e => (e.kind === 'read' || e.kind === 'view') && e.at <= now)) {
 				this.queue = this.queue.filter(e => e !== ev)
@@ -704,8 +830,20 @@ export class WarmupManager {
 				if (!session || !this.live(id)) continue
 				try {
 					await session.online(irnd(12, 40) * 1000)
-					if (ev.kind === 'view') await session.viewStatus(ev.poster, ev.msgId)
-					else await session.markRead(ev.group || this.chatJid(id, ev.fromPhone))
+					if (ev.kind === 'view') {
+						await session.viewStatus(ev.poster, ev.msgId)
+						// A veces contesta el estado («¿Dónde es eso?») y el otro le responde
+						const viewer = snap.byId.get(id), poster = snap.byId.get(ev.posterId)
+						if (viewer && poster && (viewer.phase ?? 4) >= 2 && Math.random() < 0.12 && this.convCount(id) < PER_NUMBER && this.convCount(poster.id) < PER_NUMBER + 1 && !this.inConvoWith(id, poster.id) && this.allowedPair(id, poster.id)) {
+							const lines = [{ media: 'statusReply', statusId: ev.msgId, poster: ev.poster, statusText: ev.text || '' }, pick(STATUS_ANSWERS)]
+							this.startConvo({ members: [id, poster.id], order: [id, poster.id], lines, statusReply: true }, { lines }, false)
+						}
+					} else {
+						const chat = ev.group || this.chatJid(id, ev.fromPhone)
+						await session.markRead(chat)
+						// De vez en cuando destaca (⭐) un mensaje, sobre todo fotos, ubicaciones o contactos
+						if (ev.msgId && !ev.group && Math.random() < (ev.media ? 0.12 : 0.02)) await session.starMessage(chat, ev.msgId, false).catch(() => {})
+					}
 				} catch {}
 			}
 			// 2) Varios números pueden escribir a la vez (cada uno en su teléfono), pero cada número un mensaje a la vez
@@ -773,6 +911,9 @@ export class WarmupManager {
 		const { h, wd } = tzNow()
 		if (!this.inWindow(h) || CURVE[h] < 0.6) return
 		await this.maybeProfileChange(snap).catch(() => {})
+		await this.maybeSaveContact(snap).catch(() => {})
+		await this.maybePinChat(snap).catch(() => {})
+		await this.maybeMuteGroup(snap).catch(() => {})
 		await this.ensureGroup(snap).catch(() => {})
 		await this.maybeStory(snap, h, wd).catch(() => {})
 	}
@@ -781,7 +922,7 @@ export class WarmupManager {
 	async ensureGroup(snap) {
 		if (!this.s.groups) return
 		const now = Date.now()
-		const ok = snap.list.filter(a => !a.grace && a.level !== 'red' && !this.flagged(a.id) && this.ageDays(a) >= 2 && !this.busyReal(a.id))
+		const ok = snap.list.filter(a => !a.grace && (a.phase ?? 4) >= 2 && a.level !== 'red' && !this.flagged(a.id) && this.ageDays(a) >= 2 && !this.busyReal(a.id))
 		let g = this.group()
 		if (!g) {
 			if (ok.length < 3 || now - (this.lastGroupTry || 0) < 6 * 36e5) return
@@ -815,7 +956,7 @@ export class WarmupManager {
 	async maybeStory(snap, h, wd) {
 		if (!this.s.stories || Math.random() > 0.35) return
 		const now = Date.now()
-		const due = snap.list.filter(a => !a.grace && a.level !== 'red' && !this.flagged(a.id) && this.awake(a, h, wd) >= 0.6 &&
+		const due = snap.list.filter(a => !a.grace && (a.phase ?? 4) >= 2 && a.level !== 'red' && !this.flagged(a.id) && this.awake(a, h, wd) >= 0.6 &&
 			now - (this.stories[a.id] || 0) > (1.6 + hash01(a.id, this.day) * 2.4) * DAY && !this.busyReal(a.id))
 		const a = pick(due)
 		if (!a) return
@@ -825,7 +966,8 @@ export class WarmupManager {
 		const session = this.manager.sessions.get(a.id)
 		const jids = viewers.map(x => jidOf(x.phone))
 		const img = this.s.media && Math.random() < 0.4 ? this.pickMedia('image') : null
-		const text = () => styleText(vary(pick(STORY_TEXTS)), a.persona)
+		let storyText = ''
+		const text = () => (storyText = styleText(vary(pick(STORY_TEXTS)), a.persona))
 		const res = img
 			? await session.postStatus({ image: fs.readFileSync(img.path), caption: Math.random() < 0.6 ? text() : undefined }, jids)
 			: await session.postStatus({ text: text() }, jids, { backgroundColor: pick(STORY_COLORS), font: irnd(0, 4) })
@@ -838,7 +980,7 @@ export class WarmupManager {
 			for (const v of viewers) {
 				if (Math.random() > 0.75) continue
 				const t = this.replyTiming(v, h, wd)
-				this.queue.push({ at: now + t.readIn + rnd(1, 120) * MIN, kind: 'view', readerId: v.id, poster: res.from, msgId: res.id })
+				this.queue.push({ at: now + t.readIn + rnd(1, 120) * MIN, kind: 'view', readerId: v.id, poster: res.from, posterId: a.id, msgId: res.id, text: storyText })
 			}
 			this.dirty = true
 		}
@@ -886,6 +1028,10 @@ export class WarmupManager {
 	godchildrenOf(id) { return Object.keys(this.s.mentors || {}).map(Number).filter(t => this.mentorsOf(t).includes(id)) }
 	// Un número con padrinos solo habla con sus padrinos sanos. Si ninguno está sano, habla con cualquier número sano y templado.
 	allowedPair(a, b) {
+		// Dos números en sus primeras fases no platican entre sí (salvo que uno sea padrino del otro)
+		const A = this.snap?.byId.get(a), B = this.snap?.byId.get(b)
+		const linked = this.mentorsOf(a).includes(b) || this.mentorsOf(b).includes(a)
+		if (A && B && (A.phase ?? 4) <= 1 && (B.phase ?? 4) <= 1 && !linked) return false
 		const check = (t, other) => {
 			const M = this.mentorsOf(t)
 			if (!M.length) return true
@@ -941,8 +1087,46 @@ export class WarmupManager {
 		const free = a => !busyIds.has(a.id) && this.live(a.id) && !this.flagged(a.id) && !this.busyReal(a.id)
 		const ready = list.filter(a => free(a) && this.canSpeak(a, false) && !a.restricted) // un restringido no inicia charlas
 		const mo = moments(hour, wd)
-		// Seguimiento de una charla de días anteriores («¿cómo te fue en el banco?»)
 		const now = Date.now()
+		// 1) Pasos de historias de varios días que ya tocan («¿sigue en pie lo de hoy?», «ya llegué»)
+		for (const arc of this.arcs) {
+			const st = arc.steps[arc.i]
+			if (!st) continue
+			if (now > st.at + (st.event ? 1.5 : 8) * 36e5) { arc.i++; this.dirty = true; continue } // se pasó la hora: ese paso ya no
+			if (now < st.at) continue
+			const A = snap.byId.get(arc.a), B = snap.byId.get(arc.b)
+			if (!A || !B || !free(A) || !free(B) || this.inConvoWith(arc.a, arc.b)) continue
+			const first = st.starter === 'a' ? A : B
+			if (first.restricted || !this.canSpeak(first, true) || this.awake(first, hour, wd) < 0.35) continue
+			return this.runArcStep(arc, force)
+		}
+		this.arcs = this.arcs.filter(a => a.i < a.steps.length)
+		// 2) Cumpleaños: sus amigos y familia lo felicitan (y en el grupo)
+		if (hour >= 8 && hour <= 21) {
+			const doy = dayOfYear(now)
+			const d = dayKey()
+			for (const b of list.filter(x => birthdayOf(x.id) === doy && x.phase >= 1 && free(x))) {
+				const name = this.names.get(b.id)?.first
+				const g = this.group()
+				if (g && this.s.groups && g.members.includes(b.id) && !this.bdays[`${d}:g:${b.id}`]) {
+					const others = ready.filter(x => x.id !== b.id && g.members.includes(x.id) && x.phase >= 2)
+					if (others.length >= 2) {
+						this.bdays[`${d}:g:${b.id}`] = 1
+						const two = weightedSample(others, () => 1, 2)
+						const lines = BIRTHDAY_GROUP(name)
+						return this.startConvo({ group: g.jid, members: [...two.map(x => x.id), b.id], order: [two[0].id, two[1].id, b.id], lines, birthday: true }, { lines }, force)
+					}
+				}
+				const friends = ready.filter(x => x.id !== b.id && ['familia', 'amigos'].includes(relOf(x.id, b.id)) && !this.bdays[`${d}:${x.id}:${b.id}`] && this.allowedPair(x.id, b.id) && !this.inConvoWith(x.id, b.id))
+				const x = pick(friends)
+				if (x && Math.random() < 0.6) {
+					this.bdays[`${d}:${x.id}:${b.id}`] = 1
+					const lines = BIRTHDAY(name)
+					return this.startConvo({ members: [x.id, b.id], order: [x.id, b.id, x.id], lines, birthday: true }, { lines }, force)
+				}
+			}
+		}
+		// 3) Seguimiento de una charla de días anteriores («¿cómo te fue en el banco?»)
 		this.follows = this.follows.filter(f => now - f.at < 5 * DAY)
 		const fu = this.follows.find(f => f.at <= now && this.allowedPair(f.from, f.to) && ready.some(a => a.id === f.from) && list.some(x => x.id === f.to && free(x)) && this.awake(snap.byId.get(f.from), hour, wd) >= 0.5)
 		if (fu && Math.random() < 0.7) {
@@ -956,9 +1140,15 @@ export class WarmupManager {
 		// A veces la charla es en el grupo de tus números
 		const g = this.group()
 		if (g && this.s.groups && Math.random() < (this.hot() ? 0.32 : 0.16)) {
-			const members = ready.filter(a => g.members.includes(a.id) && !this.mentorsOf(a.id).length)
+			const members = ready.filter(a => g.members.includes(a.id) && !this.mentorsOf(a.id).length && a.phase >= 2)
 			if (members.length >= 3) {
 				const people = weightedSample(members, a => 0.2 + this.awake(a, hour, wd), Math.min(members.length, irnd(3, 4)))
+				// A veces es una encuesta («¿Qué pedimos?») y los demás contestan
+				if (people.length >= 3 && Math.random() < 0.25) {
+					const lines = pollConvo(pick(GROUP_POLLS))
+					const order = [people[0].id, people[1].id, people[2].id, people[0].id]
+					return this.startConvo({ group: g.jid, members: people.map(p => p.id), order, lines, poll: true }, { lines }, force)
+				}
 				const script = weighted(GROUP_SCRIPTS, sc => fitOf(sc) * (this.recent.includes(keyOf(sc)) ? 0.05 : 1))
 				if (script && people.length >= 3) {
 					const order = [people[0].id]
@@ -973,7 +1163,8 @@ export class WarmupManager {
 		const starter = weighted(ready, a => {
 			if (!partnersOf(a).length) return 0
 			const kids = (this.mentorOk(a.id) ? this.godchildrenOf(a.id) : []).filter(k => { const x = snap.byId.get(k); return x && free(x) && (!x.grace || this.recvToday(x.id) < GRACE_RECEIVE) })
-			return (force ? 1 : this.awake(a, hour, wd) ** 1.5) * (a.target - this.sentToday(a.id)) * (kids.length ? 1.5 : 1)
+			return (force ? 1 : this.awake(a, hour, wd) ** 1.5) * (a.target - this.sentToday(a.id)) * (kids.length ? 1.5 : 1) *
+				(campaignRecent(a.id, Date.now() - 30 * MIN) ? 1.6 : 1) // si está haciendo masivos, platica entre envíos
 		})
 		if (!starter) return list.some(a => busyIds.has(a.id) && this.canSpeak(a, false)) ? 'busy' : 'none'
 		// Con quién: quien no ha hablado con él hace tiempo, despierto, y más si hoy hizo masivos.
@@ -984,30 +1175,66 @@ export class WarmupManager {
 			(0.2 + this.awake(x, hour, wd)) *
 			(this.lastPair(starter.id, x.id) ? clamp((Date.now() - this.lastPair(starter.id, x.id)) / DAY, 0.15, 1.5) : 2.5) *
 			(this.pairToday(starter.id, x.id) >= PAIR_PER_DAY ? 0.08 : 1) *
+			relWeight(relOf(starter.id, x.id), hour, wd) * // la familia en la mañana y noche, el trabajo en horario laboral…
 			(1 + Math.min(1.5, x.campaign / 40)) *
 			(x.grace ? 0.7 : this.canSpeak(x, false) ? 1 : 0.35) *
 			this.pairBoost(starter, x))
 		if (!partner) return this.convos.size ? 'busy' : 'none'
-		// Guion según el momento y lo que haya disponible (fotos, audios), sin repetir los recientes
-		const script = this.pickScript(hour, wd)
+		const rel = relOf(starter.id, partner.id)
+		const minPhase = Math.min(starter.phase ?? 4, partner.phase ?? 4)
+		// A veces empieza una historia de varios días («¿comemos el jueves?»)
+		if (minPhase >= 2 && this.arcs.length < 30 && Math.random() < 0.2 && !this.arcs.some(x => pairKey(x.a, x.b) === pairKey(starter.id, partner.id))) {
+			const def = pick(ARCS.filter(x => x.rels.includes(rel)))
+			if (def) {
+				const built = buildArc(def, startOfDay(), wd)
+				const arc = { id: ++this.seq, a: starter.id, b: partner.id, key: built.key, steps: built.steps, i: 0, eventAt: built.eventAt }
+				this.arcs.push(arc)
+				this.countPair(starter.id, partner.id)
+				return this.runArcStep(arc, force)
+			}
+		}
+		// Guion según el momento, su relación y lo que haya disponible (fotos, audios), sin repetir los recientes
+		const script = this.pickScript(hour, wd, rel, minPhase)
 		if (!script) return 'none'
 		let lines = [...script.lines]
+		// A veces lo saluda por su nombre
+		const nm = this.names.get(partner.id)?.first
+		let named = false
+		if (nm && !script.greets && !script.forward && rel !== 'conocidos' && typeof lines[0] === 'string' && Math.random() < 0.2) {
+			lines[0] = rel === 'trabajo' ? `{Hola|Buen día|Oye} ${nm}||${lines[0]}` : `{Hola|Qué onda|Oye|Hey} ${nm}||${lines[0]}`
+			named = true
+		}
 		// Recién vinculado: solo recibe (un mensaje, sin respuesta)
 		if (partner.grace || !this.canSpeak(partner, true)) lines = lines.slice(0, 1)
-		if (!script.when && !script.greets && !script.custom && typeof lines[0] === 'string' && Math.random() < 0.25) {
+		if (!named && !script.when && !script.greets && !script.custom && !script.forward && typeof lines[0] === 'string' && Math.random() < 0.25) {
 			lines[0] = `${mo.morning ? GREET.morning : hour >= 12 && hour < 19 ? GREET.afternoon : GREET.night}||${lines[0]}`
 		}
 		const order = lines.map((_, i) => (i % 2 === 0 ? starter.id : partner.id))
 		this.countPair(starter.id, partner.id)
 		return this.startConvo({ members: [starter.id, partner.id], order, lines, when: script.when }, script, force)
 	}
-	pickScript(hour, wd) {
+	// Arranca el paso que toca de una historia (cada paso es una charla corta)
+	runArcStep(arc, force) {
+		const st = arc.steps[arc.i]
+		const first = st.starter === 'a' ? arc.a : arc.b
+		const second = first === arc.a ? arc.b : arc.a
+		const lines = [...st.lines]
+		arc.i++
+		this.dirty = true
+		return this.startConvo({ members: [first, second], order: lines.map((_, k) => (k % 2 === 0 ? first : second)), lines, arc: arc.key }, { lines }, force)
+	}
+
+	// Guion según el momento, la relación de los dos (trabajo, familia, amigos…) y su fase
+	pickScript(hour, wd, rel = null, phase = 4) {
 		const mo = moments(hour, wd)
 		const fitOf = sc => (!sc.when ? (mo.night ? 0.4 : 1) : mo[sc.when] ? MOMENT_BOOST[sc.when] : 0)
 		const av = this.available()
-		const pool = [...SCRIPTS, ...CALL_SCRIPTS.map(x => ({ ...x, weight: 0.6 })), ...this.custom]
+		const pool = [...SCRIPTS, ...CALL_SCRIPTS.map(x => ({ ...x, weight: 0.6 })), ...this.custom,
+			...(rel ? (REL_SCRIPTS[rel] || []).map(x => ({ ...x, weight: 1.6 })) : []),
+			...(phase >= 3 ? FORWARD_SCRIPTS.map(x => ({ ...x, weight: 0.35 })) : [])]
 		return weighted(pool, sc => {
-			for (const n of needs(sc)) if (!av[n]) return 0
+			if (phase < 2 && needs(sc).size) return 0 // en las primeras fases, solo texto
+			for (const n of needs(sc)) if (n !== 'forward' && !av[n]) return 0
 			return fitOf(sc) * (sc.weight ?? (sc.custom ? 1.5 : 1)) * (this.recent.includes(keyOf(sc)) ? 0.03 : 1)
 		})
 	}
@@ -1060,7 +1287,14 @@ export class WarmupManager {
 			await sleep(Math.min(7000, irnd(700, 1300) + text.length * p.speed))
 		}
 		const sendText = async (raw, quoted) => {
-			const parts = bubbles(raw).map(t => styleText(t, p))
+			// No repite el mismo texto que mandó en los últimos días (vuelve a sortear las variantes)
+			const memo = this.memo.get(speaker.id) || new Map()
+			const recentText = t => t.length > 12 && Date.now() - (memo.get(t.toLowerCase()) || 0) < 3 * DAY
+			let parts = bubbles(raw).map(t => styleText(t, p))
+			for (let k = 0; k < 4 && parts.some(recentText); k++) parts = bubbles(raw).map(t => styleText(t, p))
+			for (const t of parts) memo.set(t.toLowerCase(), Date.now())
+			if (memo.size > 400) for (const k of [...memo.keys()].slice(0, 100)) memo.delete(k)
+			this.memo.set(speaker.id, memo)
 			for (let j = 0; j < parts.length; j++) {
 				await typing(parts[j])
 				// A veces se le va un error de dedo y luego lo corrige
@@ -1082,8 +1316,10 @@ export class WarmupManager {
 				if (j < parts.length - 1) await sleep(irnd(500, 1800))
 			}
 		}
+		// En las primeras fases solo manda texto
+		if (typeof line === 'object' && (speaker.phase ?? 4) < 2 && !['statusReply'].includes(line.media)) line = line.fallback || '{Ok|Va}'
 		if (typeof line === 'string') {
-			const av = this.available()
+			const av = (speaker.phase ?? 4) >= 2 ? this.available() : {}
 			// Respuesta corta → a veces solo un sticker
 			if (ctx.reply && av.sticker && line.replace(/\{[^}]*\}/g, 'xx').length <= 30 && Math.random() < 0.05 + 0.08 * (p.emoji || 0)) {
 				const f = this.pickMedia('sticker')
@@ -1107,7 +1343,30 @@ export class WarmupManager {
 			return ids
 		}
 		let content = null
-		if (line.media === 'image') {
+		if (line.media === 'poll' && line.poll) {
+			// Encuesta en el grupo
+			await session.setPresence(toJid, 'composing')
+			await sleep(irnd(3000, 7000))
+			content = { poll: { name: line.poll.name, values: line.poll.values, selectableCount: 1 } }
+		} else if (line.media === 'forward') {
+			// Reenvía algo que le mandó otro de tus números en otro chat
+			try {
+				const rows = q.recentOwnIn.all(speaker.id, Date.now() - 3 * DAY).filter(r => isOwnJid(r.jid) && r.jid !== toJid && !/^\*/.test(r.text))
+				const r = pick(rows)
+				if (r) {
+					await sleep(irnd(1500, 4000))
+					content = { forward: { key: { remoteJid: r.remote_jid, id: r.id, fromMe: false }, message: { conversation: r.text } } }
+				}
+			} catch {}
+		} else if (line.media === 'statusReply' && line.statusId) {
+			// Contesta un estado: el mensaje sale citando el estado, como en WhatsApp
+			const text = styleText(vary(pick(STATUS_REPLIES)), p)
+			await typing(text)
+			const quoted = { key: { remoteJid: 'status@broadcast', id: line.statusId, participant: line.poster, fromMe: false }, message: { conversation: line.statusText || '📷' } }
+			const r = await session.send(toJid, { text }, undefined, { quoted })
+			if (r?.id) ids.push(r.id)
+			return ids
+		} else if (line.media === 'image') {
 			const f = this.pickMedia('image')
 			if (f) {
 				const caption = line.caption ? styleText(vary(line.caption), p) : ''
@@ -1184,7 +1443,7 @@ export class WarmupManager {
 			}
 			const third = snap.list.find(a => !c.members.includes(a.id))
 			// Muy de vez en cuando manda algo que era para otro chat y lo borra para todos
-			if (!c.group && Math.random() < 0.015) ids.push(...await this.wrongMessage(session, speaker, toJid))
+			if (!c.group && (speaker.phase ?? 4) >= 3 && Math.random() < 0.015) ids.push(...await this.wrongMessage(session, speaker, toJid))
 			ids.push(...await this.sendLine(session, speaker, toJid, line, { quoted, third, reply: c.i > 0 }))
 			for (let k = 0; k < ids.length; k++) this.log(speaker.id, one?.id)
 			c.n += ids.length
@@ -1203,7 +1462,7 @@ export class WarmupManager {
 		let next = null
 		for (const l of listeners) {
 			const t = this.replyTiming(l, h, wd)
-			if (!c.group || Math.random() < 0.8) this.queue.push({ at: Date.now() + t.readIn, kind: 'read', readerId: l.id, fromPhone: speaker.phone, group: c.group || undefined })
+			if (!c.group || Math.random() < 0.8) this.queue.push({ at: Date.now() + t.readIn, kind: 'read', readerId: l.id, fromPhone: speaker.phone, group: c.group || undefined, msgId: ids[ids.length - 1], media: typeof line === 'object' })
 			if (c.i < c.lines.length && l.id === c.order[c.i]) next = t
 		}
 		// Fin del guion, o a veces se queda "en visto".
@@ -1212,7 +1471,7 @@ export class WarmupManager {
 		if (c.i >= c.lines.length && !c.group && (c.chained || 0) < (this.hot() ? 3 : 1) && Math.random() < (this.hot() ? 0.6 : 0.3)) {
 			const other = c.members.find(id => id !== speaker.id)
 			const o = snap.byId.get(other)
-			const sc = o && this.canSpeak(o, true) && this.canSpeak(speaker, true) && this.awake(o, h, wd) >= 0.5 ? this.pickScript(h, wd) : null
+			const sc = o && this.canSpeak(o, true) && this.canSpeak(speaker, true) && this.awake(o, h, wd) >= 0.5 ? this.pickScript(h, wd, relOf(speaker.id, other), Math.min(speaker.phase ?? 4, o.phase ?? 4)) : null
 			if (sc && !sc.greets) {
 				const extra = [...sc.lines]
 				if (typeof extra[0] === 'string') extra[0] = `{Oye|Por cierto|Otra cosa|Oye, cambiando de tema}||${extra[0]}`
@@ -1261,6 +1520,7 @@ export class WarmupManager {
 		const now = Date.now()
 		const cands = snap.list.filter(a => !a.grace && a.level !== 'red' && !a.restricted && !this.flagged(a.id) && !this.busyReal(a.id))
 		for (const a of cands.sort(() => Math.random() - 0.5)) {
+			if ((a.phase ?? 4) < 2 && this.profiles.get(a.id)?.picture !== false) continue // en las primeras fases solo se le pone foto si no tiene
 			const log = this.profileLog[a.id] ||= {}
 			const session = this.manager.sessions.get(a.id)
 			if (now - (log.about || this.since(a)) > (10 + hash01(a.id, 41) * 12) * DAY) {
@@ -1288,6 +1548,54 @@ export class WarmupManager {
 				return
 			}
 		}
+	}
+
+	// Tus números se guardan como contactos entre sí (después de haber platicado), con el nombre que les pusiste
+	async maybeSaveContact(snap) {
+		if (!this.s.contacts || Math.random() > 0.6) return
+		const now = Date.now()
+		const cands = []
+		for (const a of snap.list) {
+			if ((a.phase ?? 4) < 1 || this.busyReal(a.id)) continue
+			for (const b of snap.list) {
+				if (b.id === a.id || !this.lastPair(a.id, b.id)) continue
+				const k = `${a.id}>${b.id}`
+				const st = this.saved[k]
+				if (st?.ok || (st && now - st.at < 3 * DAY)) continue
+				cands.push([a, b, k])
+			}
+		}
+		const c = pick(cands)
+		if (!c) return
+		const [a, b, k] = c
+		try {
+			await this.manager.sessions.get(a.id).saveContact(jidOf(b.phone), b.name || this.names.get(b.id)?.first || 'Contacto')
+			this.saved[k] = { at: now, ok: true }
+		} catch (e) { this.saved[k] = { at: now, ok: false, error: String(e?.message || e).slice(0, 80) } }
+		setJSON('warmup_contacts', this.saved)
+		this.lastActionAt = Date.now() + irnd(10, 30) * 1000
+	}
+	// Cada número fija el chat con quien más platica de su familia o amigos (una vez)
+	async maybePinChat(snap) {
+		if (Math.random() > 0.25) return
+		const a = pick(snap.list.filter(x => (x.phase ?? 4) >= 2 && !this.pinned[x.id] && !this.busyReal(x.id)))
+		if (!a) return
+		const close = snap.list.filter(b => b.id !== a.id && ['familia', 'amigos'].includes(relOf(a.id, b.id)) && this.lastPair(a.id, b.id))
+			.sort((x, y) => this.lastPair(a.id, y.id) - this.lastPair(a.id, x.id))[0]
+		if (!close) return
+		try { await this.manager.sessions.get(a.id).pinChat(this.chatJid(a.id, close.phone), true); this.pinned[a.id] = { at: Date.now(), peer: close.id } }
+		catch { this.pinned[a.id] = { at: Date.now(), failed: true } }
+		setJSON('warmup_pinned', this.pinned)
+	}
+	// A veces alguien silencia el grupo unas horas, como cuando hay mucho mensaje
+	async maybeMuteGroup(snap) {
+		const g = this.group()
+		if (!g || Math.random() > 0.05) return
+		const d = dayKey()
+		const m = pick(snap.list.filter(x => g.members.includes(x.id) && (this.muted[x.id] == null || d - this.muted[x.id] >= 3) && (x.phase ?? 4) >= 2))
+		if (!m) return
+		this.muted[m.id] = d
+		await this.manager.sessions.get(m.id).muteChat(g.jid, irnd(2, 8) * 36e5)
 	}
 
 	// Reporte semanal (lunes después de las 9): cuánto subió la madurez y cuáles ya están listos

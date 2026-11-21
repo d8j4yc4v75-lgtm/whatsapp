@@ -459,6 +459,7 @@ function render() {
 	else if (r.name === 'accounts') renderAccounts()
 	else if (r.name === 'account') renderAccount(Number(r.arg), changed)
 	else if (r.name === 'settings') { if (changed) renderSettings() }
+	else if (r.name === 'warmup') { if (changed) renderWarmupPage() }
 	else if (r.name === 'mail') { if (changed) renderMail() }
 	else {
 		renderInbox(changed)
@@ -491,7 +492,7 @@ async function renderMail() {
 
 function tabs(active) {
 	const t = (name, icon, text, href) =>
-		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') ? 'active' : ''}">${icon}<span>${text}</span>${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
+		`<a href="${href}" class="${active === name || (name === 'accounts' && active === 'account') || (name === 'settings' && active === 'warmup') ? 'active' : ''}">${icon}<span>${text}</span>${name === 'inbox' ? '<i class="badge" id="tab-badge" hidden></i>' : ''}</a>`
 	const sends = S.accounts.length ? t('campaigns', IC.send, 'Envíos', '#/campaigns') : ''
 	return `<nav class="tabs">${t('inbox', IC.chats, 'Chats', '#/')}${sends}${t('mail', IC.mail, 'Correos', '#/mail')}${t('accounts', IC.phone, 'Cuentas', '#/accounts')}${t('settings', IC.gear, 'Ajustes', '#/settings')}</nav>`
 }
@@ -2328,8 +2329,8 @@ function renderSettings() {
 			<p class="hint">Al tocar enviar se abre una revisión con el texto corregido (acentos, abreviaturas, signos y mayúsculas) y una versión más cordial; eliges cuál mandar o la editas. También puedes usar el botón ✨ junto al mensaje. Todo se hace en tu servidor, sin IA ni servicios externos.</p>
 
 			<div class="section">Calentamiento de números</div>
-				<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
-				<p class="hint">Tus números conversan entre sí con charlas naturales (saludos, pendientes, comida, clima…), a cualquier hora pero como una persona: mucho de día y casi nada de madrugada. Reparte los mensajes del día según la hora, contesta en uno o dos mensajes, a veces citando o con una reacción, y da más charla a los números que hicieron masivos. Los recién vinculados solo reciben sus primeras 24 h y los que están en descanso charlan poquito. Cada número escribe a su manera (risa, emojis, acentos, rapidez). Si los mensajes de un número dejan de llegarle a tus otros números, lo pausa y te avisa. Los números maduros platican más con los nuevos, y puedes elegir <b>padrinos</b> para un número (solo hablará con ellos). Los números restringidos por WhatsApp solo contestan y, al terminar la restricción, regresan poco a poco. Con <b>⚡ Turbo</b> (×2), <b>🔥 Máximo</b> (×3) o una <b>sesión intensiva</b> (×2.5) habla mucho más, solo con números sanos y sin pasar un tope diario según la antigüedad (8 el primer día, 15 hasta 3 días, 30 hasta 7, 50 hasta 14 y 80 después). Un padrino con problemas deja de hablar con su ahijado hasta recuperarse; si los mensajes de un número tardan en llegar, baja su ritmo; puedes preparar un número para un masivo con fecha; te avisa cuando uno queda listo y los lunes te manda un reporte. A veces se equivocan al escribir y lo corrigen, y días después retoman temas («¿cómo te fue en el banco?»). Estos chats se archivan solos y no te mandan notificaciones. Necesitas al menos <b>2 números conectados</b>.</p>
+				<div class="group"><a class="item" href="#/warmup"><span class="grow">Calentamiento<small id="wu-sum">Cargando…</small></span>${IC.chevron}</a></div>
+				<p class="hint">Tus números platican entre sí como personas para que WhatsApp confíe en ellos antes de usarlos en masivos.</p>
 
 				<div class="section">Días sin envíos masivos</div>
 			<div class="chips" style="padding:8px 16px">${[[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']].map(([d, t]) => `<button class="chip ${S.restDays.includes(d) ? 'on' : ''}" style="--c:#7C5CFF" data-act="rest-day" data-val="${d}">${t}</button>`).join('')}</div>
@@ -2389,13 +2390,85 @@ function renderStorage(st) {
 		<button class="btn" data-act="storage-save">Guardar</button>`
 }
 
+// ---------- Centro de calentamiento (página propia) ----------
+function renderWarmupPage() {
+	const view = $('#view')
+	view.innerHTML = `${navBar('Calentamiento', '#/settings', 'Ajustes')}
+		<div id="wu-overview"><div class="empty">Cargando…</div></div>
+		<div class="section">Números, ajustes y biblioteca</div>
+		<div id="warmup-box" class="group"><div class="item"><span class="grow">Cargando…</span></div></div>
+		<p class="hint">Tus números platican entre sí como personas: cada uno tiene nombre, cumpleaños y relaciones (familia, amigos, trabajo, conocidos) que deciden cuándo y de qué hablan. Hay historias de varios días («¿comemos el jueves?» → el jueves «ya llegué»), encuestas en el grupo, estados que se contestan, reenvíos, mensajes destacados y chats fijados. Cada número avanza por fases: recién vinculado → primeros pasos → socializando → activo → listo para masivos. Tus números se guardan como contactos entre sí y, si un número va bien varios días seguidos, habla un poco más cada día. Nunca escribe a contactos ni clientes: solo entre tus números vinculados.</p>`
+	loadWarmup()
+}
+const ARC_ICON = { comida: '🍽️', paquete: '📦', doctor: '🩺', viaje: '✈️', partido: '⚽', reporte: '📄' }
+const ARC_NAME = { comida: 'Comida', paquete: 'Paquete', doctor: 'Cita con el doctor', viaje: 'Viaje', partido: 'Partido', reporte: 'Reporte del trabajo' }
+const PHASE_COLOR = ['#8E8E93', '#FF3B30', '#FF9500', '#0A84FF', '#25D366']
+function renderWarmupOverview(st) {
+	const el = $('#wu-overview'); if (!el) return
+	const p = st.plan || {}
+	const nums = st.numbers || []
+	const nameOf = id => account(id)?.name || nums.find(n => n.id === id)?.name || `#${id}`
+	const ready = nums.filter(n => n.phase === 4).length
+	const tile = (v, label, sub = '') => `<div class="wu-tile"><b>${v}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`
+	// Actividad de hoy por hora
+	const hr = st.hourly || []
+	const hMax = Math.max(1, ...hr)
+	const nowH = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Mexico_City', hour: 'numeric', hourCycle: 'h23' }).format(new Date())) % 24
+	const hours = `<div class="wu-hours">${hr.map((v, i) => `<div title="${i}:00 · ${v} mensajes"><i style="height:${Math.max(2, Math.round(v / hMax * 48))}px;${i === nowH ? 'background:var(--accent)' : ''}"></i>${i % 6 === 0 ? `<span>${i}</span>` : ''}</div>`).join('')}</div>`
+	// Red de relaciones (círculo): grosor = mensajes de 7 días, color = relación
+	const net = st.network || { nodes: [], edges: [] }
+	const R = 95, CX = 180, CY = 150
+	const pos = new Map(net.nodes.map((n, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / Math.max(1, net.nodes.length); return [n.id, [CX + R * Math.cos(a), CY + R * Math.sin(a), a]] }))
+	const eMax = Math.max(1, ...net.edges.map(e => e.n))
+	const rels = st.rels || {}
+	const svg = net.nodes.length >= 2 ? `<svg viewBox="0 0 360 300" class="wu-net" role="img" aria-label="Red de charlas entre tus números">
+		${net.edges.map(e => { const a = pos.get(e.a), b = pos.get(e.b); if (!a || !b) return ''; return `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="${rels[e.rel]?.color || '#999'}" stroke-opacity="${(0.25 + 0.5 * e.n / eMax).toFixed(2)}" stroke-width="${(0.8 + 4 * Math.sqrt(e.n / eMax)).toFixed(1)}"><title>${esc(nameOf(e.a))} ↔ ${esc(nameOf(e.b))}: ${e.n} mensajes · ${rels[e.rel]?.label || ''}</title></line>` }).join('')}
+		${net.nodes.map(n => { const [x, y, a] = pos.get(n.id); const lx = CX + (R + 14) * Math.cos(a), ly = CY + (R + 14) * Math.sin(a); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="9" fill="${PHASE_COLOR[n.phase] || '#999'}" stroke="var(--card)" stroke-width="2"><title>${esc(n.name)} · madurez ${n.score}</title></circle><text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" text-anchor="${Math.abs(Math.cos(a)) < 0.3 ? 'middle' : Math.cos(a) > 0 ? 'start' : 'end'}" class="wu-net-label">${esc(String(n.name).slice(0, 12))}</text>` }).join('')}
+	</svg>
+	<div class="wu-legend">${Object.values(rels).map(r => `<span><i style="background:${r.color}"></i>${r.label}</span>`).join('')}</div>
+	<div class="wu-legend">${(st.phases || []).map((ph, i) => `<span><i class="dot" style="background:${PHASE_COLOR[i]}"></i>${ph.label}</span>`).join('')}</div>` : '<p class="hint">Aparece cuando tus números empiecen a platicar.</p>'
+	// Fases
+	const phases = (st.phases || []).map((ph, i) => {
+		const inPh = nums.filter(n => n.phase === i)
+		return `<div class="item" style="align-items:flex-start"><span class="wu-ph" style="background:${PHASE_COLOR[i]}">${i + 1}</span><span class="grow">${ph.label}<small>${esc(ph.desc)}</small>${inPh.length ? `<small style="margin-top:4px">${inPh.map(n => esc(n.name)).join(', ')}</small>` : ''}</span><span class="muted">${inPh.length}</span></div>`
+	}).join('')
+	// Historias y cumpleaños
+	const dt = t => new Date(t).toLocaleString('es-MX', { weekday: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+	const arcs = (st.arcs || []).map(a => `<div class="item"><span class="grow">${ARC_ICON[a.key] || '📖'} ${ARC_NAME[a.key] || a.key} · ${esc(nameOf(a.a))} y ${esc(nameOf(a.b))}<small>${a.nextAt ? `Siguiente paso: ${dt(a.nextAt)} · paso ${a.step + 1} de ${a.steps}` : 'Terminando'}</small></span></div>`).join('')
+	const bdays = (st.birthdays || []).map(id => { const n = nums.find(x => x.id === id); return `<div class="item"><span class="grow">🎂 Hoy cumple ${esc(n?.persona?.first || '')} (${esc(nameOf(id))})<small>Su familia y amigos lo felicitan, también en el grupo</small></span></div>` }).join('')
+	el.innerHTML = `
+		<div class="wu-tiles">
+			${tile(`${p.sentToday || 0}<small>/${p.totalPerDay || 0}</small>`, 'Mensajes hoy', p.activity ? `Actividad ${({ alta: 'alta', media: 'media', baja: 'baja', fuera: 'fuera de horario' })[p.activity]}` : '')}
+			${tile(p.activeConvos || 0, 'Charlas en curso', p.typingNow ? `${p.typingNow} escribiendo` : '')}
+			${tile(`${ready}<small>/${nums.length}</small>`, 'Listos para masivos')}
+			${tile(st.contactsSaved || 0, 'Contactos guardados', 'entre tus números')}
+		</div>
+		<div class="section">Hoy, por hora</div>
+		<div class="group"><div class="item" style="display:block">${hours}</div></div>
+		${bdays || arcs ? `<div class="section">Historias en curso</div><div class="group">${bdays}${arcs}</div>` : ''}
+		<div class="section">Quién platica con quién (7 días)</div>
+		<div class="group"><div class="item" style="display:block">${svg}</div></div>
+		<div class="section">Programa por fases</div>
+		<div class="group">${phases}</div>`
+}
+
 async function loadWarmup() {
+	const sum = $('#wu-sum')
+	if (sum) {
+		try {
+			const st = await api('GET', '/warmup'); S.warmup = st
+			const p = st.plan || {}
+			sum.textContent = !st.enabled ? 'En pausa' : st.eligible < 2 ? 'Faltan números conectados' : `Funcionando · ${p.sentToday || 0} de ${p.totalPerDay || 0} mensajes hoy · ${p.activeConvos || 0} charla(s) en curso`
+		} catch { sum.textContent = 'No se pudo cargar' }
+		return
+	}
 	const box = $('#warmup-box'); if (!box) return
 	try { renderWarmupBox(await api('GET', '/warmup')) } catch { box.innerHTML = '<div class="item"><span class="grow">No se pudo cargar</span></div>' }
 }
 function renderWarmupBox(st) {
 	const box = $('#warmup-box'); if (!box) return
 	S.warmup = st
+	renderWarmupOverview(st)
 	const p = st.plan || {}
 	const sw = (act, on) => `<label class="switch"><input type="checkbox" data-act="${act}" ${on ? 'checked' : ''}><i></i></label>`
 	const state = st.eligible < 2 ? `<span class="pill warn">${st.eligible} conectado(s) · faltan números</span>`
@@ -2409,15 +2482,17 @@ function renderWarmupBox(st) {
 		: n.grace ? 'Recién vinculado: solo recibe sus primeras 24 h'
 			: n.resting && n.target > 0 ? `En descanso de masivos: charla ligera · ${n.sentToday} de ${n.target} hoy`
 				: n.target > 0 && n.sentToday >= n.target ? `✅ Ya cumplió su cupo de hoy (${n.target}). Sube la intensidad si quieres que hable más · habló con ${n.peersToday} número(s)`
-				: n.target > 0 && n.busyReal ? `Atendiendo clientes o un masivo: retoma en unos minutos · ${n.sentToday} de ${n.target} hoy`
+				: n.target > 0 && n.busyReal ? `Atendiendo a un cliente: retoma en unos minutos · ${n.sentToday} de ${n.target} hoy`
 				: n.target > 0 ? `${n.sentToday} de ${n.target} hoy${n.atCap && st.hot ? ' (tope por antigüedad)' : ''} · habló con ${n.peersToday} número(s) · recibió ${n.receivedToday} · ${n.ageDays} día(s)${n.campaignToday ? ` · ${n.campaignToday} masivos hoy` : ''}`
 					: 'Hoy no envía (rechazos o mensajes sin entregar); solo recibe'
 	const bar = (v, max, color = 'var(--accent)') => `<div style="height:4px;border-radius:2px;background:var(--fill);margin-top:6px;overflow:hidden"><div style="height:100%;width:${Math.min(100, max ? Math.round(v / max * 100) : 0)}%;background:${color}"></div></div>`
 	const matColor = sc => sc >= 70 ? 'var(--accent)' : sc >= 40 ? 'var(--warn)' : 'var(--danger)'
 	const nums = (st.numbers || []).map(n => {
 		const m = n.maturity || { score: 0, label: '—', tips: [] }
-		return `<div class="item" style="align-items:flex-start"><span class="grow">${esc(n.name)}
+		return `<div class="item" style="align-items:flex-start"><span class="grow">${esc(n.name)}${n.persona ? ` <span class="muted" style="font-size:13px">· se presenta como ${esc(n.persona.first)}</span>` : ''}
 			<small>${numState(n)}</small>
+			${n.phaseLabel ? `<small style="margin-top:6px"><span class="wu-ph sm" style="background:${PHASE_COLOR[n.phase] || '#999'}">${n.phase + 1}</span> Fase ${n.phase + 1} de 5 · <b>${esc(n.phaseLabel)}</b>${n.phaseNext ? ` · siguiente: ${esc(n.phaseNext)}` : ''}</small>${n.phase < 4 ? bar(n.phaseProgress || 0, 1, PHASE_COLOR[n.phase]) : ''}` : ''}
+			${n.streak ? `<small style="margin-top:4px">🔥 Racha sana: ${n.streak} día(s)${n.streakBonus ? ` · habla ${n.streakBonus}% más` : ''}${n.contacts ? ` · 📇 ${n.contacts} contacto(s) guardado(s)` : ''}</small>` : n.contacts ? `<small style="margin-top:4px">📇 ${n.contacts} contacto(s) guardado(s)</small>` : ''}
 			${n.target > 0 ? bar(n.sentToday, n.target) : ''}
 			<small style="margin-top:6px">Madurez <b style="color:${matColor(m.score)}">${m.score}/100 · ${m.label}</b>${n.weekDelta ? ` <b style="color:${n.weekDelta > 0 ? 'var(--accent)' : 'var(--danger)'}">${n.weekDelta > 0 ? '▲ +' : '▼ '}${n.weekDelta} esta semana</b>` : ''}${m.score < 70 && m.readyIn ? ` · lista en ~${m.readyIn} día(s)` : ''}</small>
 			${n.prepAt ? `<small style="margin-top:4px">📅 ${n.prepAt > Date.now() ? `Preparándose para masivo el ${new Date(n.prepAt).toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })}: sube su actividad poco a poco` : 'Recuperándose del masivo: charla extra 2 días'}</small>` : ''}
@@ -2474,6 +2549,7 @@ function renderWarmupBox(st) {
 		<div class="item"><span class="grow">Fotos, audios, stickers, GIFs, ubicación y contactos<small>Mensajes variados, no solo texto</small></span>${sw('warmup-media-t', st.media)}</div>
 		<div class="item"><span class="grow">Cambios de perfil<small>Cada número cambia su info cada 10–22 días y su foto cada 35–65 días (usa fotos de la biblioteca; si no tiene foto, le pone una)</small></span>${sw('warmup-profiles', st.profiles)}</div>
 		<div class="item"><span class="grow">Estados<small>Cada número publica un estado cada 2–4 días. Solo lo ven tus números vinculados, nunca tus contactos ni clientes</small></span>${sw('warmup-stories', st.stories)}</div>
+		<div class="item"><span class="grow">Guardarse como contactos<small>Tus números se agregan entre sí a la agenda (con el nombre que les pusiste en la app) después de platicar. WhatsApp confía más en mensajes entre contactos.</small></span>${sw('warmup-contacts', st.contacts)}</div>
 		<div class="item"><span class="grow">Grupo entre tus números<small>${st.group ? `«${esc(st.group.subject)}» · ${st.group.members} números` : 'Se crea solo cuando hay 3 números con 2+ días'}</small></span>${sw('warmup-groups', st.groups)}</div>
 		<div class="item"><span class="grow">Estado</span>${state}</div>
 		${st.enabled && st.eligible >= 2 ? `
@@ -2960,8 +3036,8 @@ document.addEventListener('click', async e => {
 			catch (err) { toast(err.message) }
 			return
 		}
-		case 'warmup-media-t': case 'warmup-stories': case 'warmup-groups': case 'warmup-profiles': {
-			const key = { 'warmup-media-t': 'media', 'warmup-stories': 'stories', 'warmup-groups': 'groups', 'warmup-profiles': 'profiles' }[act]
+		case 'warmup-media-t': case 'warmup-stories': case 'warmup-groups': case 'warmup-profiles': case 'warmup-contacts': {
+			const key = { 'warmup-media-t': 'media', 'warmup-stories': 'stories', 'warmup-groups': 'groups', 'warmup-profiles': 'profiles', 'warmup-contacts': 'contacts' }[act]
 			try { renderWarmupBox(await api('POST', '/warmup', { enabled: S.warmup?.enabled, [key]: !(S.warmup?.[key]) })) }
 			catch (err) { toast(err.message) }
 			return

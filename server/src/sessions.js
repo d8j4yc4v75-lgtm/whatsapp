@@ -867,6 +867,31 @@ export class Session {
 		} catch { return false }
 	}
 
+	// ---- Para el calentamiento: acciones de app (no son mensajes) ----
+	// Guarda a otro de tus números como contacto (también en la agenda del teléfono)
+	async saveContact(jid, fullName) {
+		const sock = this.requireSocket()
+		if (!isOwnJid(jid)) throw new Error('Solo se guardan tus propios números')
+		const name = String(fullName || '').trim().slice(0, 60)
+		if (!name) throw new Error('Falta el nombre')
+		await sock.addOrEditContact(jid, { fullName: name, firstName: name.split(' ')[0], saveOnPrimaryAddressbook: true })
+	}
+	// Destaca (⭐) un mensaje recibido
+	async starMessage(jid, id, fromMe = false) {
+		const sock = this.requireSocket()
+		await sock.chatModify({ star: { messages: [{ id, fromMe }], star: true } }, jid)
+	}
+	// Fija un chat arriba
+	async pinChat(jid, pin = true) {
+		const sock = this.requireSocket()
+		await sock.chatModify({ pin }, jid)
+	}
+	// Silencia un chat (ms) o lo vuelve a activar (0)
+	async muteChat(jid, ms) {
+		const sock = this.requireSocket()
+		await sock.chatModify({ mute: ms ? Date.now() + ms : null }, jid)
+	}
+
 	async stop() {
 		this.stopped = true
 		try { this.sock?.end(undefined) } catch {}

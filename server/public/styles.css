@@ -827,3 +827,24 @@ select option { background: var(--card); color: var(--text); }
 .tabs a { padding: 7px 0 6px; gap: 2px; font-size: 11px; }
 .tabs a .ic { width: 27px; height: 27px; }
 :has(> .tabs) > .view { padding-bottom: calc(92px + var(--safe-bottom)); }
+
+/* Centro de calentamiento */
+.wu-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 8px 16px 4px; }
+@media (min-width: 700px) { .wu-tiles { grid-template-columns: repeat(4, 1fr); } }
+.wu-tile { background: var(--card); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wu-tile b { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; line-height: 1.1; }
+.wu-tile b small { font-size: 15px; font-weight: 500; color: var(--muted); }
+.wu-tile span { font-size: 13px; color: var(--muted); }
+.wu-tile > small { font-size: 12px; color: var(--accent-strong); }
+.wu-hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; align-items: end; height: 70px; padding-bottom: 14px; position: relative; }
+.wu-hours > div { position: relative; display: flex; align-items: flex-end; justify-content: center; height: 100%; }
+.wu-hours i { display: block; width: 100%; max-width: 12px; border-radius: 3px 3px 0 0; background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.wu-hours span { position: absolute; bottom: -15px; left: 0; font-size: 10px; color: var(--muted); }
+.wu-net { width: 100%; max-width: 360px; display: block; margin: 0 auto; overflow: visible; }
+.wu-net-label { font-size: 9.5px; fill: var(--text); }
+.wu-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.wu-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.wu-legend i { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.wu-legend i.dot { width: 9px; height: 9px; border-radius: 50%; }
+.wu-ph { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.wu-ph.sm { width: 16px; height: 16px; font-size: 10px; vertical-align: -3px; }
