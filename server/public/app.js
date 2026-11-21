@@ -2584,6 +2584,7 @@ function renderWarmupOverview(st) {
 	el.innerHTML = `
 		${st.holiday ? `<div class="wu-caution" style="background:color-mix(in srgb, var(--accent) 14%, var(--card))">🎉 Hoy es <b>${esc(st.holiday)}</b>: tus números se felicitan, publican estados con tarjeta y platican un poco más.</div>` : ''}
 		${st.caution ? `<div class="wu-caution">🛡️ <b>Modo precaución</b> hasta ${new Date(st.caution.until).toLocaleString('es-MX', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}: ${esc(st.caution.reason)}. Todos tus números hablan menos, sin historias nuevas, sin cambios de perfil ni contactos nuevos.</div>` : ''}
+		${st.enabled && !p.activeConvos && st.why?.length ? `<div class="wu-caution" style="background:color-mix(in srgb, #0A84FF 12%, var(--card))">💤 <b>Ahora no hay charlas en curso</b> porque:<br>${st.why.map(x => `• ${esc(x)}`).join('<br>')}</div>` : ''}
 		<div class="wu-tiles">
 			${tile(`${p.sentToday || 0}<small>/${p.totalPerDay || 0}</small>`, 'Mensajes hoy', p.activity ? `Actividad ${({ alta: 'alta', media: 'media', baja: 'baja', fuera: 'fuera de horario' })[p.activity]}` : '')}
 			${tile(p.activeConvos || 0, 'Charlas en curso', p.typingNow ? `${p.typingNow} escribiendo` : '')}

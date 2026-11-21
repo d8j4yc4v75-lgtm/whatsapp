@@ -57,6 +57,9 @@ import {
 // - v5: tarjetas generadas («Buenos días», «Feliz viernes», «Feliz cumpleaños Andrea») y stickers de texto, distintos cada vez,
 //   sin subir nada; fechas especiales de México (Navidad, Día de las Madres, fiestas patrias…); prueba de entrega a demanda
 //   y diaria; rehabilitación tras una restricción; padrinos automáticos para los nuevos y ficha detallada por número.
+// - v5.1 (revisión): consultas rápidas (índice y caché), biblioteca en memoria, grupos solo con quienes de verdad entraron
+//   (y se reparan solos), los nuevos platican entre sí si no hay maduros, la pausa por no entregar se reinicia al terminar,
+//   tareas de fondo que no se quedan sin correr, guardado del estado sin exceso y aviso de por qué no hay charlas.
 // - Intensidad Turbo (×2), Máximo (×3) y «sesión intensiva» (×2.5 por 1–6 h): más charlas a la vez, respuestas más rápidas, charlas que
 //   cambian de tema y más grupo. Solo acelera a números sanos y nunca pasa el tope diario según su antigüedad.
 
@@ -102,6 +105,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS warmup_log (
 db.exec('CREATE INDEX IF NOT EXISTS idx_warmup_ts ON warmup_log (account_id, ts)')
 db.exec('CREATE INDEX IF NOT EXISTS idx_warmup_ts_only ON warmup_log (ts)')
 db.exec('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)')
+// Para saber rápido qué mandó (o recibió) cada número en los últimos minutos sin recorrer todos sus mensajes
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_messages_acc_fromme_ts ON messages (account_id, from_me, ts)') } catch {}
 
 const q = {
 	log: db.prepare('INSERT INTO warmup_log (account_id, peer_id, ts) VALUES (?, ?, ?)'),
@@ -147,7 +152,15 @@ const NAME_OK = /^(img|aud|stk|gif)-[\w-]+\.(jpg|png|webp|ogg|mp4)$/
 const KIND = { img: 'image', aud: 'audio', stk: 'sticker', gif: 'gif' }
 const MAX_FILES = 60
 export const library = {
+	cache: null,
 	list() {
+		// Se lee del disco como máximo cada 30 s (antes se leía en cada mensaje)
+		if (this.cache && Date.now() - this.cache.at < 30000) return this.cache.files
+		const files = this.read()
+		this.cache = { at: Date.now(), files }
+		return files
+	},
+	read() {
 		try {
 			return fs.readdirSync(MEDIA_DIR).filter(f => NAME_OK.test(f)).map(f => {
 				const st = fs.statSync(path.join(MEDIA_DIR, f))
@@ -156,6 +169,7 @@ export const library = {
 		} catch { return [] }
 	},
 	count(kind) { return this.list().filter(f => f.kind === kind).length },
+	changed() { this.cache = null },
 	async add(buffer, mime, originalName, as) {
 		if (!buffer?.length) throw new Error('Falta el archivo')
 		if (buffer.length > 8 * 1024 * 1024) throw new Error('El archivo es muy grande (máximo 8 MB)')
@@ -172,6 +186,7 @@ export const library = {
 			}
 			const name = `stk-${id}.webp`
 			fs.writeFileSync(path.join(MEDIA_DIR, name), webp)
+			this.changed()
 			return name
 		}
 		// GIF: WhatsApp los manda como video MP4 sin sonido que se repite
@@ -183,11 +198,13 @@ export const library = {
 			}
 			const name = `gif-${id}.mp4`
 			fs.writeFileSync(path.join(MEDIA_DIR, name), mp4)
+			this.changed()
 			return name
 		}
 		if (IMG[base]) {
 			const name = `img-${id}.${IMG[base]}`
 			fs.writeFileSync(path.join(MEDIA_DIR, name), buffer)
+			this.changed()
 			return name
 		}
 		if (base.startsWith('audio/') || /\.(m4a|mp3|ogg|opus|wav|aac)$/i.test(originalName || '')) {
@@ -198,6 +215,7 @@ export const library = {
 			}
 			const name = `aud-${id}.ogg`
 			fs.writeFileSync(path.join(MEDIA_DIR, name), ogg)
+			this.changed()
 			return name
 		}
 		throw new Error('Sube una foto (JPG, PNG), sticker, GIF o un audio')
@@ -205,6 +223,7 @@ export const library = {
 	remove(name) {
 		if (!NAME_OK.test(String(name))) throw new Error('Archivo inválido')
 		fs.rmSync(path.join(MEDIA_DIR, name), { force: true })
+		this.changed()
 	},
 	file(name) {
 		if (!NAME_OK.test(String(name))) return null
@@ -248,7 +267,7 @@ function typo(text) {
 // Texto corto de la primera línea para el historial ("{Hola|Buenas}" → "Hola")
 const previewOf = line => typeof line === 'string'
 	? line.replace(/\{([^|}]*)[^}]*\}/g, '$1').replace(/\|\|/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70)
-	: { image: '📷 Foto', audio: '🎤 Nota de voz', location: '📍 Ubicación', contact: '👤 Contacto' }[line?.media] || '…'
+	: { image: '📷 Foto', audio: '🎤 Nota de voz', location: '📍 Ubicación', contact: '👤 Contacto', card: '🖼️ Tarjeta', poll: '📊 Encuesta', forward: '↪️ Reenviado', statusReply: '💬 Respuesta a un estado', sticker: '🏷️ Sticker' }[line?.media] || '…'
 
 function moments(h, wd) {
 	return {
@@ -302,6 +321,10 @@ export class WarmupManager {
 		this.speaking = new Set() // números escribiendo en este momento
 		this.nextFree = {} // cuándo puede volver a escribir cada número
 		this.nextFillAt = 0
+		this.busyCache = new Map()
+		this.persistedAt = 0
+		this.historyDirty = false
+		this.groupFails = {}
 		this.arcs = [] // historias de varios días en curso
 		this.bdays = {} // felicitaciones de cumpleaños ya enviadas (día:de:para)
 		this.streak = {} // días seguidos sanos por número
@@ -392,7 +415,7 @@ export class WarmupManager {
 		if (s.enabled) this.nextConvoAt = Math.min(this.nextConvoAt, Date.now() + (s.boostUntil ? 0.5 : 20) * MIN)
 		else { this.convos.clear(); this.queue = [] }
 		this.dirty = true
-		this.persist()
+		this.persist(true)
 		return s
 	}
 	// Bitácora: lo que el calentamiento decidió y por qué
@@ -426,15 +449,23 @@ export class WarmupManager {
 	}
 
 	// ---- Estado guardado (para no cortar charlas al reiniciar) ----
-	persist() {
+	persist(force = false) {
 		if (!this.dirty) return
+		if (!force && Date.now() - (this.persistedAt || 0) < 10000) { this.persistLater(); return }
+		this.persistedAt = Date.now()
 		this.dirty = false
 		setJSON('warmup_state', {
 			convos: [...this.convos.values()], queue: this.queue, checks: this.checks, fails: this.fails, flags: this.flags,
 			nextConvoAt: this.nextConvoAt, recent: this.recent, seq: this.seq, avgLines: this.avgLines, follows: this.follows, quality: this.quality,
 			arcs: this.arcs, bdays: this.bdays, streak: this.streak, caution: this.caution
 		})
-		setJSON('warmup_history', this.history.slice(0, MAX_HISTORY))
+		if (this.historyDirty) { this.historyDirty = false; setJSON('warmup_history', this.history.slice(0, MAX_HISTORY)) }
+	}
+	// Guarda en cuanto se cumplan los 10 s, aunque no pase nada más
+	persistLater() {
+		if (this.persistTimer) return
+		this.persistTimer = setTimeout(() => { this.persistTimer = null; this.persist() }, 10500)
+		this.persistTimer.unref?.()
 	}
 	restore() {
 		const st = getJSON('warmup_state', null)
@@ -638,6 +669,8 @@ export class WarmupManager {
 		const { wd } = tzNow()
 		const rest = this.restDays()
 		const camp = campaignToday(startOfDay())
+		// Pausas por no entregar que ya terminaron: se borran y el número empieza de cero (si no, la primera falla lo volvía a pausar)
+		for (const [id, f] of Object.entries(this.flags)) if (!f || f.until <= now) { delete this.flags[id]; this.fails[id] = 0; this.dirty = true }
 		const vol = new Map(q.vol.all(now - 14 * DAY).map(r => [r.id, r]))
 		const recv14 = new Map(q.recvSince.all(now - 14 * DAY).map(r => [r.id, r.n]))
 		const list = []
@@ -702,7 +735,7 @@ export class WarmupManager {
 			}
 			list.push(a)
 		}
-		this.snap = { at: now, list, byId: new Map(list.map(a => [a.id, a])) }
+		this.snap = { at: now, list, byId: new Map(list.map(a => [a.id, a])), hasElders: list.some(a => (a.phase ?? 0) >= 2) }
 		// Padrinos automáticos: un número nuevo sin padrinos elegidos recibe a los 3 más maduros y sanos
 		const elders = list.filter(x => (x.phase ?? 0) >= 3 && this.mentorOk(x.id)).sort((x, y) => (y.mature?.score ?? 0) - (x.mature?.score ?? 0))
 		for (const a of list) a.autoMentors = (a.phase ?? 4) <= 1 && !this.mentorsOf(a.id).length ? elders.filter(x => x.id !== a.id).slice(0, 3).map(x => x.id) : []
@@ -743,8 +776,14 @@ export class WarmupManager {
 	// ¿Está ocupado en algo real? (un chat con un cliente o un envío masivo en los últimos minutos)
 	// (los masivos ya no cuentan: un número que hace masivos también platica con tus números, como una persona)
 	busyReal(id) {
+		// Se revisa muchas veces por minuto: se guarda la respuesta 20 s
+		const hit = this.busyCache.get(id)
+		if (hit && Date.now() - hit.at < 20000) return hit.v
 		const since = Date.now() - 3 * MIN
-		try { return q.recentOut.all(id, since).some(r => !isOwnJid(r.jid)) } catch { return false }
+		let v = false
+		try { v = q.recentOut.all(id, since).some(r => !isOwnJid(r.jid)) } catch {}
+		this.busyCache.set(id, { at: Date.now(), v })
+		return v
 	}
 	inWindow(hour) {
 		const s = this.s
@@ -790,6 +829,28 @@ export class WarmupManager {
 	hourlyToday(sod) {
 		const out = Array(24).fill(0)
 		try { for (const { ts } of q.perDay.all(sod)) out[tzNow(ts).h]++ } catch {}
+		return out
+	}
+
+	// Por qué ahora hay poca o ninguna charla (para que no parezca que no funciona)
+	diagnose(snap, h) {
+		const out = []
+		const list = snap.list
+		if (!this.s.enabled) return ['El calentamiento está en pausa']
+		if (list.length < 2) return [`Necesitas al menos 2 números conectados (ahora: ${list.length})`]
+		if (!this.inWindow(h)) out.push('Es fuera del horario que elegiste')
+		else if (CURVE[h] < 0.15) out.push('Es de madrugada: casi todos «duermen» y solo hay charla muy de vez en cuando (así se ve natural)')
+		if (this.cautionActive()) out.push(`Modo precaución: ${this.caution.reason}`)
+		const speakers = list.filter(a => this.canSpeak(a, false))
+		if (!speakers.length) {
+			const grace = list.filter(a => a.grace).length, quota = list.filter(a => !a.grace && a.target > 0 && this.sentToday(a.id) >= a.target).length
+			const stopped = list.filter(a => !a.grace && a.target === 0).length
+			if (quota) out.push(`${quota} número(s) ya cumplieron su cupo de hoy: mañana siguen (o sube la intensidad)`)
+			if (grace) out.push(`${grace} número(s) llevan menos de 24 h vinculados: solo reciben mensajes`)
+			if (stopped) out.push(`${stopped} número(s) no envían hoy (en pausa, restringidos, en descanso o con rechazos)`)
+		} else if (speakers.length === 1 && !list.some(a => a.id !== speakers[0].id && this.allowedPair(speakers[0].id, a.id))) out.push('Solo un número puede hablar y no tiene con quién (revisa sus padrinos)')
+		const busy = list.filter(a => this.busyReal(a.id)).length
+		if (busy) out.push(`${busy} número(s) están atendiendo a un cliente en este momento: retoman en unos minutos`)
 		return out
 	}
 
@@ -843,6 +904,7 @@ export class WarmupManager {
 			holiday: holidayOf()?.title || null,
 			test: this.test ? { ...this.test, results: this.test.results.map(r => ({ id: r.id, name: r.name, toName: r.toName, state: r.state, ms: r.ms, error: r.error })) } : null,
 			pendingFollows: this.follows.length,
+			why: this.diagnose(snap, h),
 			boostUntil: this.boostActive() ? this.s.boostUntil : 0,
 			hot: this.hot(),
 			history: this.history.slice(0, 15),
@@ -924,7 +986,7 @@ export class WarmupManager {
 						await session.viewStatus(ev.poster, ev.msgId)
 						// A veces contesta el estado («¿Dónde es eso?») y el otro le responde
 						const viewer = snap.byId.get(id), poster = snap.byId.get(ev.posterId)
-						if (viewer && poster && (viewer.phase ?? 4) >= 2 && Math.random() < 0.12 && this.convCount(id) < PER_NUMBER && this.convCount(poster.id) < PER_NUMBER + 1 && !this.inConvoWith(id, poster.id) && this.allowedPair(id, poster.id)) {
+						if (viewer && poster && (viewer.phase ?? 4) >= 2 && Math.random() < 0.12 && this.convos.size < this.maxActive(snap.list) && this.convCount(id) < PER_NUMBER && this.convCount(poster.id) < PER_NUMBER + 1 && !this.inConvoWith(id, poster.id) && this.allowedPair(id, poster.id)) {
 							const lines = [{ media: 'statusReply', statusId: ev.msgId, poster: ev.poster, statusText: ev.text || '' }, pick(STATUS_ANSWERS)]
 							this.startConvo({ members: [id, poster.id], order: [id, poster.id], lines, statusReply: true }, { lines }, false)
 						}
@@ -976,7 +1038,7 @@ export class WarmupManager {
 				this.dirty = true
 			}
 			// 4) Tareas de fondo: perfil, grupo y estados
-			if (!acted && Date.now() >= this.nextHousekeeping) {
+			if ((!acted && Date.now() >= this.nextHousekeeping) || Date.now() >= this.nextHousekeeping + 3 * MIN) {
 				this.nextHousekeeping = Date.now() + rnd(4, 9) * MIN
 				await this.housekeeping(snap)
 			}
@@ -1038,12 +1100,21 @@ export class WarmupManager {
 			const members = [owner, ...ok.filter(x => x.id !== owner.id).sort((x, y) => affinity(y) - affinity(x)).slice(0, irnd(2, 5))]
 			if (members.length < 3) return
 			const subject = pick(def.names)
-			const gid = await this.manager.sessions.get(owner.id).createGroup(subject, members.slice(1).map(a => jidOf(a.phone)))
+			let gid = null
+			try { gid = await this.manager.sessions.get(owner.id).createGroup(subject, members.slice(1).map(a => jidOf(a.phone))) }
+			catch (e) { this.logEvent('👥', `No se pudo crear el grupo «${subject}» (${String(e?.message || 'error').slice(0, 50)}); se intenta de nuevo en unas horas`); return }
 			if (!gid) return
-			this.groups = [...groups, { jid: gid, owner: owner.id, members: members.map(a => a.id), subject, kind, at: now }]
+			// Solo cuentan los que de verdad quedaron dentro (WhatsApp a veces no deja agregar a alguno)
+			let confirmed = members
+			try {
+				await sleep(3000)
+				const phones = new Set(await this.manager.sessions.get(owner.id).groupParticipantPhones(gid))
+				if (phones.size) confirmed = members.filter(a => a.id === owner.id || phones.has(digits(a.phone)))
+			} catch {}
+			this.groups = [...groups, { jid: gid, owner: owner.id, members: confirmed.map(a => a.id), subject, kind, at: now, lastAdd: confirmed.length < members.length ? now : 0 }]
 			setJSON('warmup_groups', this.groups)
 			resetOwnCache()
-			this.logEvent('👥', `Se creó el grupo «${subject}» con ${members.length} de tus números`)
+			this.logEvent('👥', `Se creó el grupo «${subject}» con ${confirmed.length} de tus números${confirmed.length < members.length ? ` (${members.length - confirmed.length} no se pudieron agregar; se reintenta mañana)` : ''}`)
 			this.lastActionAt = Date.now() + irnd(20, 60) * 1000
 			return
 		}
@@ -1161,7 +1232,7 @@ export class WarmupManager {
 		// Dos números en sus primeras fases no platican entre sí (salvo que uno sea padrino del otro)
 		const A = this.snap?.byId.get(a), B = this.snap?.byId.get(b)
 		const linked = this.mentorsOf(a).includes(b) || this.mentorsOf(b).includes(a)
-		if (A && B && (A.phase ?? 4) <= 1 && (B.phase ?? 4) <= 1 && !linked) return false
+		if (A && B && (A.phase ?? 4) <= 1 && (B.phase ?? 4) <= 1 && !linked && this.snap?.hasElders) return false // (si no hay ningún maduro conectado, sí)
 		const check = (t, other) => {
 			const M = this.mentorsOf(t)
 			if (!M.length) return true
@@ -1199,6 +1270,8 @@ export class WarmupManager {
 		const expected = 1 - curveLeft(h, m, end) / daySum
 		return sent / total < expected + 0.08
 	}
+	// Charlas a la vez como máximo (en total)
+	maxActive(list) { return Math.min(this.hot() ? MAX_ACTIVE + 6 : MAX_ACTIVE, list.length * (this.hot() ? 1.5 : 1)) }
 	convCount(id) { let n = 0; for (const c of this.convos.values()) if (c.members.includes(id)) n++; return n }
 	inConvoWith(a, b) { for (const c of this.convos.values()) if (c.members.includes(a) && c.members.includes(b)) return true; return false }
 	pairToday(a, b) {
@@ -1211,8 +1284,7 @@ export class WarmupManager {
 	spawn(snap, hour, wd, force = false) {
 		const list = snap.list
 		const hot = this.hot()
-		const maxActive = Math.min(hot ? MAX_ACTIVE + 6 : MAX_ACTIVE, list.length * (hot ? 1.5 : 1))
-		if (this.convos.size >= maxActive) return 'busy'
+		if (this.convos.size >= this.maxActive(list)) return 'busy'
 		const perNumber = hot ? PER_NUMBER + 1 : PER_NUMBER
 		const busyIds = new Set([...this.convos.values()].flatMap(c => c.members).filter(id => this.convCount(id) >= perNumber))
 		const free = a => !busyIds.has(a.id) && this.live(a.id) && !this.flagged(a.id) && !this.busyReal(a.id)
@@ -1240,7 +1312,7 @@ export class WarmupManager {
 				const name = this.names.get(b.id)?.first
 				const g = this.groupsList().find(gg => gg.members.includes(b.id) && this.kindOf(gg) !== 'trabajo') || this.groupsList().find(gg => gg.members.includes(b.id))
 				if (g && this.s.groups && !this.bdays[`${d}:g:${b.id}`]) {
-					const others = ready.filter(x => x.id !== b.id && g.members.includes(x.id) && x.phase >= 2)
+					const others = ready.filter(x => x.id !== b.id && g.members.includes(x.id) && x.phase >= 2 && !this.mentorsOf(x.id).length)
 					if (others.length >= 2) {
 						this.bdays[`${d}:g:${b.id}`] = 1
 						const two = weightedSample(others, () => 1, 2)
@@ -1271,7 +1343,7 @@ export class WarmupManager {
 			const card = this.available().card
 			for (const gg of this.s.groups ? this.groupsList() : []) {
 				if (this.bdays[`${d}:hg:${gg.jid}`]) continue
-				const mem = ready.filter(x => gg.members.includes(x.id) && x.phase >= 2)
+				const mem = ready.filter(x => gg.members.includes(x.id) && x.phase >= 2 && !this.mentorsOf(x.id).length)
 				if (mem.length < 2) continue
 				this.bdays[`${d}:hg:${gg.jid}`] = 1
 				const ppl = weightedSample(mem, () => 1, Math.min(3, mem.length))
@@ -1441,6 +1513,7 @@ export class WarmupManager {
 				} catch {}
 				this.history.unshift({ at: Date.now(), startedAt: c.startedAt || null, members: c.members, group: Boolean(c.group), preview: c.preview || '', n: c.n, reason, followUp: Boolean(c.followUp), chat })
 				this.history = this.history.slice(0, MAX_HISTORY)
+				this.historyDirty = true
 			}
 		}
 		this.convos.delete(convoId)
@@ -1531,7 +1604,7 @@ export class WarmupManager {
 		} else if (line.media === 'forward') {
 			// Reenvía algo que le mandó otro de tus números en otro chat
 			try {
-				const rows = q.recentOwnIn.all(speaker.id, Date.now() - 3 * DAY).filter(r => isOwnJid(r.jid) && r.jid !== toJid && !/^\*/.test(r.text))
+				const rows = q.recentOwnIn.all(speaker.id, Date.now() - 3 * DAY).filter(r => isOwnJid(r.jid) && r.jid !== toJid && r.jid !== ctx.chat && !/^\*/.test(r.text))
 				const r = pick(rows)
 				if (r) {
 					await sleep(irnd(1500, 4000))
@@ -1635,11 +1708,12 @@ export class WarmupManager {
 			const third = snap.list.find(a => !c.members.includes(a.id))
 			// Muy de vez en cuando manda algo que era para otro chat y lo borra para todos
 			if (!c.group && !this.cautionActive() && (speaker.phase ?? 4) >= 3 && Math.random() < 0.015) ids.push(...await this.wrongMessage(session, speaker, toJid))
-			ids.push(...await this.sendLine(session, speaker, toJid, line, { quoted, third, reply: c.i > 0 }))
+			ids.push(...await this.sendLine(session, speaker, toJid, line, { quoted, third, reply: c.i > 0, chat }))
 			for (let k = 0; k < ids.length; k++) this.log(speaker.id, one?.id)
 			c.n += ids.length
 			await session.setPresence(toJid, 'paused')
-		} catch {
+		} catch (e) {
+			if (c.group) this.groupSendFailed(c.group, speaker, e)
 			return this.end(c.id, 'error')
 		} finally {
 			this.lastActionAt = Date.now() + irnd(6, 18) * 1000 // respiro antes de cualquier otro envío
@@ -1683,6 +1757,21 @@ export class WarmupManager {
 		let late = 0
 		if (!c.group && this.awake(nextSpeaker, h, wd) >= 0.5 && Math.random() < 0.05) { late = rnd(60, 240) * MIN; c.late = true }
 		this.queue.push({ at: Date.now() + next.readIn + next.replyIn + late, kind: 'say', convoId: c.id })
+	}
+
+	// Un número no pudo escribir en el grupo: si le pasa 2 veces, seguramente no está en el grupo (WhatsApp no lo agregó).
+	// Se saca de la lista para que no lo intente más (y no cuente como mensajes rechazados); después se le vuelve a invitar.
+	groupSendFailed(gjid, speaker, err) {
+		const g = this.groupsList().find(x => x.jid === gjid)
+		if (!g || g.owner === speaker.id) return
+		const k = `${gjid}:${speaker.id}`
+		this.groupFails[k] = (this.groupFails[k] || 0) + 1
+		if (this.groupFails[k] < 2) return
+		delete this.groupFails[k]
+		g.members = g.members.filter(id => id !== speaker.id)
+		g.lastAdd = Date.now() // se le vuelve a invitar mañana
+		setJSON('warmup_groups', this.groups)
+		this.logEvent('👥', `${speaker.name} no pudo escribir en «${g.subject}» (${String(err?.message || 'error').slice(0, 40)}): se le vuelve a invitar después`)
 	}
 
 	// Manda un mensaje que «era para otro chat», lo borra para todos y a veces se disculpa
@@ -1852,13 +1941,14 @@ export class WarmupManager {
 				if (!sent?.id) throw new Error('No se envió')
 				this.log(a.id, b.id)
 				Object.assign(r, { state: 'sent', sentAt: Date.now(), msgId: sent.id })
-				// La charla sigue: el otro contesta cuando lo vea
-				const id = ++this.seq
-				this.convos.set(id, { id, members: [a.id, b.id], order: [a.id, b.id], lines: [text, pick(['{Todo bien|Bien, ¿y tú?|Aquí andamos} {🙌|}', '{Sí, dime|Un poco, ¿qué pasó?}', '{Nada|Trabajando} {jaja|}, ¿tú?'])], when: null, follow: null, preview: text.slice(0, 70), startedAt: Date.now(), i: 1, n: 1, postponed: 0, lastAt: Date.now(), test: true })
+				// La charla sigue: el otro lo lee y a veces contesta (no todos a la vez, para no amontonar charlas)
 				const t = this.replyTiming(b, h, wd)
 				this.queue.push({ at: Date.now() + t.readIn, kind: 'read', readerId: b.id, fromPhone: a.phone, msgId: sent.id })
-				this.queue.push({ at: Date.now() + t.readIn + t.replyIn, kind: 'say', convoId: id })
 				this.dirty = true
+				if (Math.random() > 0.6 || this.convos.size >= this.maxActive(snap.list)) { check(); await sleep(irnd(2000, 5000)); continue }
+				const id = ++this.seq
+				this.convos.set(id, { id, members: [a.id, b.id], order: [a.id, b.id], lines: [text, pick(['{Todo bien|Bien, ¿y tú?|Aquí andamos} {🙌|}', '{Sí, dime|Un poco, ¿qué pasó?}', '{Nada|Trabajando} {jaja|}, ¿tú?'])], when: null, follow: null, preview: text.slice(0, 70), startedAt: Date.now(), i: 1, n: 1, postponed: 0, lastAt: Date.now(), test: true })
+				this.queue.push({ at: Date.now() + t.readIn + t.replyIn, kind: 'say', convoId: id })
 			} catch (e) { Object.assign(r, { state: 'error', error: String(e?.message || e).slice(0, 80) }) }
 			check()
 			await sleep(irnd(2000, 5000))

@@ -931,6 +931,17 @@ export class Session {
 	async addToGroup(gid, jids) {
 		await this.requireSocket().groupParticipantsUpdate(gid, jids, 'add')
 	}
+	/** Teléfonos (solo dígitos) de quienes de verdad quedaron en un grupo */
+	async groupParticipantPhones(gid) {
+		const meta = await this.requireSocket().groupMetadata(gid)
+		const out = new Set()
+		for (const p of meta?.participants || []) {
+			let pn = p.phoneNumber || (isPnUser(p.id) ? p.id : null)
+			if (!pn && isLidUser(p.id)) pn = db.prepare('SELECT pn FROM lid_map WHERE lid = ?').get(jidNormalizedUser(p.id))?.pn
+			if (pn) out.add(String(pn).split('@')[0].replace(/\D/g, ''))
+		}
+		return [...out]
+	}
 	async recording(jid, ms) {
 		if (!this.sock || this.status !== 'connected') return
 		try { await this.sock.sendPresenceUpdate('recording', jid) } catch {}
