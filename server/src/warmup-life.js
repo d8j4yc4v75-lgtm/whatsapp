@@ -187,3 +187,98 @@ export function buildArc(arc, sodTs, wdToday, now = Date.now()) {
 		eventAt
 	}
 }
+
+// ---- Generador de charlas ----
+// Banco de preguntas y respuestas por tema: arma charlas distintas cada vez (pregunta → respuesta → «¿y tú?» →
+// comentario → otro tema → despedida). Con las variantes {a|b} salen miles de combinaciones.
+const QA = [
+	{ q: ['¿Qué haces?', '¿Qué andas haciendo?', '¿En qué andas?'], a: ['Nada, aquí {en la casa|descansando|viendo la tele}', 'Trabajando {todavía|un rato más} {😩|}', 'Haciendo {de comer|limpieza|unos pendientes}', 'Aquí {con los niños|en la calle|en el súper}'], r: ['{Ah, ok|Ya veo|Va} {jaja|}', '{Qué bien|Tranquilo entonces}'] },
+	{ q: ['¿Cómo va tu día?', '¿Qué tal tu día?', '¿Cómo te ha ido hoy?'], a: ['{Pesado|Tranquilo|Bien, gracias|Largo} {jaja|😅|}', 'Ahí va, {con mucho trabajo|tranquilo|sin novedades}'], r: ['{Ánimo|Ya mero acaba} {💪|}', '{Qué bueno|Bien} {🙌|}'] },
+	{ q: ['¿Cómo has estado?', '¿Qué tal todo?', '¿Cómo te va?'], a: ['{Bien, gracias|Muy bien|Ahí la llevo} {🙌|}', '{Todo bien|Tranquilo}, {con trabajo|sin novedades}'], r: ['{Qué bueno|Me da gusto} {🙌|}'] },
+	{ q: ['¿Qué cuentas?', '¿Qué hay de nuevo?', '¿Novedades?'], a: ['Pues nada nuevo, {lo mismo de siempre|todo tranquilo}', '{Nada|Poca cosa} {jaja|}, aquí trabajando'], r: ['{Igual aquí|Jaja igual} {😅|}', '{Ok|Va} {jaja|}'], back: false },
+	{ when: 'morning', q: ['¿Cómo amaneciste?', '¿Qué tal dormiste?'], a: ['{Bien|Con sueño|Cansado} {jaja|😴|}', '{Muy bien|Bien, gracias} {☀️|}'], r: ['{Ánimo|A darle} {☕|💪|}', '{Qué bueno|Igual yo} {jaja|}'] },
+	{ when: 'morning', q: ['¿Ya desayunaste?', '¿Qué desayunaste?'], a: ['{Sí, unos chilaquiles|Nomás un café|Todavía no|Un pan con café} {☕|}'], r: ['{Qué rico|Provecho} {😋|}', '{Desayuna bien|Igual yo} {jaja|}'] },
+	{ when: 'lunch', q: ['¿Ya comiste?', '¿Qué comiste?', '¿Qué hay de comer?'], a: ['{Tacos|Pozole|Una torta|Comida corrida|Pollo|Enchiladas|Sopa de fideo|Milanesa} {😋|}', 'Todavía no, {ahorita voy|en un rato|ando ocupado}'], r: ['{Qué rico|Provecho|Se me antojó} {🤤|😋|}'] },
+	{ when: 'night', q: ['¿Qué cenaste?', '¿Ya cenaste?'], a: ['{Unos tacos|Pan con café|Quesadillas|Nada todavía|Cereal} {jaja|}'], r: ['{Qué rico|Provecho} {😋|}', '{Jaja|Igual yo}'] },
+	{ q: ['¿Cómo está el clima por allá?', '¿Hace calor por allá?', '¿Está lloviendo por allá?'], a: ['{Hace mucho calor|Está nublado|Está lloviendo|Hace frío|Está bonito} {☀️|🌧️|🥶|}'], r: ['{Aquí igual|Aquí está soleado|Uff} {jaja|}'] },
+	{ when: 'afternoon', q: ['¿Ya llegaste a tu casa?', '¿Ya saliste?'], a: ['{Ya|Apenas voy|Todavía no, hay mucho tráfico} {🚗|}'], r: ['{Va, con cuidado|Ok, avísame|Qué bueno} {🙏|}'], back: false },
+	{ q: ['¿Hubo mucho tráfico?', '¿Cómo estuvo el tráfico?'], a: ['{Horrible|Normal|Nada, llegué rápido} {😩|}'], r: ['{Uff|Qué bueno|Ni modo}'] },
+	{ when: 'work', q: ['¿Mucho trabajo hoy?', '¿Cómo va la chamba?'], a: ['{Uff, bastante|Tranquilo|Normal, lo de siempre} {😅|}'], r: ['{Ánimo|Ya casi es viernes} {💪|😅|}'] },
+	{ when: 'work', q: ['¿A qué hora sales hoy?', '¿Sales temprano hoy?'], a: ['{A las 6|Como a las 7|Tarde, hay mucho pendiente}'], r: ['{Ok|Va}, {ánimo|ya falta poco}'] },
+	{ when: 'weekend', q: ['¿Qué vas a hacer el fin?', '¿Planes para el fin?'], a: ['{Nada, descansar|Ir con mi familia|Ver el fútbol|Salir a pasear} {😴|⚽|}'], r: ['{Qué bien|Buen plan|Igual yo} {🙌|}'] },
+	{ q: ['¿Saliste ayer?', '¿Qué hiciste ayer?'], a: ['{No, me quedé en casa|Fuimos a cenar|Nada, descansar|Fui con mi familia}'], r: ['{Qué bien|Buen plan} {jaja|}'] },
+	{ rel: ['familia', 'amigos'], q: ['¿Cómo sigues de {la gripa|la tos|lo de tu espalda}?', '¿Ya te sientes mejor?'], a: ['{Mejor, gracias|Ya casi bien|Todavía un poco mal}'], r: ['{Cuídate|Que te mejores|Qué bueno} {🙏|}'], back: false },
+	{ q: ['¿Dónde compraste {tus tenis|el cel|esa chamarra}?', '¿Cuánto te costó {el cel|tu chamarra}?'], a: ['{En el centro|Por internet|En una tienda cerca de mi casa}', '{Como 800|No me acuerdo|Estaba en oferta}'], r: ['{Ah, ok|Están padres|Gracias}'], back: false },
+	{ q: ['¿Fuiste al súper?', '¿Ya fuiste al mandado?'], a: ['{Sí, ya|Al rato voy|No, mañana}'], r: ['{Va|Ok} {👍|}'] },
+	{ q: ['¿Ya viste que {subieron los precios|cambió WhatsApp|salió el nuevo iPhone}?', '¿Supiste lo de {la gasolina|las lluvias|la luz}?'], a: ['{Sí, qué caro|No, no sabía|Sí, ya vi} {😩|}'], r: ['{Uff|Ni modo|Así está todo} {😅|}'], back: false },
+	{ rel: ['familia', 'amigos'], q: ['¿Cómo está tu {perrito|gato}?'], a: ['{Bien, latoso como siempre|Durmiendo todo el día|Bien, ya lo llevé al veterinario}'], r: ['{Jaja|Qué bueno} {🐶|🐱|}'], back: false },
+	{ rel: ['familia'], q: ['¿Cómo les fue a los niños en la escuela?', '¿Ya salieron los niños de la escuela?'], a: ['{Bien|Les dejaron mucha tarea|Ya salieron}'], r: ['{Qué bueno|Uff, la tarea} {jaja|}'], back: false },
+	{ rel: ['amigos'], q: ['¿Viste el partido?', '¿Viste el gol de anoche?'], a: ['{Sí, qué partidazo|No, me lo perdí|Sí, estuvo malísimo} {⚽|}'], r: ['{Jaja|Ni me digas|Estuvo bueno} {😂|}'] },
+	{ rel: ['amigos', 'familia'], q: ['¿Qué estás viendo ahorita?', '¿Qué serie estás viendo?'], a: ['{Una serie coreana|Nada, puro YouTube|Una de policías|Las noticias}'], r: ['{Ah, la voy a buscar|Pásame el nombre|Jaja}'] },
+	{ when: 'night', q: ['¿Ya te vas a dormir?', '¿Sigues despierto?'], a: ['{Ya casi|Todavía no|Sí, ya estoy cansado} {😴|}'], r: ['{Descansa|Buenas noches} {🌙|}'], back: false },
+	{ when: 'monday', q: ['¿Qué tal el lunes?', '¿Cómo va el lunes?'], a: ['{Pesado|Ni me digas|Tranquilo para ser lunes} {😩|}'], r: ['{Ánimo|Ya pasará} {💪|}'] }
+]
+const BACK = ['¿Y tú?', '¿Tú qué tal?', '¿Y tú qué?', '¿Y tú cómo vas?']
+const TRANS = ['{Oye|Por cierto|Oye, otra cosa|Ah, oye}']
+const REACT = ['{Ah, ok|Va|Qué bien|Jaja} {👍|}']
+const CLOSE_A = ['{Bueno, te dejo|Va, luego hablamos|Sale, cuídate|Bueno, ahí nos vemos} {👋|}']
+const CLOSE_B = ['{Va|Igual|Bye|Cuídate} {👋|🙌|}']
+const pickOne = arr => arr[Math.floor(Math.random() * arr.length)]
+/** Arma una charla nueva; las líneas se alternan entre los dos números (A, B, A, B…) */
+export function generateConvo({ rel = null, mo = {}, name = null } = {}) {
+	const pool = QA.filter(t => (!t.when || mo[t.when]) && (!t.rel || !rel || t.rel.includes(rel)))
+	const t1 = pickOne(pool)
+	const lines = []
+	let greets = false
+	let open = ''
+	if (Math.random() < 0.5) {
+		open = mo.morning && Math.random() < 0.3 ? '{Buenos días|Buen día}' : rel === 'trabajo' ? '{Hola|Buen día}' : '{Hola|Qué onda|Buenas|Hey}'
+		if (name && Math.random() < 0.4) open += ` ${name}`
+		open += '||'
+		greets = true
+	}
+	lines.push(open + pickOne(t1.q))
+	const askBack = t1.back !== false && Math.random() < 0.45
+	lines.push(pickOne(t1.a) + (askBack ? `||${pickOne(BACK)}` : ''))
+	if (askBack) { lines.push(pickOne(t1.a)); lines.push(pickOne(t1.r || REACT)) }
+	else lines.push(pickOne(t1.r || REACT))
+	if (Math.random() < 0.4) {
+		const t2 = pickOne(pool.filter(x => x !== t1))
+		if (t2) { lines.push(`${pickOne(TRANS)}||${pickOne(t2.q)}`); lines.push(pickOne(t2.a)); lines.push(pickOne(t2.r || REACT)) }
+	}
+	if (Math.random() < 0.45) { lines.push(pickOne(CLOSE_A)); lines.push(pickOne(CLOSE_B)) }
+	return { lines, greets }
+}
+
+// ---- Grupos por tipo: familia, trabajo y amigos ----
+export const GROUP_KINDS = {
+	amigos: { names: ['Los de siempre', 'La banda', 'Compas ⚽', 'Amigos 🍻', 'Los cuates'], rel: 'amigos' },
+	familia: { names: ['Familia 🏡', 'Familia ❤️', 'Los primos', 'La familia'], rel: 'familia' },
+	trabajo: { names: ['Equipo de trabajo 💼', 'Oficina', 'Pendientes 📋', 'Equipo ventas'], rel: 'trabajo' }
+}
+export const GROUP_KIND_SCRIPTS = {
+	trabajo: [
+		{ when: 'work', lines: ['{Buenos días|Buen día} equipo {☀️|💪|}', '{Buenos días|Buen día} {👋|}', '{Buen día|Igualmente} {🙌|}'] },
+		{ when: 'work', lines: ['¿A qué hora es la junta {de hoy|de mañana}?', '{A las 10|A las 12|A las 4}', '{Gracias|Va}', '{Ahí estaré|Ok} {👍|}'] },
+		{ when: 'work', lines: ['Recuerden {mandar el reporte|subir lo del mes|llenar el formato} {antes del viernes|hoy|mañana}', '{Va|Enterado|Ok} {👍|}', '{Ya lo mandé|Al rato lo subo}'] },
+		{ when: 'work', lines: ['¿Alguien tiene {el archivo|la lista|el número} de {proveedores|clientes|la junta}?', '{Yo lo tengo, ahorita lo paso|Déjame buscar}', '{Gracias|Te lo encargo}'] },
+		{ lines: ['{Mañana|El viernes} {no hay junta|salimos temprano|es día de pago} {🎉|💸|}', '{Excelente|Qué bien|Por fin} {🙌|}', '{Jaja sí|Ya era hora} {😂|}'] }
+	],
+	familia: [
+		{ when: 'morning', lines: ['{Buenos días|Buen día} familia {☀️|❤️|}', '{Buenos días|Buen día} {❤️|🙏|}', '{Buen día a todos|Bendiciones} {🙏|}'] },
+		{ lines: ['¿Quién viene a comer el domingo?', '{Yo|Nosotros} {sí vamos|llegamos como a las 2}', '{Yo también|Yo creo que sí}', '{Va, hago {mole|pozole|carne asada}|Perfecto, los espero} {😋|❤️|}'] },
+		{ lines: ['¿Ya vieron {la foto|el video} que mandó {la tía|mi mamá|el primo}?', '{Jaja sí|Qué bonito|Ahorita lo veo} {😂|❤️|}', '{Está buenísimo|Qué grandes están los niños} {😍|}'] },
+		{ when: 'weekend', lines: ['{Feliz domingo|Feliz fin de semana} familia {❤️|🙏|}', '{Igualmente|Igual} {❤️|}', '{Bendiciones|Descansen} {🙏|}'] },
+		{ lines: ['¿Cómo sigue {la abuela|mi tío|mi mamá}?', '{Mejor, gracias a Dios|Ya está mejor|Ahí va}', '{Qué bueno|Gracias a Dios} {🙏|}'] }
+	],
+	amigos: [
+		{ lines: ['¿Qué onda con el sábado?', '{Yo puedo|Yo sí voy|Yo hasta la noche}', '{Va, ¿dónde?|¿A qué hora?}', '{En mi casa|Donde siempre} {🍻|}'] },
+		{ lines: ['{Jajaja|Jsjs} {miren esto|ya vieron esto} {😂|}', '{Jajaja|No manches} {😂|🤣}', '{Estoy llorando|Qué buena} {😂|}'] }
+	]
+}
+export const GROUP_KIND_POLLS = {
+	familia: [{ name: '¿Qué hacemos el domingo?', values: ['Comida en casa', 'Salir a comer', 'Ir al parque'] }, { name: '¿Qué llevamos?', values: ['Postre', 'Refrescos', 'Tortillas'] }],
+	trabajo: [{ name: '¿A qué hora la junta?', values: ['10 am', '12 pm', '4 pm'] }, { name: '¿Qué día entregamos?', values: ['Jueves', 'Viernes', 'Lunes'] }]
+}
+/** Qué tanto platica cada tipo de grupo a esta hora */
+export const groupWeight = (kind, hour, wd) => relWeight(GROUP_KINDS[kind]?.rel || 'amigos', hour, wd)

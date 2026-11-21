@@ -4,9 +4,10 @@ import crypto from 'node:crypto'
 import { db } from './db.js'
 import { DATA_DIR } from './config.js'
 import { accountHealth } from './health.js'
+import { localHour } from './smart.js'
 import { vary } from './text.js'
 import { sendPush } from './push.js'
-import { hasFfmpeg, toOpus, toMp4, toSticker, toSquareJpeg } from './ffmpeg.js'
+import { hasFfmpeg, toOpus, toMp4, toSticker, toSquareJpeg, variantImage, variantAudio, variantSticker, variantGif } from './ffmpeg.js'
 import { isOwnJid, resetOwnCache } from './sessions.js'
 import {
 	SCRIPTS, GROUP_SCRIPTS, GROUP_NAMES, STORY_TEXTS, STORY_COLORS, REACTS, GREET, CONTACT_NAMES,
@@ -15,7 +16,8 @@ import {
 } from './warmup-scripts.js'
 import {
 	personaNames, birthdayOf, RELS, relOf, relWeight, REL_SCRIPTS, FORWARD_SCRIPTS, GROUP_POLLS, pollConvo,
-	STATUS_REPLIES, STATUS_ANSWERS, BIRTHDAY, BIRTHDAY_GROUP, ARCS, buildArc
+	STATUS_REPLIES, STATUS_ANSWERS, BIRTHDAY, BIRTHDAY_GROUP, ARCS, buildArc,
+	generateConvo, GROUP_KINDS, GROUP_KIND_SCRIPTS, GROUP_KIND_POLLS, groupWeight
 } from './warmup-life.js'
 
 // Calentamiento: tus propios números conversan entre sí para que las cuentas se vean activas
@@ -49,6 +51,9 @@ import {
 //   tus números se guardan como contactos entre sí, fijan chats, destacan mensajes, responden estados, reenvían,
 //   hacen encuestas en el grupo y «revisan el celular» sin escribir. Racha sana: si un número va bien, cada día habla un poco más.
 //   Mezcla con masivos: un número que está haciendo masivos también platica con tus números.
+// - v4: modo precaución (si WhatsApp bloquea uno de tus números, todos bajan el ritmo 24 h), bitácora de decisiones,
+//   «sesiones de uso» (al revisar el celular contesta varios chats en ráfaga), horario según la lada de cada número,
+//   generador de charlas, grupos de familia/trabajo/amigos y fotos/audios únicos en cada envío.
 // - Intensidad Turbo (×2), Máximo (×3) y «sesión intensiva» (×2.5 por 1–6 h): más charlas a la vez, respuestas más rápidas, charlas que
 //   cambian de tema y más grupo. Solo acelera a números sanos y nunca pasa el tope diario según su antigüedad.
 
@@ -206,7 +211,7 @@ export const library = {
 }
 
 const AVG_LINES = SCRIPTS.reduce((n, s) => n + s.lines.length, 0) / SCRIPTS.length
-const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 20, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, profiles: true, contacts: true, mentors: {}, prep: {} }
+const DEFAULTS = { enabled: false, auto: true, allDay: true, perDay: 20, minDelay: 25, maxDelay: 150, startHour: 9, endHour: 21, intensity: 'normal', media: true, stories: true, groups: true, profiles: true, contacts: true, campaignLink: true, mentors: {}, prep: {} }
 const INTENSITY = { suave: 0.6, normal: 1, intenso: 1.4, turbo: 2, maximo: 3 }
 const BOOST = 2.5 // «sesión intensiva»: multiplica la actividad por unas horas
 // Tope diario por antigüedad que ninguna intensidad puede pasar (para no quemar números nuevos)
@@ -300,6 +305,13 @@ export class WarmupManager {
 		this.nextPing = {} // cuándo «revisa el celular» cada número
 		this.memo = new Map() // textos enviados hace poco por número (para no repetirse)
 		this.names = new Map()
+		this.phaseSaved = new Map()
+		this.events = getJSON('warmup_events', []) // bitácora
+		this.caution = null // { until, reason } — modo precaución
+		this.wasConnected = new Set()
+		this.blockedSeen = new Set()
+		this.restrictSeen = new Set()
+		this.genName = null
 		this.saved = getJSON('warmup_contacts', {}) // contactos guardados entre tus números
 		this.pinned = getJSON('warmup_pinned', {}) // chats fijados por número
 		this.muted = {}
@@ -348,7 +360,7 @@ export class WarmupManager {
 		s.maxDelay = clamp(Number(s.maxDelay) || DEFAULTS.maxDelay, s.minDelay, 720)
 		s.startHour = clamp(Math.floor(Number(s.startHour) || 0), 0, 23)
 		s.endHour = clamp(Math.floor(Number(s.endHour) || 24), s.startHour + 1, 24)
-		for (const k of ['enabled', 'auto', 'allDay', 'media', 'stories', 'groups', 'profiles', 'contacts']) s[k] = s[k] === undefined ? DEFAULTS[k] : Boolean(s[k])
+		for (const k of ['enabled', 'auto', 'allDay', 'media', 'stories', 'groups', 'profiles', 'contacts', 'campaignLink']) s[k] = s[k] === undefined ? DEFAULTS[k] : Boolean(s[k])
 		if (!INTENSITY[s.intensity]) s.intensity = 'normal'
 		s.boostUntil = Number(s.boostUntil) > Date.now() ? Math.min(Number(s.boostUntil), Date.now() + 12 * 36e5) : 0
 		// Padrinos: { númeroNuevo: [números maduros que hablan con él] }
@@ -368,6 +380,9 @@ export class WarmupManager {
 		s.prep = pr
 		setJSON('warmup', s)
 		const wasOn = this.s.enabled
+		if (s.intensity !== this.s.intensity) this.logEvent('⚙️', `Intensidad: ${{ suave: 'Suave', normal: 'Normal', intenso: 'Intenso', turbo: 'Turbo', maximo: 'Máximo' }[s.intensity]}`)
+		if (s.boostUntil && s.boostUntil !== this.s.boostUntil) this.logEvent('⚡', `Sesión intensiva de ${Math.round((s.boostUntil - Date.now()) / 36e5)} h`)
+		if (s.enabled !== wasOn) this.logEvent(s.enabled ? '▶️' : '⏸️', s.enabled ? 'Calentamiento activado' : 'Calentamiento en pausa')
 		this.s = s
 		this.snap = null
 		if (s.enabled && !wasOn) this.nextConvoAt = Date.now() + rnd(0.5, 3) * MIN
@@ -377,6 +392,12 @@ export class WarmupManager {
 		this.persist()
 		return s
 	}
+	// Bitácora: lo que el calentamiento decidió y por qué
+	logEvent(icon, text) {
+		this.events = [{ at: Date.now(), icon, text }, ...(this.events || [])].slice(0, 60)
+		setJSON('warmup_events', this.events)
+	}
+	cautionActive() { return Boolean(this.caution && this.caution.until > Date.now()) }
 	customText() { return getJSON('warmup_custom', '') }
 	saveCustom(text) {
 		const t = String(text || '').slice(0, 30000)
@@ -408,7 +429,7 @@ export class WarmupManager {
 		setJSON('warmup_state', {
 			convos: [...this.convos.values()], queue: this.queue, checks: this.checks, fails: this.fails, flags: this.flags,
 			nextConvoAt: this.nextConvoAt, recent: this.recent, seq: this.seq, avgLines: this.avgLines, follows: this.follows, quality: this.quality,
-			arcs: this.arcs, bdays: this.bdays, streak: this.streak
+			arcs: this.arcs, bdays: this.bdays, streak: this.streak, caution: this.caution
 		})
 		setJSON('warmup_history', this.history.slice(0, MAX_HISTORY))
 	}
@@ -420,6 +441,7 @@ export class WarmupManager {
 		this.follows = (st.follows || []).filter(f => f?.lines?.length && now - f.at < 5 * DAY)
 		this.quality = st.quality && typeof st.quality === 'object' ? st.quality : {}
 		this.streak = st.streak && typeof st.streak === 'object' ? st.streak : {}
+		if (st.caution?.until > now) this.caution = st.caution
 		this.bdays = st.bdays && typeof st.bdays === 'object' ? Object.fromEntries(Object.entries(st.bdays).filter(([k]) => Number(k.split(':')[0]) >= dayKey() - 1)) : {}
 		this.arcs = (st.arcs || []).filter(a => a?.steps?.length && a.i < a.steps.length && now - a.steps[a.steps.length - 1].at < 2 * DAY)
 		for (const [id, f] of Object.entries(st.flags || {})) if (f?.until > now) this.flags[id] = f
@@ -477,7 +499,7 @@ export class WarmupManager {
 	ageHours(a) { const s = this.since(a); return s ? (Date.now() - s) / 36e5 : 0 }
 	// Horario de sueño propio (de -1 a +2 h); el fin de semana todos se levantan una hora más tarde
 	sleepShift(a, wd) { return Math.floor(hash01(a.id, 7) * 4) - 1 + (isWeekend(wd) ? 1 : 0) }
-	awake(a, hour, wd = tzNow().wd) { return CURVE[((hour - this.sleepShift(a, wd)) % 24 + 24) % 24] }
+	awake(a, hour, wd = tzNow().wd) { return CURVE[((hour + (a.zoneShift || 0) - this.sleepShift(a, wd)) % 24 + 24) % 24] }
 	restDays() { const r = getJSON('rest_days', [0]); return Array.isArray(r) ? r : [0] }
 	// Ese día habla un poco más o menos (0.7–1.15); los días de descanso, menos
 	dayFactor(a, rest, wd) {
@@ -512,7 +534,8 @@ export class WarmupManager {
 	multiplierFor(a) {
 		const m = INTENSITY[this.s.intensity || 'normal'] * (this.boostActive() ? BOOST : 1)
 		const healthy = a.level === 'green' && !a.restricted && !a.slow && !a.recovering && !a.resting
-		return healthy ? m : Math.min(1, m)
+		const out = healthy ? m : Math.min(1, m)
+		return this.cautionActive() ? Math.min(out, 0.6) : out // modo precaución: todos más tranquilos
 	}
 	// Racha sana: +4% por cada día seguido sin problemas (hasta +50%)
 	streakBonus(a) {
@@ -571,6 +594,7 @@ export class WarmupManager {
 		if (!was && this.isSlow(id) && !this.flagged(id)) {
 			this.snap = null
 			const name = snap?.byId.get(id)?.name || 'Un número'
+			this.logEvent('🐢', `${name}: sus mensajes tardan en llegar; habla a la mitad`)
 			sendPush({ title: `🐢 ${name}: sus mensajes tardan en llegar`, body: 'El calentamiento bajó su ritmo a la mitad para cuidarlo. Evita usarlo en masivos hasta que se normalice.', url: '/#/settings' })
 		}
 	}
@@ -616,7 +640,18 @@ export class WarmupManager {
 		const rows = q.accounts.all()
 		this.names = personaNames(rows.map(r => r.id))
 		for (const row of rows) {
-			if (this.manager.sessions.get(row.id)?.status !== 'connected') continue
+			const sst = this.manager.sessions.get(row.id)?.status
+			// Si WhatsApp bloquea a uno de tus números, todos bajan el ritmo 24 h por precaución
+			if (sst === 'blocked' && this.wasConnected.has(row.id) && !this.blockedSeen.has(row.id)) {
+				this.blockedSeen.add(row.id)
+				this.caution = { until: now + DAY, reason: `WhatsApp bloqueó a ${row.name}`, at: now }
+				this.dirty = true
+				this.logEvent('🛡️', `WhatsApp bloqueó a ${row.name}: modo precaución 24 h (todos hablan menos, sin historias nuevas ni cambios de perfil)`)
+				sendPush({ title: `🛡️ Modo precaución: WhatsApp bloqueó a ${row.name}`, body: 'El calentamiento bajó el ritmo de todos tus números durante 24 h para no llamar la atención.', url: '/#/warmup' })
+			}
+			if (sst !== 'connected') continue
+			this.wasConnected.add(row.id)
+			this.blockedSeen.delete(row.id)
 			const a = { ...row, grace: this.ageHours(row) < GRACE_HOURS, campaign: camp.get(row.id) || 0 }
 			let h = null
 			try { h = accountHealth(a.id, 'connected') } catch {}
@@ -625,6 +660,10 @@ export class WarmupManager {
 			a.restricted = Boolean(h?.restrictedUntil)
 			a.restrictedUntil = h?.restrictedUntil || null
 			a.slow = this.isSlow(a.id)
+			// Horario según la lada: un número de Tijuana vive dos horas antes que uno de la Ciudad de México
+			try { const lh = localHour(a.phone, now); a.zoneShift = ((lh - tzNow(now).h + 36) % 24) - 12 } catch { a.zoneShift = 0 }
+			if (a.restricted && !this.restrictSeen.has(a.id)) { this.restrictSeen.add(a.id); this.logEvent('⛔', `WhatsApp restringió a ${a.name}: solo contesta hasta que se le quite`) }
+			else if (!a.restricted && this.restrictSeen.has(a.id)) { this.restrictSeen.delete(a.id); this.logEvent('🩹', `A ${a.name} se le quitó la restricción: regresa poco a poco`) }
 			a.recovering = !a.restricted && Boolean(a.restricted_until && a.restricted_until <= now && now - a.restricted_until < RECOVER_DAYS * DAY)
 			let base
 			if (s.auto) base = this.autoBase(a, h, a.campaign)
@@ -638,6 +677,13 @@ export class WarmupManager {
 			a.persona = persona(a.id)
 			a.mature = this.maturity(a, vol.get(a.id), recv14.get(a.id))
 			a.phase = this.phaseOf(a)
+			// Se guarda en la cuenta para que los masivos ajusten su límite diario según la madurez
+			const prevPh = this.phaseSaved.get(a.id)
+			if (prevPh && prevPh.phase !== a.phase) this.logEvent('🎓', `${a.name} pasó a la fase ${a.phase + 1}: ${PHASES[a.phase].label}`)
+			if (!prevPh || prevPh.phase !== a.phase || Math.abs(prevPh.score - a.mature.score) >= 3) {
+				try { db.prepare('UPDATE accounts SET warmup_phase = ?, warmup_score = ? WHERE id = ?').run(a.phase, a.mature.score, a.id) } catch {}
+				this.phaseSaved.set(a.id, { phase: a.phase, score: a.mature.score })
+			}
 			list.push(a)
 		}
 		this.snap = { at: now, list, byId: new Map(list.map(a => [a.id, a])) }
@@ -651,10 +697,10 @@ export class WarmupManager {
 		const day = this.matHist[d] ||= {}
 		for (const a of list) {
 			day[a.id] = a.mature.score
-			if (a.mature.score >= 70 && !this.readyNotified[a.id]) {
+			if (a.phase === 4 && !this.readyNotified[a.id]) {
 				this.readyNotified[a.id] = Date.now()
-				if (this.readyInit && this.s.enabled) sendPush({ title: `✅ ${a.name} ya está listo para masivos`, body: `Madurez ${a.mature.score}/100 en el calentamiento.`, url: '/#/settings' })
-			} else if (a.mature.score < 60 && this.readyNotified[a.id]) delete this.readyNotified[a.id]
+				if (this.readyInit && this.s.enabled) { sendPush({ title: `✅ ${a.name} ya está listo para masivos`, body: `Madurez ${a.mature.score}/100 en el calentamiento.`, url: '/#/warmup' }); this.logEvent('✅', `${a.name} quedó listo para masivos (madurez ${a.mature.score})`) }
+			} else if ((a.phase <= 2 || a.mature.score < 55) && this.readyNotified[a.id]) delete this.readyNotified[a.id]
 		}
 		if (!this.readyInit) this.readyInit = true // la primera vez no avisa de los que ya estaban listos
 		if (Date.now() - (this.matSavedAt || 0) > 10 * MIN) {
@@ -697,6 +743,9 @@ export class WarmupManager {
 		return best
 	}
 	group() { return this.groups.find(g => g?.jid) || null }
+	groupsList() { return this.groups.filter(g => g?.jid) }
+	// El tipo de un grupo viejo (de antes de los tipos) se deduce de su nombre
+	kindOf(g) { return g?.kind || (/famil|primo/i.test(g?.subject || '') ? 'familia' : 'amigos') }
 	available() {
 		const m = this.s.media
 		return { image: m && library.count('image') > 0, audio: m && library.count('audio') > 0, sticker: m && library.count('sticker') > 0, gif: m && library.count('gif') > 0, location: m, contact: m }
@@ -745,6 +794,7 @@ export class WarmupManager {
 		let peers = new Map()
 		try { peers = new Map(q.peersToday.all(sod).map(r => [r.id, r.n])) } catch {}
 		const g = this.group()
+		const allGroups = this.groupsList().map(x => ({ subject: x.subject, members: (x.members || []).length, kind: this.kindOf(x) }))
 		const files = library.list()
 		return {
 			...s,
@@ -765,6 +815,10 @@ export class WarmupManager {
 			group: g ? { subject: g.subject, members: (g.members || []).length } : null,
 			library: { images: files.filter(f => f.kind === 'image').length, audios: files.filter(f => f.kind === 'audio').length, stickers: files.filter(f => f.kind === 'sticker').length, gifs: files.filter(f => f.kind === 'gif').length, files },
 			customCount: this.custom.length,
+			groupsList: allGroups, // (no «groups»: ese nombre es el interruptor de los ajustes)
+			events: (this.events || []).slice(0, 25),
+			caution: this.cautionActive() ? this.caution : null,
+			uniqueMedia: this.uniqueSent || 0,
 			pendingFollows: this.follows.length,
 			boostUntil: this.boostActive() ? this.s.boostUntil : 0,
 			hot: this.hot(),
@@ -773,7 +827,7 @@ export class WarmupManager {
 			hourly: this.hourlyToday(sod),
 			phases: PHASES.map(x => ({ label: x.label, desc: x.desc })),
 			rels: RELS,
-			arcs: this.arcs.slice(0, 12).map(x => ({ key: x.key, a: x.a, b: x.b, eventAt: x.eventAt, step: x.i, steps: x.steps.length, nextAt: x.steps[x.i]?.at || null })),
+			arcs: this.arcs.filter(x => snap.byId.has(x.a) && snap.byId.has(x.b)).slice(0, 12).map(x => ({ key: x.key, a: x.a, b: x.b, eventAt: x.eventAt, step: x.i, steps: x.steps.length, nextAt: x.steps[x.i]?.at || null })),
 			birthdays: list.filter(a => birthdayOf(a.id) === dayOfYear()).map(a => a.id),
 			contactsSaved: Object.values(this.saved).filter(x => x?.ok).length,
 			numbers: list.map(a => ({
@@ -818,7 +872,19 @@ export class WarmupManager {
 					if (this.nextPing[a.id] > now) continue
 					const w = this.awake(a, hh, wdd)
 					this.nextPing[a.id] = now + (w < 0.3 ? rnd(90, 240) : rnd(25, 100) / Math.max(w, 0.3)) * MIN
-					if (w >= 0.3 && !this.speaking.has(a.id)) this.manager.sessions.get(a.id)?.online(irnd(15, 60) * 1000)?.catch?.(() => {})
+					if (w >= 0.3 && !this.speaking.has(a.id)) {
+						this.manager.sessions.get(a.id)?.online(irnd(15, 60) * 1000)?.catch?.(() => {})
+						// Sesión de uso: ya que abrió WhatsApp, lee y contesta lo pendiente de una vez (en ráfaga)
+						let k = 0
+						for (const ev of this.queue) {
+							if (ev.at <= now || ev.at > now + 20 * MIN) continue
+							if (ev.kind === 'read' && ev.readerId === a.id) { ev.at = now + rnd(5, 40) * 1000; this.dirty = true }
+							else if (ev.kind === 'say') {
+								const c = this.convos.get(ev.convoId)
+								if (c && c.order[c.i] === a.id) { ev.at = now + (20 + 25 * k++ + rnd(0, 30)) * 1000; this.dirty = true }
+							}
+						}
+					}
 				}
 			}
 			// 1) Lecturas y vistas de estados pendientes: el que recibió se conecta y abre el chat
@@ -923,32 +989,43 @@ export class WarmupManager {
 		if (!this.s.groups) return
 		const now = Date.now()
 		const ok = snap.list.filter(a => !a.grace && (a.phase ?? 4) >= 2 && a.level !== 'red' && !this.flagged(a.id) && this.ageDays(a) >= 2 && !this.busyReal(a.id))
-		let g = this.group()
-		if (!g) {
-			if (ok.length < 3 || now - (this.lastGroupTry || 0) < 6 * 36e5) return
+		const groups = this.groupsList()
+		// Hasta 3 grupos (amigos, familia, trabajo) según cuántos números haya; uno nuevo cada 2 días como máximo
+		const maxGroups = ok.length >= 6 ? 3 : ok.length >= 4 ? 2 : 1
+		const lastCreated = Math.max(0, ...groups.map(g => g.at || 0))
+		if (groups.length < maxGroups && !this.cautionActive() && ok.length >= 3 && now - (this.lastGroupTry || 0) > 6 * 36e5 && (!groups.length || now - lastCreated > 2 * DAY)) {
 			this.lastGroupTry = now
-			const sorted = [...ok].sort((a, b) => this.since(a) - this.since(b))
-			const owner = sorted[0]
-			const members = sorted.slice(0, 8)
-			const subject = pick(GROUP_NAMES)
+			const have = new Set(groups.map(g => this.kindOf(g)))
+			const kind = ['amigos', 'familia', 'trabajo'].find(k => !have.has(k))
+			if (!kind) return
+			const def = GROUP_KINDS[kind]
+			// Integrantes: los que tienen esa relación entre sí, empezando por el más antiguo
+			const owner = [...ok].sort((a, b) => this.since(a) - this.since(b))[0]
+			const affinity = x => ok.filter(y => y.id !== x.id && relOf(x.id, y.id) === def.rel).length + (relOf(owner.id, x.id) === def.rel ? 2 : 0)
+			const members = [owner, ...ok.filter(x => x.id !== owner.id).sort((x, y) => affinity(y) - affinity(x)).slice(0, irnd(2, 5))]
+			if (members.length < 3) return
+			const subject = pick(def.names)
 			const gid = await this.manager.sessions.get(owner.id).createGroup(subject, members.slice(1).map(a => jidOf(a.phone)))
 			if (!gid) return
-			g = { jid: gid, owner: owner.id, members: members.map(a => a.id), subject, at: now }
-			this.groups = [g]
+			this.groups = [...groups, { jid: gid, owner: owner.id, members: members.map(a => a.id), subject, kind, at: now }]
 			setJSON('warmup_groups', this.groups)
 			resetOwnCache()
+			this.logEvent('👥', `Se creó el grupo «${subject}» con ${members.length} de tus números`)
 			this.lastActionAt = Date.now() + irnd(20, 60) * 1000
 			return
 		}
-		// Suma a un número nuevo (como máximo uno al día)
-		const add = ok.find(a => !g.members.includes(a.id))
-		if (add && g.members.length < 12 && now - (g.lastAdd || 0) > DAY && this.live(g.owner)) {
-			try {
-				await this.manager.sessions.get(g.owner).addToGroup(g.jid, [jidOf(add.phone)])
-				g.members.push(add.id)
-			} catch {}
-			g.lastAdd = now
-			setJSON('warmup_groups', this.groups)
+		// Suma a un número nuevo a algún grupo (como máximo uno al día por grupo)
+		for (const g of groups) {
+			const add = ok.find(a => !g.members.includes(a.id) && (this.kindOf(g) === 'amigos' || relOf(g.owner, a.id) === GROUP_KINDS[this.kindOf(g)]?.rel || Math.random() < 0.3))
+			if (add && g.members.length < 12 && now - (g.lastAdd || 0) > DAY && this.live(g.owner)) {
+				try {
+					await this.manager.sessions.get(g.owner).addToGroup(g.jid, [jidOf(add.phone)])
+					g.members.push(add.id)
+				} catch {}
+				g.lastAdd = now
+				setJSON('warmup_groups', this.groups)
+				return
+			}
 		}
 	}
 
@@ -969,7 +1046,7 @@ export class WarmupManager {
 		let storyText = ''
 		const text = () => (storyText = styleText(vary(pick(STORY_TEXTS)), a.persona))
 		const res = img
-			? await session.postStatus({ image: fs.readFileSync(img.path), caption: Math.random() < 0.6 ? text() : undefined }, jids)
+			? await session.postStatus({ image: (await this.uniqueMedia('image', img.path)).buffer, mimetype: 'image/jpeg', caption: Math.random() < 0.6 ? text() : undefined }, jids)
 			: await session.postStatus({ text: text() }, jids, { backgroundColor: pick(STORY_COLORS), font: irnd(0, 4) })
 		this.stories[a.id] = now
 		setJSON('warmup_stories', this.stories)
@@ -984,6 +1061,15 @@ export class WarmupManager {
 			}
 			this.dirty = true
 		}
+	}
+
+	// Lee un archivo de la biblioteca y lo devuelve como versión única (si no se puede, el original)
+	async uniqueMedia(kind, file) {
+		const buf = fs.readFileSync(file)
+		if (!await hasFfmpeg()) return { buffer: buf, unique: false }
+		const fn = { image: variantImage, audio: variantAudio, sticker: variantSticker, gif: variantGif }[kind]
+		try { const out = await fn(buf); this.uniqueSent = (this.uniqueSent || 0) + 1; return { buffer: out, unique: true } }
+		catch { return { buffer: buf, unique: false } }
 	}
 
 	pickMedia(kind) {
@@ -1010,6 +1096,7 @@ export class WarmupManager {
 			if (this.fails[c.from] >= FAILS_TO_FLAG && !this.flagged(c.from)) {
 				const name = snap.byId.get(c.from)?.name || 'Un número'
 				this.flags[c.from] = { until: now + FLAG_HOURS * 36e5, at: now, reason: `${this.fails[c.from]} mensajes seguidos no llegaron a tus otros números` }
+				this.logEvent('⚠️', `${snap.byId.get(c.from)?.name || 'Un número'}: sus mensajes no llegan; pausado ${FLAG_HOURS} h`)
 				this.snap = null
 				sendPush({ title: `⚠️ ${name}: sus mensajes no llegan`, body: 'El calentamiento lo pausó 12 h. Puede estar restringido por WhatsApp: no lo uses en masivos por ahora.', url: '/#/settings' })
 				for (const cv of [...this.convos.values()]) if (cv.members.includes(c.from)) this.end(cv.id, 'pausada')
@@ -1107,8 +1194,8 @@ export class WarmupManager {
 			const d = dayKey()
 			for (const b of list.filter(x => birthdayOf(x.id) === doy && x.phase >= 1 && free(x))) {
 				const name = this.names.get(b.id)?.first
-				const g = this.group()
-				if (g && this.s.groups && g.members.includes(b.id) && !this.bdays[`${d}:g:${b.id}`]) {
+				const g = this.groupsList().find(gg => gg.members.includes(b.id) && this.kindOf(gg) !== 'trabajo') || this.groupsList().find(gg => gg.members.includes(b.id))
+				if (g && this.s.groups && !this.bdays[`${d}:g:${b.id}`]) {
 					const others = ready.filter(x => x.id !== b.id && g.members.includes(x.id) && x.phase >= 2)
 					if (others.length >= 2) {
 						this.bdays[`${d}:g:${b.id}`] = 1
@@ -1122,6 +1209,7 @@ export class WarmupManager {
 				if (x && Math.random() < 0.6) {
 					this.bdays[`${d}:${x.id}:${b.id}`] = 1
 					const lines = BIRTHDAY(name)
+					if (!this.bdays[`${d}:log:${b.id}`]) { this.bdays[`${d}:log:${b.id}`] = 1; this.logEvent('🎂', `Hoy «cumple años» ${name} (${b.name}): lo felicitan sus amigos y familia`) }
 					return this.startConvo({ members: [x.id, b.id], order: [x.id, b.id, x.id], lines, birthday: true }, { lines }, force)
 				}
 			}
@@ -1137,19 +1225,23 @@ export class WarmupManager {
 			return this.startConvo({ members: [fu.from, fu.to], order: lines.map((_, i) => (i % 2 === 0 ? fu.from : fu.to)), lines, followUp: true }, { lines }, force)
 		}
 		const fitOf = sc => (!sc.when ? (mo.night ? 0.4 : 1) : mo[sc.when] ? MOMENT_BOOST[sc.when] : 0)
-		// A veces la charla es en el grupo de tus números
-		const g = this.group()
-		if (g && this.s.groups && Math.random() < (this.hot() ? 0.32 : 0.16)) {
-			const members = ready.filter(a => g.members.includes(a.id) && !this.mentorsOf(a.id).length && a.phase >= 2)
+		// A veces la charla es en uno de los grupos de tus números (el de trabajo en horario laboral, el de familia mañana y noche…)
+		const gMembers = gg => ready.filter(a => gg.members.includes(a.id) && !this.mentorsOf(a.id).length && a.phase >= 2)
+		const g = this.s.groups && Math.random() < (this.hot() ? 0.32 : 0.16) + 0.04 * Math.max(0, this.groupsList().length - 1)
+			? weighted(this.groupsList().filter(gg => gMembers(gg).length >= 3), gg => groupWeight(this.kindOf(gg), hour, wd)) : null
+		if (g) {
+			const kind = this.kindOf(g)
+			const members = gMembers(g)
 			if (members.length >= 3) {
 				const people = weightedSample(members, a => 0.2 + this.awake(a, hour, wd), Math.min(members.length, irnd(3, 4)))
-				// A veces es una encuesta («¿Qué pedimos?») y los demás contestan
+				// A veces es una encuesta («¿Qué pedimos?», «¿A qué hora la junta?») y los demás contestan
 				if (people.length >= 3 && Math.random() < 0.25) {
-					const lines = pollConvo(pick(GROUP_POLLS))
+					const lines = pollConvo(pick(GROUP_KIND_POLLS[kind] || GROUP_POLLS))
 					const order = [people[0].id, people[1].id, people[2].id, people[0].id]
 					return this.startConvo({ group: g.jid, members: people.map(p => p.id), order, lines, poll: true }, { lines }, force)
 				}
-				const script = weighted(GROUP_SCRIPTS, sc => fitOf(sc) * (this.recent.includes(keyOf(sc)) ? 0.05 : 1))
+				const pool = [...(kind === 'trabajo' ? [] : GROUP_SCRIPTS), ...(GROUP_KIND_SCRIPTS[kind] || []).map(x => ({ ...x, weight: 1.5 }))]
+				const script = weighted(pool, sc => fitOf(sc) * (sc.weight || 1) * (this.recent.includes(keyOf(sc)) ? 0.05 : 1))
 				if (script && people.length >= 3) {
 					const order = [people[0].id]
 					for (let i = 1; i < script.lines.length; i++) order.push(pick(people.filter(p => p.id !== order[i - 1])).id)
@@ -1183,7 +1275,7 @@ export class WarmupManager {
 		const rel = relOf(starter.id, partner.id)
 		const minPhase = Math.min(starter.phase ?? 4, partner.phase ?? 4)
 		// A veces empieza una historia de varios días («¿comemos el jueves?»)
-		if (minPhase >= 2 && this.arcs.length < 30 && Math.random() < 0.2 && !this.arcs.some(x => pairKey(x.a, x.b) === pairKey(starter.id, partner.id))) {
+		if (minPhase >= 2 && !this.cautionActive() && this.arcs.length < 30 && Math.random() < 0.2 && !this.arcs.some(x => pairKey(x.a, x.b) === pairKey(starter.id, partner.id))) {
 			const def = pick(ARCS.filter(x => x.rels.includes(rel)))
 			if (def) {
 				const built = buildArc(def, startOfDay(), wd)
@@ -1194,7 +1286,9 @@ export class WarmupManager {
 			}
 		}
 		// Guion según el momento, su relación y lo que haya disponible (fotos, audios), sin repetir los recientes
+		this.genName = this.names.get(partner.id)?.first || null
 		const script = this.pickScript(hour, wd, rel, minPhase)
+		this.genName = null
 		if (!script) return 'none'
 		let lines = [...script.lines]
 		// A veces lo saluda por su nombre
@@ -1231,12 +1325,16 @@ export class WarmupManager {
 		const av = this.available()
 		const pool = [...SCRIPTS, ...CALL_SCRIPTS.map(x => ({ ...x, weight: 0.6 })), ...this.custom,
 			...(rel ? (REL_SCRIPTS[rel] || []).map(x => ({ ...x, weight: 1.6 })) : []),
-			...(phase >= 3 ? FORWARD_SCRIPTS.map(x => ({ ...x, weight: 0.35 })) : [])]
-		return weighted(pool, sc => {
+			...(phase >= 3 ? FORWARD_SCRIPTS.map(x => ({ ...x, weight: 0.35 })) : []),
+			{ gen: true, weight: 2.2, lines: [] }] // charla armada por el generador (mil combinaciones)
+		const sc = weighted(pool, sc => {
+			if (sc.gen) return sc.weight
 			if (phase < 2 && needs(sc).size) return 0 // en las primeras fases, solo texto
 			for (const n of needs(sc)) if (n !== 'forward' && !av[n]) return 0
 			return fitOf(sc) * (sc.weight ?? (sc.custom ? 1.5 : 1)) * (this.recent.includes(keyOf(sc)) ? 0.03 : 1)
 		})
+		if (sc?.gen) { const g = generateConvo({ rel, mo, name: this.genName }); return { lines: g.lines, greets: g.greets, generated: true } }
+		return sc
 	}
 	startConvo(c, script, force) {
 		this.recent = [keyOf(script), ...this.recent].slice(0, 14)
@@ -1326,7 +1424,7 @@ export class WarmupManager {
 				if (f) {
 					await session.setPresence(toJid, 'composing')
 					await sleep(irnd(1500, 3500))
-					const r = await session.send(toJid, { sticker: fs.readFileSync(f.path) })
+					const r = await session.send(toJid, { sticker: (await this.uniqueMedia('sticker', f.path)).buffer })
 					if (r?.id) { ids.push(r.id); return ids }
 				}
 			}
@@ -1336,7 +1434,7 @@ export class WarmupManager {
 				const f = this.pickMedia('gif')
 				if (f) {
 					await sleep(irnd(1500, 4000))
-					const r = await session.send(toJid, { video: fs.readFileSync(f.path), gifPlayback: true, mimetype: 'video/mp4' })
+					const r = await session.send(toJid, { video: (await this.uniqueMedia('gif', f.path)).buffer, gifPlayback: true, mimetype: 'video/mp4' })
 					if (r?.id) ids.push(r.id)
 				}
 			}
@@ -1372,14 +1470,15 @@ export class WarmupManager {
 				const caption = line.caption ? styleText(vary(line.caption), p) : ''
 				await session.setPresence(toJid, 'composing')
 				await sleep(irnd(2500, 6000)) // busca la foto en la galería
-				content = { image: fs.readFileSync(f.path), caption: caption || undefined, mimetype: f.name.endsWith('.png') ? 'image/png' : f.name.endsWith('.webp') ? 'image/webp' : 'image/jpeg' }
+				const u = await this.uniqueMedia('image', f.path)
+				content = { image: u.buffer, caption: caption || undefined, mimetype: u.unique || f.name.endsWith('.jpg') ? 'image/jpeg' : f.name.endsWith('.png') ? 'image/png' : 'image/webp' }
 			}
 		} else if (line.media === 'audio') {
 			const f = this.pickMedia('audio')
 			if (f) {
 				const secs = clamp(f.size * 8 / 32000, 2, 25)
 				await session.recording(toJid, secs * 1000 + irnd(500, 1500)) // "grabando audio…"
-				content = { audio: fs.readFileSync(f.path), mimetype: 'audio/ogg; codecs=opus', ptt: true }
+				content = { audio: (await this.uniqueMedia('audio', f.path)).buffer, mimetype: 'audio/ogg; codecs=opus', ptt: true }
 			}
 		} else if (line.media === 'location') {
 			// Cada número tiene su zona habitual en la ciudad
@@ -1443,7 +1542,7 @@ export class WarmupManager {
 			}
 			const third = snap.list.find(a => !c.members.includes(a.id))
 			// Muy de vez en cuando manda algo que era para otro chat y lo borra para todos
-			if (!c.group && (speaker.phase ?? 4) >= 3 && Math.random() < 0.015) ids.push(...await this.wrongMessage(session, speaker, toJid))
+			if (!c.group && !this.cautionActive() && (speaker.phase ?? 4) >= 3 && Math.random() < 0.015) ids.push(...await this.wrongMessage(session, speaker, toJid))
 			ids.push(...await this.sendLine(session, speaker, toJid, line, { quoted, third, reply: c.i > 0 }))
 			for (let k = 0; k < ids.length; k++) this.log(speaker.id, one?.id)
 			c.n += ids.length
@@ -1516,7 +1615,7 @@ export class WarmupManager {
 
 	// De vez en cuando cambia la info del perfil (cada 10–22 días) o la foto (cada 35–65 días, o si no tiene)
 	async maybeProfileChange(snap) {
-		if (!this.s.profiles || Math.random() > 0.3) return
+		if (!this.s.profiles || this.cautionActive() || Math.random() > 0.3) return
 		const now = Date.now()
 		const cands = snap.list.filter(a => !a.grace && a.level !== 'red' && !a.restricted && !this.flagged(a.id) && !this.busyReal(a.id))
 		for (const a of cands.sort(() => Math.random() - 0.5)) {
@@ -1552,7 +1651,7 @@ export class WarmupManager {
 
 	// Tus números se guardan como contactos entre sí (después de haber platicado), con el nombre que les pusiste
 	async maybeSaveContact(snap) {
-		if (!this.s.contacts || Math.random() > 0.6) return
+		if (!this.s.contacts || this.cautionActive() || Math.random() > 0.6) return
 		const now = Date.now()
 		const cands = []
 		for (const a of snap.list) {
@@ -1589,7 +1688,7 @@ export class WarmupManager {
 	}
 	// A veces alguien silencia el grupo unas horas, como cuando hay mucho mensaje
 	async maybeMuteGroup(snap) {
-		const g = this.group()
+		const g = pick(this.groupsList())
 		if (!g || Math.random() > 0.05) return
 		const d = dayKey()
 		const m = pick(snap.list.filter(x => g.members.includes(x.id) && (this.muted[x.id] == null || d - this.muted[x.id] >= 3) && (x.phase ?? 4) >= 2))
@@ -1605,14 +1704,16 @@ export class WarmupManager {
 		if (wd !== 1 || h < 9 || getJSON('warmup_report', null) === wk || !snap.list.length) return
 		setJSON('warmup_report', wk)
 		const rows = snap.list.map(a => ({ a, d: this.weekDelta(a.id, a.mature.score) }))
+		if (rows.every(r => r.d == null)) return // aún no hay una semana de historia para comparar
 		const up = rows.filter(r => r.d > 0).length
 		const ready = snap.list.filter(a => a.mature.score >= 70).map(a => a.name)
 		const best = rows.filter(r => r.d > 0).sort((x, y) => y.d - x.d)[0]
 		sendPush({
 			title: '📈 Reporte semanal del calentamiento',
 			body: `${up} de ${snap.list.length} números subieron de madurez.${best ? ` El que más: ${best.a.name} (+${best.d}).` : ''} Listos para masivos: ${ready.length ? ready.join(', ') : 'ninguno aún'}.`,
-			url: '/#/settings'
+			url: '/#/warmup'
 		})
+		this.logEvent('📈', `Reporte semanal: ${up} de ${snap.list.length} subieron de madurez; listos: ${ready.length ? ready.join(', ') : 'ninguno'}`)
 	}
 
 	// Cuándo lee y cuándo contesta, según qué tan despierto está y qué tan rápido suele contestar

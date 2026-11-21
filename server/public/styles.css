@@ -848,3 +848,4 @@ select option { background: var(--card); color: var(--text); }
 .wu-legend i.dot { width: 9px; height: 9px; border-radius: 50%; }
 .wu-ph { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; flex-shrink: 0; }
 .wu-ph.sm { width: 16px; height: 16px; font-size: 10px; vertical-align: -3px; }
+.wu-caution { margin: 8px 16px 4px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--warn) 16%, var(--card)); font-size: 14px; line-height: 1.4; }

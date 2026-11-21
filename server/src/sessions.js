@@ -39,6 +39,39 @@ const logger = pino({ level: process.env.LOG_LEVEL || 'warn' }, {
 	}
 })
 const AUTH_DIR = path.join(DATA_DIR, 'auth')
+
+// ---- Identidad de cada número ante WhatsApp ----
+// Cada número se vincula como un dispositivo distinto (no todos «Chrome en Mac») y puede salir por su propio proxy,
+// para que tus números no se vean como una granja conectada desde el mismo lugar.
+for (const sql of ['ALTER TABLE accounts ADD COLUMN device TEXT', 'ALTER TABLE accounts ADD COLUMN proxy TEXT']) { try { db.exec(sql) } catch {} }
+const DEVICES = ['windows|Chrome', 'windows|Edge', 'macOS|Chrome', 'macOS|Safari', 'ubuntu|Chrome', 'windows|Firefox', 'macOS|Firefox', 'ubuntu|Firefox']
+const OS_LABEL = { windows: 'Windows', macOS: 'Mac', ubuntu: 'Linux' }
+export const deviceLabel = dev => { const [os, br] = String(dev || 'macOS|Chrome').split('|'); return `${br} en ${OS_LABEL[os] || os}` }
+const browserFor = dev => { const [os, br] = String(dev || 'macOS|Chrome').split('|'); return (Browsers[os] || Browsers.macOS)(br || 'Chrome') }
+// El dispositivo menos usado entre tus números (con un poco de azar)
+function pickDevice() {
+	const used = new Map(DEVICES.map(d => [d, 0]))
+	try { for (const { device } of db.prepare("SELECT device FROM accounts WHERE device IS NOT NULL AND (kind IS NULL OR kind != 'cloud')").all()) used.set(device, (used.get(device) || 0) + 1) } catch {}
+	const min = Math.min(...used.values())
+	const best = DEVICES.filter(d => used.get(d) === min)
+	return best[Math.floor(Math.random() * best.length)]
+}
+/** Valida un proxy: http://usuario:clave@host:puerto, https://… o socks5://… (vacío = sin proxy) */
+export function normalizeProxy(value) {
+	const v = String(value || '').trim()
+	if (!v) return null
+	let u
+	try { u = new URL(v) } catch { throw new Error('El proxy debe ser como http://usuario:contraseña@host:puerto o socks5://host:puerto') }
+	if (!/^(https?|socks[45]h?):$/.test(u.protocol)) throw new Error('El proxy debe empezar con http://, https://, socks4:// o socks5://')
+	if (!u.hostname || !u.port) throw new Error('Falta el host o el puerto del proxy')
+	return v
+}
+export const proxyLabel = v => { try { const u = new URL(v); return `${u.protocol.replace(':', '')}://${u.hostname}:${u.port}` } catch { return null } }
+async function proxyAgent(url) {
+	if (url.startsWith('socks')) { const { SocksProxyAgent } = await import('socks-proxy-agent'); return new SocksProxyAgent(url) }
+	const { HttpsProxyAgent } = await import('https-proxy-agent')
+	return new HttpsProxyAgent(url)
+}
 export const MEDIA_DIR = path.join(DATA_DIR, 'media')
 
 const MEDIA_TYPES = {
@@ -317,11 +350,31 @@ export class Session {
 		this.userLogout = false
 		const { state, saveCreds } = useSqliteAuthState(this.accountId, this.authDir)
 		const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }))
+		// Dispositivo: los ya vinculados conservan el suyo; los que se van a vincular reciben uno distinto
+		const acc = stmt.getAccount.get(this.accountId) || {}
+		let device = acc.device
+		if (!device && !hasAuth(this.accountId, this.authDir)) {
+			device = pickDevice()
+			try { db.prepare('UPDATE accounts SET device = ? WHERE id = ?').run(device, this.accountId) } catch {}
+		}
+		// Proxy propio (si tiene)
+		let agent
+		if (acc.proxy) {
+			try { agent = await proxyAgent(acc.proxy) }
+			catch (e) {
+				note(this.accountId, 'proxy-error', e.message)
+				this.proxyError = `No se pudo usar el proxy: ${e.message}`
+				this.setStatus('error')
+				return
+			}
+		}
+		this.proxyError = null
 		const sock = makeWASocket({
 			version,
 			logger,
 			auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
-			browser: Browsers.macOS('Chrome'),
+			browser: browserFor(device),
+			...(agent ? { agent, fetchAgent: agent } : {}),
 			syncFullHistory: false,
 			markOnlineOnConnect: false,
 			getMessage: async key => {
@@ -434,6 +487,8 @@ export class Session {
 				this.removedInfo = null
 				clearAuth(this.accountId, this.authDir)
 				markUnlinked(this.accountId)
+				// La próxima vez que se vincule, recibe otro dispositivo
+				try { db.prepare('UPDATE accounts SET device = NULL WHERE id = ?').run(this.accountId) } catch {}
 				this.setStatus('logged_out')
 				return
 			}
@@ -998,6 +1053,9 @@ export class SessionManager extends EventEmitter {
 		const info = { id: a.id, name: a.name, color: a.color, phone: a.phone, status: s?.status || a.status, qr: s?.qr || null, kind: a.kind || 'baileys' }
 		if (a.kind !== 'cloud') {
 			info.health = accountHealth(id, info.status)
+			info.device = deviceLabel(a.device)
+			info.proxy = a.proxy ? proxyLabel(a.proxy) : null
+			info.proxyError = s?.proxyError || null
 			info.reserve = Boolean(a.reserve)
 			info.restAllow = a.rest_allow || 0
 		}

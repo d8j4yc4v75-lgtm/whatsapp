@@ -10,7 +10,10 @@ for (const sql of [
 	'ALTER TABLE accounts ADD COLUMN rest_allow INTEGER NOT NULL DEFAULT 0',
 	// Restricción de WhatsApp (no puede iniciar chats nuevos) y hasta cuándo, según WhatsApp mismo
 	'ALTER TABLE accounts ADD COLUMN restricted_until INTEGER',
-	'ALTER TABLE accounts ADD COLUMN restriction_type TEXT'
+	'ALTER TABLE accounts ADD COLUMN restriction_type TEXT',
+	// Fase (0–4) y madurez (0–100) que calcula el calentamiento
+	'ALTER TABLE accounts ADD COLUMN warmup_phase INTEGER',
+	'ALTER TABLE accounts ADD COLUMN warmup_score INTEGER'
 ]) {
 	try { db.exec(sql) } catch {}
 }
@@ -23,6 +26,21 @@ const q = {
 }
 
 const REST_DAYS = Number(process.env.REST_DAYS || 5)
+
+// ¿El calentamiento está activo y conectado con los masivos? (se revisa cada minuto)
+let wuCache = { at: 0, on: false }
+function warmupLinked() {
+	if (Date.now() - wuCache.at < 60000) return wuCache.on
+	let on = false
+	try {
+		const s = JSON.parse(db.prepare("SELECT value FROM app_settings WHERE key = 'warmup'").get()?.value || '{}')
+		on = Boolean(s.enabled) && s.campaignLink !== false
+	} catch {}
+	wuCache = { at: Date.now(), on }
+	return on
+}
+// Cuánto puede mandar en masivos según su fase del calentamiento: los maduros más, los nuevos menos
+const PHASE_FACTOR = [0.5, 0.5, 0.7, 1, 1.5]
 
 /** Pone a descansar un número: los envíos masivos no lo usan hasta la fecha indicada */
 export function setRest(accountId, days) {
@@ -168,5 +186,11 @@ export function accountHealth(accountId, status) {
 		reason = `Casi nadie le contesta (${Math.round(rs.rate * 100)}% de ${rs.sent}). Baja el ritmo para que no lo reporten.`
 		suggestedDaily = Math.max(5, Math.floor(suggestedDaily / 2))
 	}
-	return { level, reason, rejections24h: r24, rejections72h: r72, ageDays, suggestedDaily, restUntil: resting ? a.rest_until : null, restrictedUntil: restricted ? a.restricted_until : null, replyRate: rs.sent ? Math.round(rs.rate * 100) : null, sent3d: rs.sent }
+	let warmup = null
+	if (a.warmup_phase != null && warmupLinked()) {
+		const factor = PHASE_FACTOR[a.warmup_phase] ?? 1
+		if (suggestedDaily > 0 && level !== 'red') suggestedDaily = Math.max(Math.min(suggestedDaily, 3), Math.round(suggestedDaily * factor))
+		warmup = { phase: a.warmup_phase, score: a.warmup_score ?? null, factor }
+	}
+	return { level, reason, rejections24h: r24, rejections72h: r72, ageDays, suggestedDaily, warmup, restUntil: resting ? a.rest_until : null, restrictedUntil: restricted ? a.restricted_until : null, replyRate: rs.sent ? Math.round(rs.rate * 100) : null, sent3d: rs.sent }
 }

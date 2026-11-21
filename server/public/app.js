@@ -732,6 +732,26 @@ function renderChatHeader() {
 	}
 }
 
+// ---------- Proxy de un número ----------
+function openProxy(id) {
+	const a = account(id)
+	sheet(`Proxy de ${a?.name || '#' + id}`, `
+		<p class="hint" style="padding-top:12px">Con un proxy, este número se conecta a WhatsApp desde otra IP y no desde la del servidor que comparten todos tus números. Lo ideal es un proxy <b>residencial o móvil de México</b>, uno distinto para cada número. ${a?.proxy ? `Ahora sale por <b>${esc(a.proxy)}</b>.` : ''}</p>
+		<div class="group" style="margin-top:10px"><div class="item"><input type="text" id="px-url" placeholder="http://usuario:contraseña@host:puerto" autocomplete="off" autocapitalize="off" spellcheck="false"></div></div>
+		<p class="hint">También acepta https:// y socks5://. Al guardar, el número se reconecta por el proxy. Si el proxy falla, el número se queda desconectado hasta que lo corrijas o lo quites.</p>
+		<div class="pad"><button class="btn primary" id="px-save">Guardar</button>${a?.proxy ? '<button class="btn danger" id="px-clear" style="margin-top:8px">Quitar proxy</button>' : ''}</div>`, el => {
+		const save = async proxy => {
+			try {
+				const info = await api('PATCH', `/accounts/${id}`, { proxy })
+				S.accounts = S.accounts.map(x => (x.id === id ? { ...x, ...info } : x))
+				closeSheet(); toast(proxy ? 'Proxy guardado: reconectando…' : 'Proxy quitado: reconectando…'); render()
+			} catch (e) { toast(e.message) }
+		}
+		$('#px-save', el).onclick = () => { const v = $('#px-url', el).value.trim(); if (!v) return toast('Escribe el proxy'); save(v) }
+		const clr = $('#px-clear', el); if (clr) clr.onclick = () => save('')
+	})
+}
+
 // ---------- Padrinos del calentamiento ----------
 function openMentors(id) {
 	const st = S.warmup || {}
@@ -1610,7 +1630,7 @@ function openNewSafeCampaign() {
 		<div class="group"><div class="item"><input type="text" id="sf-name" placeholder="Ej. Recordatorios lunes"></div></div>
 		<div class="group"><label class="item"><input type="checkbox" id="sf-perline"><span class="grow"><b>✏️ Cada línea trae su propio mensaje</b><small>En vez de una plantilla, pega el número y a un lado su mensaje ya escrito. Se reparten entre tus números.</small></span></label></div>
 		<div class="section">Números que van a enviar</div>
-		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status !== 'connected' ? 'disabled' : a.reserve ? '' : 'checked'}><span class="grow">${accountTag(a.id)} ${a.phone ? esc(fmtPhone(a.phone)) : ''}${a.reserve ? ' <b style="color:#7C5CFF">· reserva</b>' : ''}${a.health && a.status === 'connected' ? `<small>${healthDot(a)} ${esc(a.health.reason)} · hoy hasta ${a.health.suggestedDaily}</small>` : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
+		<div class="group">${normal.map(a => `<label class="item"><input type="checkbox" class="sf-acc" value="${a.id}" ${a.status !== 'connected' ? 'disabled' : a.reserve ? '' : 'checked'}><span class="grow">${accountTag(a.id)} ${a.phone ? esc(fmtPhone(a.phone)) : ''}${a.reserve ? ' <b style="color:#7C5CFF">· reserva</b>' : ''}${a.health && a.status === 'connected' ? `<small>${healthDot(a)} ${esc(a.health.reason)} · hoy hasta ${a.health.suggestedDaily}${a.health.warmup ? ` · calentamiento: fase ${a.health.warmup.phase + 1}${a.health.warmup.phase <= 1 ? ' (aún nuevo)' : a.health.warmup.phase === 4 ? ' (listo)' : ''}` : ''}</small>` : ''}</span><small style="display:inline;color:${statusColor(a)}">${statusText(a)}</small></label>`).join('')}</div>
 		<p class="hint">La lista se reparte entre los números marcados. Los números de <b>reserva</b> entran solos si uno de los marcados se restringe, descansa o se desconecta.</p>
 		<div id="sf-msg-wrap">
 		<div class="section">Mensaje</div>
@@ -2177,14 +2197,23 @@ function renderAccount(id, full) {
 				<div class="item"><span class="grow">Semáforo</span><span>${healthDot(a)} ${HEALTH[h.level][1]}</span></div>
 				<div class="item"><span class="grow">Rechazos de WhatsApp</span><span>${h.rejections24h} en 24 h · ${h.rejections72h} en 3 días</span></div>
 				<div class="item"><span class="grow">Días vinculado</span><span>${h.ageDays}</span></div>
-				<div class="item"><span class="grow">Envíos sugeridos hoy</span><span><b>${h.suggestedDaily}</b></span></div>
+				<div class="item"><span class="grow">Envíos sugeridos hoy${h.warmup ? `<small>Ajustado por el calentamiento: ×${h.warmup.factor}</small>` : ''}</span><span><b>${h.suggestedDaily}</b></span></div>
+				${h.warmup ? `<a class="item" href="#/warmup"><span class="grow">Calentamiento<small>Fase ${h.warmup.phase + 1} de 5 · ${['Recién vinculado', 'Primeros pasos', 'Socializando', 'Activo', 'Listo'][h.warmup.phase] || ''}${h.warmup.score != null ? ` · madurez ${h.warmup.score}/100` : ''}</small></span>${IC.chevron}</a>` : ''}
 			</div>
 			${h.restUntil ? `<div class="group"><div class="item"><span class="grow">Permitir mientras descansa<small>Mensajes de envíos masivos al día (0 = ninguno)</small></span><input type="number" id="ac-rest-allow" min="0" max="50" value="${a.restAllow || 0}" class="num"></div><button class="btn" data-act="rest-allow" data-val="${a.id}">Guardar</button></div>` : ''}
 			<div class="group">${h.restUntil
 				? '<button class="btn" data-act="rest" data-val="0">Terminar descanso ahora</button>'
 				: [3, 5, 7].map(d => `<button class="btn" data-act="rest" data-val="${d}">😴 Poner a descansar ${d} días</button>`).join('')}</div>
 			<p class="hint">${esc(h.reason)} Si WhatsApp le rechaza 2 mensajes en un día, el número descansa 5 días solo. Al volver, el límite sube otra vez poco a poco (10 → 15 → 20 → 30).</p>` : ''
-		if (hEl.innerHTML.trim() !== html.trim()) hEl.innerHTML = html
+		// Identidad ante WhatsApp (siempre visible, también si el número está desconectado por un proxy que falló)
+		const ident = a.kind === 'cloud' ? '' : `
+			<div class="section">Identidad ante WhatsApp</div>
+			<div class="group">
+				<div class="item"><span class="grow">Se vinculó como<small>Cada número se vincula como un dispositivo distinto (los nuevos lo reciben al vincularse)</small></span><span class="muted">${esc(a.device || '—')}</span></div>
+				<button class="item" data-act="ac-proxy" data-val="${a.id}"><span class="grow">Proxy<small style="${a.proxyError ? 'color:var(--danger)' : ''}">${a.proxyError ? esc(a.proxyError) : a.proxy ? `Sale por ${esc(a.proxy)}` : 'Sin proxy: sale por la IP del servidor, igual que tus demás números'}</small></span>${IC.chevron}</button>
+			</div>
+`
+		if (hEl.innerHTML.trim() !== (html + ident).trim()) hEl.innerHTML = html + ident
 	}
 
 	const actions = []
@@ -2436,7 +2465,10 @@ function renderWarmupOverview(st) {
 	const dt = t => new Date(t).toLocaleString('es-MX', { weekday: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 	const arcs = (st.arcs || []).map(a => `<div class="item"><span class="grow">${ARC_ICON[a.key] || '📖'} ${ARC_NAME[a.key] || a.key} · ${esc(nameOf(a.a))} y ${esc(nameOf(a.b))}<small>${a.nextAt ? `Siguiente paso: ${dt(a.nextAt)} · paso ${a.step + 1} de ${a.steps}` : 'Terminando'}</small></span></div>`).join('')
 	const bdays = (st.birthdays || []).map(id => { const n = nums.find(x => x.id === id); return `<div class="item"><span class="grow">🎂 Hoy cumple ${esc(n?.persona?.first || '')} (${esc(nameOf(id))})<small>Su familia y amigos lo felicitan, también en el grupo</small></span></div>` }).join('')
+	const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} d` }
+	const events = (st.events || []).slice(0, 12).map(e => `<div class="item" style="align-items:flex-start"><span style="width:22px;text-align:center">${e.icon}</span><span class="grow" style="font-size:15px">${esc(e.text)}</span><span class="muted" style="font-size:12px;white-space:nowrap">${ago(e.at)}</span></div>`).join('')
 	el.innerHTML = `
+		${st.caution ? `<div class="wu-caution">🛡️ <b>Modo precaución</b> hasta ${new Date(st.caution.until).toLocaleString('es-MX', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}: ${esc(st.caution.reason)}. Todos tus números hablan menos, sin historias nuevas, sin cambios de perfil ni contactos nuevos.</div>` : ''}
 		<div class="wu-tiles">
 			${tile(`${p.sentToday || 0}<small>/${p.totalPerDay || 0}</small>`, 'Mensajes hoy', p.activity ? `Actividad ${({ alta: 'alta', media: 'media', baja: 'baja', fuera: 'fuera de horario' })[p.activity]}` : '')}
 			${tile(p.activeConvos || 0, 'Charlas en curso', p.typingNow ? `${p.typingNow} escribiendo` : '')}
@@ -2446,6 +2478,7 @@ function renderWarmupOverview(st) {
 		<div class="section">Hoy, por hora</div>
 		<div class="group"><div class="item" style="display:block">${hours}</div></div>
 		${bdays || arcs ? `<div class="section">Historias en curso</div><div class="group">${bdays}${arcs}</div>` : ''}
+		${events ? `<div class="section">Bitácora</div><div class="group">${events}</div>` : ''}
 		<div class="section">Quién platica con quién (7 días)</div>
 		<div class="group"><div class="item" style="display:block">${svg}</div></div>
 		<div class="section">Programa por fases</div>
@@ -2549,8 +2582,9 @@ function renderWarmupBox(st) {
 		<div class="item"><span class="grow">Fotos, audios, stickers, GIFs, ubicación y contactos<small>Mensajes variados, no solo texto</small></span>${sw('warmup-media-t', st.media)}</div>
 		<div class="item"><span class="grow">Cambios de perfil<small>Cada número cambia su info cada 10–22 días y su foto cada 35–65 días (usa fotos de la biblioteca; si no tiene foto, le pone una)</small></span>${sw('warmup-profiles', st.profiles)}</div>
 		<div class="item"><span class="grow">Estados<small>Cada número publica un estado cada 2–4 días. Solo lo ven tus números vinculados, nunca tus contactos ni clientes</small></span>${sw('warmup-stories', st.stories)}</div>
+		<div class="item"><span class="grow">Usar la madurez en los masivos<small>Los números listos pueden mandar 50% más masivos al día; los activos, lo normal; los que están socializando, 70%; y los recién vinculados o en primeros pasos, la mitad</small></span>${sw('warmup-camplink', st.campaignLink)}</div>
 		<div class="item"><span class="grow">Guardarse como contactos<small>Tus números se agregan entre sí a la agenda (con el nombre que les pusiste en la app) después de platicar. WhatsApp confía más en mensajes entre contactos.</small></span>${sw('warmup-contacts', st.contacts)}</div>
-		<div class="item"><span class="grow">Grupo entre tus números<small>${st.group ? `«${esc(st.group.subject)}» · ${st.group.members} números` : 'Se crea solo cuando hay 3 números con 2+ días'}</small></span>${sw('warmup-groups', st.groups)}</div>
+		<div class="item"><span class="grow">Grupos entre tus números<small>${st.groupsList?.length ? st.groupsList.map(g => `${({ familia: '🏡', trabajo: '💼', amigos: '🍻' })[g.kind] || '👥'} «${esc(g.subject)}» · ${g.members}`).join('<br>') : 'Se crean solos (amigos, familia y trabajo) cuando hay 3 o más números con 2+ días'}</small></span>${sw('warmup-groups', st.groups)}</div>
 		<div class="item"><span class="grow">Estado</span>${state}</div>
 		${st.enabled && st.eligible >= 2 ? `
 		<div class="item"><span class="grow">Hoy<small>${p.sentToday || 0} de ${p.totalPerDay || 0} mensajes · queda ${p.dayLeft ?? 0}% de la actividad del día</small>${bar(p.sentToday || 0, p.totalPerDay || 0)}</span></div>
@@ -2762,6 +2796,7 @@ document.addEventListener('click', async e => {
 		}
 		case 'contact-info': return openContactInfo()
 		case 'warmup-mentors': return openMentors(Number(val))
+		case 'ac-proxy': return openProxy(Number(val))
 		case 'warmup-boost': {
 			const h = Number(val)
 			try {
@@ -3036,8 +3071,8 @@ document.addEventListener('click', async e => {
 			catch (err) { toast(err.message) }
 			return
 		}
-		case 'warmup-media-t': case 'warmup-stories': case 'warmup-groups': case 'warmup-profiles': case 'warmup-contacts': {
-			const key = { 'warmup-media-t': 'media', 'warmup-stories': 'stories', 'warmup-groups': 'groups', 'warmup-profiles': 'profiles', 'warmup-contacts': 'contacts' }[act]
+		case 'warmup-media-t': case 'warmup-stories': case 'warmup-groups': case 'warmup-profiles': case 'warmup-contacts': case 'warmup-camplink': {
+			const key = { 'warmup-media-t': 'media', 'warmup-stories': 'stories', 'warmup-groups': 'groups', 'warmup-profiles': 'profiles', 'warmup-contacts': 'contacts', 'warmup-camplink': 'campaignLink' }[act]
 			try { renderWarmupBox(await api('POST', '/warmup', { enabled: S.warmup?.enabled, [key]: !(S.warmup?.[key]) })) }
 			catch (err) { toast(err.message) }
 			return

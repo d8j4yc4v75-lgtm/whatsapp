@@ -6,7 +6,7 @@ import multer from 'multer'
 import { WebSocketServer } from 'ws'
 import { db } from './db.js'
 import { API_TOKEN, PORT, DATA_DIR } from './config.js'
-import { SessionManager, diag, note, accountHistory } from './sessions.js'
+import { SessionManager, diag, note, accountHistory, normalizeProxy } from './sessions.js'
 import { VAPID_PUBLIC_KEY, saveSubscription, sendPush } from './push.js'
 import { changePassword, hasPassword, login, setupPassword } from './auth.js'
 import { checkToken, createDevice, listDevices, pruneDevices, removeDevice, removeOthers, touch, touchNow } from './devices.js'
@@ -207,6 +207,14 @@ app.patch('/api/accounts/:id', route(req => {
 	if (/^#[0-9a-f]{6}$/i.test(req.body.color)) db.prepare('UPDATE accounts SET color = ? WHERE id = ?').run(req.body.color, id)
 	if (typeof req.body.reserve === 'boolean') db.prepare('UPDATE accounts SET reserve = ? WHERE id = ?').run(req.body.reserve ? 1 : 0, id)
 	if (req.body.restAllow !== undefined) db.prepare('UPDATE accounts SET rest_allow = ? WHERE id = ?').run(Math.max(0, Math.min(50, Math.floor(Number(req.body.restAllow) || 0))), id)
+	// Proxy propio: al cambiarlo, la conexión se rehace por el nuevo camino
+	if (req.body.proxy !== undefined) {
+		const proxy = normalizeProxy(req.body.proxy)
+		db.prepare('UPDATE accounts SET proxy = ? WHERE id = ?').run(proxy, id)
+		const s = manager.sessions.get(id)
+		if (s?.sock) s.sock.end(new Error('Cambio de proxy'))
+		else if (s && s.status !== 'logged_out') s.start().catch(() => {})
+	}
 	const info = manager.accountInfo(id)
 	manager.emit('event', { type: 'account.update', data: info })
 	return info
