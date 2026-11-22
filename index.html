@@ -257,6 +257,9 @@ svg{display:block}
 .pop svg{flex:none;width:23px;height:23px}
 .trow select{border:0;outline:0;background:transparent;color:var(--blue);font-size:17px;text-align:right;-webkit-appearance:none;appearance:none;padding:0;cursor:pointer}
 #convTimeRows.off{display:none}
+#convPaceRow[hidden],#msgAdjGroup[hidden],#msgDel[hidden],.shift-end[hidden]{display:none}
+#msgAdjGroup{margin-top:14px}
+#msgAdjGroup .trow span{font-size:16px}
 #convTimeRows:not(.off)>.trow:first-child,#schedRows:not(.off)>.trow:first-child,#convTimeRows+.trow{border-top:.5px solid var(--sep)}
 .preview .m.them .b{background:var(--in);color:var(--inText)}
 /* escribiendo… */
@@ -375,7 +378,7 @@ svg{display:block}
     </header>
     <button class="down glass" id="downBtn" type="button" aria-label="Ir al final"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5L9 12l5.5-5.5"/></svg></button>
     <form class="composer" id="composer" autocomplete="off">
-      <button class="cbtn" type="button" data-soon="Adjuntar" aria-label="Adjuntar"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M3 12h18"/></svg></button>
+      <button class="cbtn" type="button" id="addMsgBtn" aria-label="Agregar mensaje"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M3 12h18"/></svg></button>
       <div class="field">
         <textarea id="input" rows="1" placeholder="" enterkeyhint="send"></textarea>
         <button class="cbtn" type="button" data-soon="Stickers" aria-label="Stickers"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M21 12.5V8a5 5 0 0 0-5-5H8a5 5 0 0 0-5 5v8a5 5 0 0 0 5 5h4.5z"/><path d="M21 12.5h-4.5a4 4 0 0 0-4 4V21"/></svg></button>
@@ -478,8 +481,9 @@ svg{display:block}
         <div id="convTimeRows">
           <div class="trow"><span>Día</span><input type="date" id="convDay"></div>
           <div class="trow"><span>Empieza</span><input type="time" id="convStart"></div>
+          <div class="trow"><span>Termina</span><input type="time" id="convEnd"></div>
         </div>
-        <div class="trow"><span>Ritmo</span><select id="convPace"><option value="fast">Rápido</option><option value="normal" selected>Normal</option><option value="slow">Lento</option></select></div>
+        <div class="trow" id="convPaceRow"><span>Ritmo</span><select id="convPace"><option value="fast">Rápido</option><option value="normal" selected>Normal</option><option value="slow">Lento</option></select></div>
       </div>
       <div class="foot" id="convInfo"></div>
       <div class="lbl">Vista previa</div>
@@ -493,7 +497,7 @@ svg{display:block}
   <div class="sheet" id="msgSheet" role="dialog" aria-label="Editar mensaje">
     <div class="sh-head">
       <button class="tbtn" type="button" data-close>Cancelar</button>
-      <div class="t">Editar mensaje</div>
+      <div class="t" id="msgTitle">Editar mensaje</div>
       <button class="tbtn b" type="button" id="msgSave">Guardar</button>
     </div>
     <div class="sh-body">
@@ -507,26 +511,33 @@ svg{display:block}
         <div class="trow"><span>Hora</span><input type="time" id="msgTime"></div>
         <div class="trow" id="msgTicksRow"><span>Palomitas</span><select id="msgTicks"><option value="1">Una</option><option value="2">Dos</option></select></div>
       </div>
+      <div class="group" id="msgAdjGroup"><div class="trow"><span>Ajustar toda la conversación</span><label class="sw"><input type="checkbox" id="msgAdj" checked><span></span></label></div></div>
       <div class="foot" id="msgInfo"></div>
+      <div class="foot" id="msgAdjHelp">Con el ajuste, los demás mensajes se recorren junto con este y se reparten en proporción: si cambias el primero cambia la hora de inicio, si cambias el último cambia la hora de fin. Sin el ajuste, solo cambia este mensaje.</div>
       <button class="big-btn ghost" id="msgDel" type="button">Eliminar mensaje</button>
     </div>
   </div>
 
   <!-- CAMBIAR FECHA DE LA CONVERSACIÓN -->
-  <div class="sheet" id="shiftSheet" role="dialog" aria-label="Cambiar fecha de la conversación">
+  <div class="sheet" id="shiftSheet" role="dialog" aria-label="Horario de la conversación">
     <div class="sh-head">
       <button class="tbtn" type="button" data-close>Cancelar</button>
-      <div class="t">Fecha del chat</div>
+      <div class="t">Horario del chat</div>
       <button class="tbtn b" type="button" id="shiftSave">Guardar</button>
     </div>
     <div class="sh-body">
-      <div class="lbl">Primer mensaje</div>
+      <div class="lbl">Empieza (primer mensaje)</div>
       <div class="group">
         <div class="trow"><span>Día</span><input type="date" id="shiftDay"></div>
         <div class="trow"><span>Hora</span><input type="time" id="shiftTime"></div>
       </div>
+      <div class="lbl shift-end">Termina (último mensaje)</div>
+      <div class="group shift-end">
+        <div class="trow"><span>Día</span><input type="date" id="shiftEndDay"></div>
+        <div class="trow"><span>Hora</span><input type="time" id="shiftEndTime"></div>
+      </div>
       <div class="foot" id="shiftInfo"></div>
-      <div class="foot">Todos los mensajes se mueven juntos y se conserva el tiempo entre uno y otro. Para cambiar uno solo, mantén presionado ese mensaje en el chat.</div>
+      <div class="foot">Los mensajes se reparten entre el inicio y el fin, en el mismo orden y en la misma proporción. Si solo cambias el inicio, el fin se recorre igual (se conserva la duración). Para cambiar un mensaje, mantenlo presionado en el chat.</div>
     </div>
   </div>
 
@@ -569,7 +580,8 @@ svg{display:block}
     <div class="ag">
       <div class="msg" id="actMsg"></div>
       <button type="button" id="actPhoto">Cambiar foto</button>
-      <button type="button" id="actDate">Cambiar fecha de la conversación</button>
+      <button type="button" id="actMore">Simular más mensajes aquí</button>
+      <button type="button" id="actDate">Cambiar horario de la conversación</button>
       <button type="button" class="d" id="actNoPhoto">Quitar foto</button>
       <button type="button" class="d" id="actClear">Vaciar chat</button>
       <button type="button" class="d" id="actDelete">Eliminar chat</button>
@@ -635,7 +647,8 @@ window.addEventListener('pagehide', () => { try { localStorage.setItem(KEY, JSON
 function colorFor(s){ let h = 0; for (const c of String(s)) h = (h*31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; }
 const normNum = s => String(s).replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
 const getChat = id => state.chats.find(c => c.id === id);
-const findByNum = n => state.chats.find(c => normNum(c.number) === normNum(n));
+const canon = n => normNum(fmtNum(n)); // 5579087877, 55 7908 7877 y +52 55 7908 7877 son el mismo número
+const findByNum = n => { const k = canon(n); return state.chats.find(c => canon(c.number) === k); };
 function fmtNum(raw){
   const r = String(raw || ''); let d = r.replace(/\D/g, '');
   if (!/^\s*\+/.test(r) && d.length === 10) d = '52' + d;
@@ -693,7 +706,7 @@ const listIcon = st => (ICON[st] || ICON[1]).replace('class="tick', 'style="colo
 const avCls = c => 'av' + (c.photo ? ' photo' : '');
 // tonos apagados como en WhatsApp: [color del muñeco, fondo oscuro, fondo claro]
 const AV_TONES = [['#2fa69a','#0b2c2e','#d3f1ee'],['#36b37e','#0e2b1f','#d6f3e4'],['#e9845e','#3a231b','#fbe2d8'],['#e5719d','#381a27','#fadbe7'],['#e3b341','#352a12','#f8eccc'],['#3f9cf0','#0d2643','#d8e9fb'],['#9b82df','#241d3a','#e7e0f8'],['#8fa3ad','#1f2629','#e3e8ea']];
-const avTone = c => { let h = 0; for (const ch of String(normNum(c.number) || c.name || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return AV_TONES[h % AV_TONES.length]; };
+const avTone = c => { let h = 0; for (const ch of String(canon(c.number) || c.name || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return AV_TONES[h % AV_TONES.length]; };
 const avStyle = c => { const [fg, dk, lt] = avTone(c); return `color:${fg};--avDk:${dk};--avLt:${lt};background-color:var(--avBg)` + (c.photo ? `;background-image:url('${c.photo}')` : ''); };
 const PERSON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="7.6" r="4.4"/><path d="M3.6 20.6c0-3.9 3.8-6.6 8.4-6.6s8.4 2.7 8.4 6.6c0 .8-.6 1.4-1.4 1.4H5c-.8 0-1.4-.6-1.4-1.4z"/></svg>';
 function pickPhoto(){ if (current) $('#photoInput').click(); }
@@ -1168,7 +1181,7 @@ function parseNums(){
     const parts = splitRow(line, header && header.length);
     let num = clean(parts[numIdx]);
     if (!isPhone(num)){ const j = parts.findIndex(isPhone); if (j < 0) return; num = clean(parts[j]); }
-    const k = normNum(num); if (seen.has(k)) return; seen.add(k);
+    const k = canon(num); if (seen.has(k)) return; seen.add(k);
     const vars = {}; let name = '';
     if (header){
       header.forEach((h, idx) => { if (idx === numIdx || !h) return; const v = clean(parts[idx]); if (!(h in vars) || (!vars[h] && v)) vars[h] = v; });
@@ -1203,6 +1216,10 @@ $('#chips').addEventListener('click', e => {
 });
 const schedOn = $('#schedOn'), schedDay = $('#schedDay'), schedFrom = $('#schedFrom'), schedTo = $('#schedTo');
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const hm = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+const subMin = t => t - new Date(t).setSeconds(0, 0); // segundos y ms (para no alterar el orden dentro del mismo minuto)
+const atDT = (day, time) => new Date(`${day}T${time}`).getTime();
+function rangeTxt(a, b){ return startOfDay(a) === startOfDay(b) ? `${chatDay(a)}, de ${hhmm(a)} a ${hhmm(b)}` : `de ${chatDay(a).toLowerCase()} ${hhmm(a)} a ${chatDay(b).toLowerCase()} ${hhmm(b)}`; }
 try { const sc = JSON.parse(localStorage.getItem(KEY + '.sched') || 'null'); if (sc){ schedOn.checked = sc.on; schedFrom.value = sc.from || '10:00'; schedTo.value = sc.to || '15:00'; } } catch(e){}
 schedDay.value = ymd(new Date());
 function windowRange(){
@@ -1250,9 +1267,10 @@ function hideMenu(){ moreMenu.classList.remove('on'); popVeil.classList.remove('
 $('#bulkBtn').addEventListener('click', () => { const on = !moreMenu.classList.contains('on'); moreMenu.classList.toggle('on', on); popVeil.classList.toggle('on', on); });
 popVeil.addEventListener('click', hideMenu);
 $('#mBulk').addEventListener('click', () => { hideMenu(); setTimeout(openBulk, 120); });
-$('#mConv').addEventListener('click', () => { hideMenu(); setTimeout(openConv, 120); });
+$('#mConv').addEventListener('click', () => { hideMenu(); setTimeout(() => openConv(), 120); });
 
 /* ---------- simular conversación ---------- */
+const convEnd = $('#convEnd');
 const convNum = $('#convNum'), convName = $('#convName'), convScript = $('#convScript'), convLive = $('#convLive'), convDay = $('#convDay'), convStart = $('#convStart'), convPace = $('#convPace');
 const CONV_KEY = KEY + '.conv';
 const normW = s => String(s).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
@@ -1261,7 +1279,7 @@ const THEM_W = ['contacto', 'c', 'el', 'ella', 'ellos', 'ellas', 'cliente', 'otr
 const PACE = { fast: [20, 60], normal: [60, 240], slow: [300, 1200] };          // segundos entre mensajes (historial)
 const PACE_LIVE = { fast: [700, 1500], normal: [1400, 3200], slow: [2800, 6000] }; // milisegundos (en vivo)
 const convPh = photoPicker('conv', () => convNum.value, () => updateConv());
-try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
+try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convStart.value = d.start || ''; convEnd.value = d.end || ''; convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
 function parseScript(){
   const them = new Set(THEM_W), nm = normW(convName.value);
   if (nm){ them.add(nm); them.add(nm.split(' ')[0]); }
@@ -1277,31 +1295,38 @@ function parseScript(){
   }
   return out;
 }
-// horas de cada mensaje para el modo historial
+// reparte los mensajes entre a y b: el primero en a, el último en b; los seguidos del mismo remitente quedan más juntos
+function distribute(list, a, b){
+  const n = list.length; if (n < 2) return [a];
+  const w = list.slice(1).map((m, i) => (list[i].mine === m.mine ? .18 : 1) * rand(.55, 1.45) + Math.min(.3, m.text.length / 600));
+  const tot = w.reduce((x, y) => x + y, 0); let acc = 0;
+  return list.map((m, i) => { if (i) acc += w[i - 1]; return Math.round(a + (b - a) * acc / tot); });
+}
+// horas de cada mensaje (modo historial): entre «Empieza» y «Termina», respetando las horas escritas en el guion
 function planTimes(list){
-  const [a, b] = PACE[convPace.value] || PACE.normal;
-  const day = new Date(`${convDay.value}T00:00`).getTime();
-  let t = new Date(`${convDay.value}T${convStart.value}`).getTime();
-  return list.map((m, i) => {
-    if (m.time != null){
-      let x = day + m.time * 6e4 + Math.round(rand(0, 50)) * 1000;
-      while (i && x <= t) x += 864e5;
-      t = x;
-    } else if (i){
-      const same = list[i - 1].mine === m.mine;
-      t += Math.round(Math.max(same ? 8 : 15, rand(a, b) * (same ? .3 : 1) + m.text.length * .4) * 1000);
-    }
-    return t;
+  const n = list.length, day0 = atDT(convDay.value, '00:00');
+  const a = atDT(convDay.value, convStart.value); let b = atDT(convDay.value, convEnd.value); if (b <= a) b += 864e5;
+  const anc = []; let prev = -Infinity;
+  list.forEach((m, i) => { if (m.time != null){ let x = day0 + m.time * 6e4; while (x <= prev) x += 864e5; anc.push({ i, t: x }); prev = x; } });
+  if (!anc.length || anc[0].i > 0) anc.unshift({ i: 0, t: anc.length ? Math.min(a, anc[0].t - anc[0].i * 6e4) : a });
+  const L = anc[anc.length - 1]; if (L.i < n - 1) anc.push({ i: n - 1, t: Math.max(b, L.t + (n - 1 - L.i) * 6e4) });
+  const out = new Array(n);
+  anc.forEach((e, k) => {
+    out[e.i] = e.t; if (!k) return;
+    const s0 = anc[k - 1], seg = distribute(list.slice(s0.i, e.i + 1), s0.t, e.t);
+    for (let j = 1; j < seg.length - 1; j++) out[s0.i + j] = seg[j];
   });
+  return out;
 }
 function convPlan(){
   const list = parseScript(), num = convNum.value.trim(), live = convLive.checked;
   if (!validNum(num)) return { list, err: num ? 'Número no válido' : 'Escribe el número del contacto' };
   if (!list.length) return { list, err: 'Escribe al menos un mensaje' };
   if (live) return { list, num, live };
-  if (!convDay.value || !convStart.value) return { list, err: 'Completa día y hora de inicio' };
+  if (!convDay.value || !convStart.value || (list.length > 1 && !convEnd.value)) return { list, err: 'Completa día, hora de inicio y de fin' };
+  if (list.length > 1 && convStart.value === convEnd.value) return { list, err: '“Termina” debe ser distinta de “Empieza”' };
   const times = planTimes(list);
-  if (times[times.length - 1] > Date.now()) return { list, times, err: 'La conversación terminaría después de ahora: elige una hora más temprana o activa “En vivo”.' };
+  if (times[times.length - 1] > Date.now()) return { list, times, err: 'La conversación terminaría después de ahora: elige otro día, una hora de fin más temprana o activa “En vivo”.' };
   return { list, num, times };
 }
 function updateConv(){
@@ -1310,25 +1335,35 @@ function updateConv(){
   $('#convWho').textContent = ex ? `Se agregará al chat que ya existe con ${title(ex)}.` : '';
   const mineN = list.filter(m => m.mine).length;
   $('#convCount').textContent = list.length ? `${list.length} mensaje${list.length === 1 ? '' : 's'}: ${mineN} tuyo${mineN === 1 ? '' : 's'} y ${list.length - mineN} del contacto` : '';
-  $('#convTimeRows').classList.toggle('off', convLive.checked);
+  $('#convTimeRows').classList.toggle('off', convLive.checked); $('#convPaceRow').hidden = !convLive.checked;
   const info = $('#convInfo'); info.classList.toggle('err', !!p.err);
   if (p.err) info.textContent = p.err;
   else if (p.live) info.textContent = 'Los mensajes aparecen uno por uno, con “escribiendo…” antes de cada respuesta. Se abre el chat para que lo veas.';
-  else { const t0 = p.times[0], t1 = p.times[p.times.length - 1];
-    info.textContent = startOfDay(t0) === startOfDay(t1) ? `${chatDay(t0)}, de ${hhmm(t0)} a ${hhmm(t1)}.` : `De ${chatDay(t0).toLowerCase()} ${hhmm(t0)} a ${chatDay(t1).toLowerCase()} ${hhmm(t1)}.`; }
+  else { const t0 = p.times[0], t1 = p.times[p.times.length - 1], r = rangeTxt(t0, t1);
+    info.textContent = (list.length > 1 ? `${list.length} mensajes repartidos ` : 'Un mensaje: ') + r.charAt(0).toLowerCase() + r.slice(1) + '.'; }
   $('#convGo').disabled = !!p.err;
   $('#convGo').textContent = list.length ? (convLive.checked ? `Reproducir ${list.length} mensajes` : `Simular ${list.length} mensajes`) : 'Simular conversación';
   const times = p.times || list.map(() => Date.now());
   $('#convPrev').innerHTML = list.length ? list.slice(0, 8).map((m, i) => `<div class="m ${m.mine ? 'me' : 'them'} tail gap"><div class="b">${esc(m.text)}<span class="meta">${hhmm(times[i])}</span></div></div>`).join('') + (list.length > 8 ? `<div class="chatempty" style="margin:8px 4px 0">+ ${list.length - 8} más</div>` : '')
     : '<div class="chatempty" style="margin:4px">Escribe el guion</div>';
-  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
+  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ start: convStart.value, end: convEnd.value, photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
 }
-function openConv(){
-  const d = new Date(Date.now() - 30 * 6e4);
-  convDay.value = ymd(d); convStart.value = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+// sin chat: hoja en blanco (con el último horario usado). Con chat: para seguir esa conversación en el mismo chat
+function openConv(c){
+  const now = Date.now();
+  if (c){
+    convNum.value = c.number; convName.value = c.name || ''; convScript.value = ''; convPh.set(null);
+    const lm = last(c), a = lm ? lm.ts + 2 * 6e4 : now - 60 * 6e4;
+    if (now - a < 5 * 6e4){ convLive.checked = true; convDay.value = ymd(new Date(now)); }
+    else { convLive.checked = false; convDay.value = ymd(new Date(a)); convStart.value = hm(new Date(a)); convEnd.value = hm(new Date(Math.min(a + 60 * 6e4, now - 6e4))); }
+  } else {
+    convDay.value = ymd(new Date(now));
+    if (!convStart.value || !convEnd.value){ convStart.value = hm(new Date(now - 60 * 6e4)); convEnd.value = hm(new Date(now - 6e4)); }
+  }
   updateConv(); showSheet($('#convSheet'));
+  if (c) setTimeout(() => convScript.focus(), 380);
 }
-[convNum, convName, convScript, convDay, convStart].forEach(el => el.addEventListener('input', updateConv));
+[convNum, convName, convScript, convDay, convStart, convEnd].forEach(el => el.addEventListener('input', updateConv));
 [convLive, convPace].forEach(el => el.addEventListener('change', updateConv));
 $('#convChips').addEventListener('pointerdown', e => { if (e.target.closest('[data-who]')) e.preventDefault(); });
 $('#convChips').addEventListener('click', e => {
@@ -1434,7 +1469,7 @@ const actions = $('#actions');
 function hideActions(){ actions.classList.remove('on'); backdrop.classList.remove('on'); backdrop.onclick = null; }
 $('#menuBtn').addEventListener('click', () => {
   const c = getChat(current); if (!c) return;
-  $('#actMsg').textContent = `${title(c)} · Para editar un mensaje (texto, fecha u hora), mantenlo presionado. Vaciar o eliminar no se puede deshacer.`;
+  $('#actMsg').textContent = `${title(c)} · Para editar un mensaje (texto, fecha u hora), mantenlo presionado; para agregar uno, toca + abajo. Vaciar o eliminar no se puede deshacer.`;
   $('#actDate').disabled = !c.messages.length; $('#actDate').style.opacity = c.messages.length ? '' : '.35';
   $('#actNoPhoto').hidden = !c.photo;
   $('#actClear').disabled = !c.messages.length; $('#actClear').style.opacity = c.messages.length ? '' : '.35';
@@ -1443,28 +1478,65 @@ $('#menuBtn').addEventListener('click', () => {
 });
 $('#actCancel').addEventListener('click', hideActions);
 $('#actDate').addEventListener('click', () => { hideActions(); setTimeout(openShift, 60); });
+$('#actMore').addEventListener('click', () => { const c = getChat(current); hideActions(); if (c) setTimeout(() => openConv(c), 60); });
 
 /* ---------- editar mensajes y fechas ---------- */
-const hm = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-const subMin = t => t - new Date(t).setSeconds(0, 0); // segundos y ms (para no alterar el orden dentro del mismo minuto)
-const atDT = (day, time) => new Date(`${day}T${time}`).getTime();
 const msgWhen = t => `${chatDay(t)}, ${hhmm(t)}`;
-let editMsgId = null, editMine = true, delArmed = false;
+let editMsgId = null, editMine = true, delArmed = false, msgMode = 'edit';
+// nuevas horas de todos los mensajes si el mensaje k pasa a la hora T (el orden no cambia):
+// los anteriores se reparten entre el primero y T, y los siguientes entre T y el último, en proporción
+function retime(msgs, k, T){
+  const t = msgs.map(m => m.ts), n = t.length, out = t.slice(), d = T - t[k], L = t[n - 1];
+  out[k] = T;
+  if (k > 0){
+    if (T > t[0] && t[k] > t[0]) for (let i = 1; i < k; i++) out[i] = t[0] + (t[i] - t[0]) * (T - t[0]) / (t[k] - t[0]);
+    else for (let i = 0; i < k; i++) out[i] = t[i] + d;
+  }
+  if (k < n - 1){
+    if (T < L && L > t[k]) for (let i = k + 1; i < n - 1; i++) out[i] = T + (t[i] - t[k]) * (L - T) / (L - t[k]);
+    else for (let i = k + 1; i < n; i++) out[i] = t[i] + d;
+  }
+  return out.map(Math.round);
+}
 function setWho(mine){
   editMine = mine;
   document.querySelectorAll('#msgWho button').forEach(b => b.classList.toggle('on', (b.dataset.mine === '1') === mine));
   $('#msgTicksRow').hidden = !mine;
 }
 function updateMsgInfo(){
-  const c = getChat(current), m = c && c.messages.find(x => x.id === editMsgId); if (!m) return;
+  const c = getChat(current); if (!c) return;
+  const m = msgMode === 'edit' && c.messages.find(x => x.id === editMsgId); if (msgMode === 'edit' && !m) return;
   const ts = atDT($('#msgDay').value, $('#msgTime').value);
   const el = $('#msgInfo'); el.classList.remove('err');
+  $('#msgAdjHelp').hidden = msgMode !== 'edit';
   if (isNaN(ts)){ el.textContent = 'Completa día y hora'; el.classList.add('err'); return; }
-  el.textContent = ts > Date.now() ? 'Ojo: esa hora todavía no llega.' : `Quedará como: ${msgWhen(ts + subMin(m.ts))}.`;
+  if (msgMode === 'add'){ el.textContent = (ts > Date.now() ? 'Ojo: esa hora todavía no llega. ' : '') + `Quedará como: ${msgWhen(ts)}.`; return; }
+  const T = ts + subMin(m.ts);
+  if ($('#msgAdj').checked && c.messages.length > 1){
+    const nt = retime(c.messages, c.messages.indexOf(m), T), a = nt[0], b = nt[nt.length - 1];
+    el.textContent = `La conversación quedará ${rangeTxt(a, b).replace(/^([A-ZÁÉÍÓÚ])/, x => x.toLowerCase())}.` + (b > Date.now() ? ' Ojo: el último mensaje queda en el futuro.' : '');
+  } else el.textContent = (T > Date.now() ? 'Ojo: esa hora todavía no llega. ' : '') + `Quedará como: ${msgWhen(T)}.`;
 }
+function msgSheetMode(mode){
+  msgMode = mode;
+  $('#msgTitle').textContent = mode === 'add' ? 'Agregar mensaje' : 'Editar mensaje';
+  $('#msgSave').textContent = mode === 'add' ? 'Agregar' : 'Guardar';
+  $('#msgDel').hidden = mode === 'add'; $('#msgAdjGroup').hidden = mode === 'add';
+}
+// botón + de la barra de escribir: agregar un mensaje (tuyo o del contacto) con la hora que quieras, en este mismo chat
+function openMsgAdd(){
+  const c = getChat(current); if (!c) return;
+  msgSheetMode('add'); editMsgId = null;
+  const lm = last(c), t = lm ? Math.min(Date.now(), lm.ts + 2 * 6e4) : Date.now(), d = new Date(t);
+  $('#msgText').value = input.value.trim(); $('#msgDay').value = ymd(d); $('#msgTime').value = hm(d); $('#msgTicks').value = '2';
+  setWho(lm ? !lm.mine : true); updateMsgInfo(); showSheet($('#msgSheet'));
+  setTimeout(() => $('#msgText').focus(), 380);
+}
+$('#addMsgBtn').addEventListener('click', openMsgAdd);
+$('#msgAdj').addEventListener('change', updateMsgInfo);
 function openMsgEdit(id){
   const c = getChat(current), m = c && c.messages.find(x => x.id === id); if (!m) return;
-  editMsgId = id; delArmed = false; $('#msgDel').textContent = 'Eliminar mensaje';
+  msgSheetMode('edit'); editMsgId = id; delArmed = false; $('#msgDel').textContent = 'Eliminar mensaje';
   $('#msgText').value = m.text;
   const d = new Date(m.ts); $('#msgDay').value = ymd(d); $('#msgTime').value = hm(d);
   $('#msgTicks').value = String(Math.min(2, Math.max(1, m.final ?? m.status ?? 2)));
@@ -1473,11 +1545,22 @@ function openMsgEdit(id){
 $('#msgWho').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setWho(b.dataset.mine === '1'); });
 [$('#msgDay'), $('#msgTime')].forEach(el => el.addEventListener('input', updateMsgInfo));
 $('#msgSave').addEventListener('click', () => {
-  const c = getChat(current), m = c && c.messages.find(x => x.id === editMsgId); if (!m) return hideSheet();
+  const c = getChat(current); if (!c) return hideSheet();
   const text = $('#msgText').value.trim(), ts = atDT($('#msgDay').value, $('#msgTime').value);
   if (!text){ toast('El mensaje no puede quedar vacío'); return; }
   if (isNaN(ts)){ toast('Completa día y hora'); return; }
-  m.text = text; m.ts = ts + subMin(m.ts);
+  if (msgMode === 'add'){
+    let t = ts; const lm = last(c);
+    if (lm && t <= lm.ts && t > lm.ts - 6e4) t = lm.ts + 1000; // mismo minuto que el último: va después
+    addMsg(c, text, editMine, t, { final: +$('#msgTicks').value });
+    if (input.value.trim() === text){ input.value = ''; autoGrow(); updateSend(); }
+    save(); hideSheet(); renderChat(); renderList(); toast('Mensaje agregado'); return;
+  }
+  const m = c.messages.find(x => x.id === editMsgId); if (!m) return hideSheet();
+  const T = ts + subMin(m.ts);
+  if ($('#msgAdj').checked && c.messages.length > 1){ const nt = retime(c.messages, c.messages.indexOf(m), T); c.messages.forEach((x, i) => { x.ts = nt[i]; }); }
+  else m.ts = T;
+  m.text = text;
   if (editMine){ m.mine = true; m.status = m.final = +$('#msgTicks').value; }
   else { m.mine = false; m.status = null; delete m.final; }
   c.messages.sort((a, b) => a.ts - b.ts);
@@ -1502,29 +1585,48 @@ $('#msgDel').addEventListener('click', () => {
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(k => box.addEventListener(k, cancel));
   box.addEventListener('contextmenu', e => { if (e.target.closest('.m .b')) e.preventDefault(); });
 })();
-// mover toda la conversación a otra fecha
-function shiftDelta(){
-  const c = getChat(current); if (!c || !c.messages.length) return null;
-  const first = c.messages[0].ts, ts = atDT($('#shiftDay').value, $('#shiftTime').value);
-  return isNaN(ts) ? null : ts + subMin(first) - first;
+// horario de toda la conversación: se reparte entre inicio y fin
+let shiftPrev = null;
+function shiftRange(){
+  const A = atDT($('#shiftDay').value, $('#shiftTime').value), B = atDT($('#shiftEndDay').value, $('#shiftEndTime').value);
+  return isNaN(A) ? null : { A, B: isNaN(B) ? A : B };
+}
+function shiftTimes(c, r){
+  const t = c.messages.map(m => m.ts), n = t.length, t0 = t[0], tL = t[n - 1];
+  const A = r.A + subMin(t0), B = n > 1 ? r.B + subMin(tL) : A;
+  if (n === 1) return [A];
+  return t.map((x, i) => Math.round(tL > t0 ? A + (x - t0) * (B - A) / (tL - t0) : A + (B - A) * i / (n - 1)));
 }
 function updateShift(){
-  const c = getChat(current), d = shiftDelta(), el = $('#shiftInfo'); if (!c) return;
-  el.classList.toggle('err', d == null);
-  if (d == null){ el.textContent = 'Completa día y hora'; return; }
-  const a = c.messages[0].ts + d, b = c.messages[c.messages.length - 1].ts + d, n = c.messages.length;
-  el.textContent = `${n} mensaje${n === 1 ? '' : 's'}: ` + (startOfDay(a) === startOfDay(b) ? `${chatDay(a)}, de ${hhmm(a)} a ${hhmm(b)}.` : `de ${chatDay(a).toLowerCase()} ${hhmm(a)} a ${chatDay(b).toLowerCase()} ${hhmm(b)}.`) + (b > Date.now() ? ' Ojo: el último queda en el futuro.' : '');
+  const c = getChat(current), r = shiftRange(), el = $('#shiftInfo'); if (!c || !c.messages.length) return;
+  const n = c.messages.length;
+  el.classList.remove('err');
+  if (!r){ el.textContent = 'Completa día y hora'; el.classList.add('err'); $('#shiftSave').disabled = true; return; }
+  const nt = shiftTimes(c, r), a = nt[0], b = nt[n - 1];
+  if (b < a){ el.textContent = 'El fin debe ser después del inicio'; el.classList.add('err'); $('#shiftSave').disabled = true; return; }
+  $('#shiftSave').disabled = false;
+  el.textContent = (n > 1 ? `${n} mensajes repartidos ${rangeTxt(a, b).replace(/^([A-ZÁÉÍÓÚ])/, x => x.toLowerCase())}.` : `Un mensaje: ${msgWhen(a)}.`) + (b > Date.now() ? ' Ojo: el último queda en el futuro.' : '');
 }
 function openShift(){
   const c = getChat(current); if (!c || !c.messages.length) return;
-  const d = new Date(c.messages[0].ts); $('#shiftDay').value = ymd(d); $('#shiftTime').value = hm(d);
-  updateShift(); showSheet($('#shiftSheet'));
+  const a = new Date(c.messages[0].ts), b = new Date(last(c).ts);
+  $('#shiftDay').value = ymd(a); $('#shiftTime').value = hm(a); $('#shiftEndDay').value = ymd(b); $('#shiftEndTime').value = hm(b);
+  document.querySelectorAll('.shift-end').forEach(x => { x.hidden = c.messages.length < 2; });
+  shiftPrev = atDT(ymd(a), hm(a)); updateShift(); showSheet($('#shiftSheet'));
 }
-[$('#shiftDay'), $('#shiftTime')].forEach(el => el.addEventListener('input', updateShift));
+// al mover el inicio, el fin se recorre lo mismo (como en el calendario)
+[$('#shiftDay'), $('#shiftTime')].forEach(el => el.addEventListener('input', () => {
+  const A = atDT($('#shiftDay').value, $('#shiftTime').value), B = atDT($('#shiftEndDay').value, $('#shiftEndTime').value);
+  if (!isNaN(A) && shiftPrev != null && !isNaN(B)){ const nb = new Date(B + A - shiftPrev); $('#shiftEndDay').value = ymd(nb); $('#shiftEndTime').value = hm(nb); }
+  if (!isNaN(A)) shiftPrev = A;
+  updateShift();
+}));
+[$('#shiftEndDay'), $('#shiftEndTime')].forEach(el => el.addEventListener('input', updateShift));
 $('#shiftSave').addEventListener('click', () => {
-  const c = getChat(current), d = shiftDelta(); if (!c || d == null) return;
-  c.messages.forEach(m => { m.ts += d; });
-  save(); hideSheet(); renderChat(); renderList(); toast('Fecha de la conversación actualizada');
+  const c = getChat(current), r = shiftRange(); if (!c || !r) return;
+  const nt = shiftTimes(c, r); if (nt[nt.length - 1] < nt[0]) return;
+  c.messages.forEach((m, i) => { m.ts = nt[i]; });
+  save(); hideSheet(); renderChat(); renderList(); toast('Horario de la conversación actualizado');
 });
 $('#actPhoto').addEventListener('click', () => { hideActions(); setTimeout(pickPhoto, 50); });
 $('#actNoPhoto').addEventListener('click', () => { const c = getChat(current); if (c){ delete c.photo; c.photoBy = 'none'; save(); renderChat(true); renderList(); } hideActions(); toast('Foto quitada'); });
