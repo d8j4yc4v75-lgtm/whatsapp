@@ -12,6 +12,7 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "@cacheable/node-cache": "^1.7.6",
     "baileys": "7.0.0-rc14",
     "better-sqlite3": "^13.0.3",
     "express": "^5.1.0",

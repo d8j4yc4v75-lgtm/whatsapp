@@ -58,9 +58,22 @@ const persistent = () => !process.env.RAILWAY_ENVIRONMENT || Boolean(process.env
 app.get('/health', (req, res) => res.json({ ok: true, volume: process.env.RAILWAY_VOLUME_MOUNT_PATH || null }))
 
 // Diagnóstico de conexiones (sin datos personales) para depurar desconexiones
+// Memoria del servidor (Railway cobra por la RAM ocupada cada minuto): ahora y una muestra cada 10 min (24 h)
+const mb = n => Math.round(n / 1048576)
+const memNow = () => {
+	const m = process.memoryUsage()
+	return { rssMb: mb(m.rss), heapUsedMb: mb(m.heapUsed), heapTotalMb: mb(m.heapTotal), externalMb: mb(m.external), buffersMb: mb(m.arrayBuffers) }
+}
+const connectedCount = () => manager.accounts().filter(a => a.status === 'connected').length
+const memSamples = []
+setInterval(() => {
+	memSamples.push({ at: new Date().toISOString(), ...memNow(), connected: connectedCount() })
+	if (memSamples.length > 144) memSamples.shift()
+}, 10 * 60000).unref()
 app.get('/diag', (req, res) => res.json({
 	startedAt: STARTED_AT,
 	accounts: manager.accounts().map(a => ({ id: a.id, status: a.status })),
+	memory: { now: memNow(), connected: connectedCount(), samples: memSamples },
 	disk: diskInfo(),
 	events: diag
 }))

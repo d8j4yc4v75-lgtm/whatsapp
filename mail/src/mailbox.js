@@ -103,7 +103,18 @@ class Mailbox {
 			let changed = false
 			let newest = null
 			const bounces = []
-			for await (const msg of client.fetch(`${from}:*`, { uid: true, envelope: true, flags: true, bodyStructure: true, source: true })) {
+			// Primero solo número y marcas de los últimos correos (es muy ligero). Los que ya están guardados
+			// solo actualizan «leído»; el correo completo se descarga y se procesa únicamente si es nuevo.
+			// (Antes se descargaban y procesaban completos los últimos 60 con cada correo que llegaba.)
+			const fresh = []
+			for await (const head of client.fetch(`${from}:*`, { uid: true, flags: true })) {
+				const known = stmt.exists.get(this.accountId, head.uid, 'INBOX')
+				if (!known) { fresh.push(head.uid); continue }
+				const seen = head.flags?.has('\\Seen') ? 1 : 0
+				if (known.seen !== seen) { stmt.setSeen.run(seen, this.accountId, head.uid, 'INBOX'); changed = true }
+			}
+			const source = fresh.length ? client.fetch(fresh.join(','), { uid: true, envelope: true, flags: true, bodyStructure: true, source: true }, { uid: true }) : []
+			for await (const msg of source) {
 				const prev = stmt.exists.get(this.accountId, msg.uid, 'INBOX')
 				const parsed = await simpleParser(msg.source).catch(() => null)
 				if (!parsed) continue

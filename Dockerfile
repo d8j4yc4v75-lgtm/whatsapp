@@ -17,5 +17,7 @@ COPY mail/public ./mail/public
 # Sesiones, mensajes y archivos; en Railway se monta aquí un volumen
 ENV DATA_DIR=/data
 ENV NODE_ENV=production
+# Menos memoria desperdiciada por el administrador de memoria de Linux (glibc) con muchos hilos
+ENV MALLOC_ARENA_MAX=2
 EXPOSE 3000
 CMD ["node", "src/index.js"]

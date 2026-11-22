@@ -21,6 +21,7 @@ import makeWASocket, {
 	makeCacheableSignalKeyStore,
 	normalizeMessageContent
 } from 'baileys'
+import NodeCache from '@cacheable/node-cache'
 import { db } from './db.js'
 import { smartIncoming, INTENTS } from './smart.js'
 import { DATA_DIR } from './config.js'
@@ -391,7 +392,9 @@ export class Session {
 		const sock = makeWASocket({
 			version,
 			logger,
-			auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
+			// Un solo caché de llaves por número, reutilizado en cada reconexión (antes se creaba uno nuevo
+			// cada vez y el anterior nunca se cerraba: su temporizador lo dejaba en memoria para siempre)
+			auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger, this.keyCache()) },
 			browser: browserFor(device),
 			...(agent ? { agent, fetchAgent: agent } : {}),
 			syncFullHistory: false,
@@ -511,6 +514,7 @@ export class Session {
 				if (this.removedInfo) this.onRemoved(this.removedInfo)
 				this.removedInfo = null
 				clearAuth(this.accountId, this.authDir)
+				this.forgetKeys()
 				markUnlinked(this.accountId)
 				// La próxima vez que se vincule, recibe otro dispositivo
 				try { db.prepare('UPDATE accounts SET device = NULL WHERE id = ?').run(this.accountId) } catch {}
@@ -1101,6 +1105,13 @@ export class Session {
 		await sock.chatModify({ mute: ms ? Date.now() + ms : null }, jid)
 	}
 
+	keyCache() {
+		if (!this._keyCache) this._keyCache = new NodeCache({ stdTTL: 300, useClones: false, deleteOnExpire: true })
+		return this._keyCache
+	}
+	/** Al desvincular se vacía el caché: las llaves viejas no deben usarse con una vinculación nueva */
+	forgetKeys() { try { this._keyCache?.flushAll() } catch {} }
+
 	async stop() {
 		this.stopped = true
 		try { this.sock?.end(undefined) } catch {}
@@ -1112,6 +1123,7 @@ export class Session {
 		try { await this.sock?.logout() } catch {}
 		this.sock = null
 		clearAuth(this.accountId, this.authDir)
+		this.forgetKeys()
 		this.qr = null
 		this.userLogout = true
 		markUnlinked(this.accountId)
@@ -1195,7 +1207,7 @@ export class SessionManager extends EventEmitter {
 
 	async remove(accountId) {
 		const s = this.sessions.get(accountId)
-		if (s) await s.logout()
+		if (s) { await s.logout(); try { s._keyCache?.close() } catch {} }
 		this.sessions.delete(accountId)
 		fs.rmSync(path.join(MEDIA_DIR, String(accountId)), { recursive: true, force: true })
 	}
