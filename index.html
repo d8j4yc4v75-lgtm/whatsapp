@@ -161,8 +161,9 @@ svg{display:block}
 .who .s:empty{display:none}
 .ibtn{color:var(--label)}
 #msgs{position:relative;padding:calc(76px + var(--st)) calc(16px + var(--sr)) 12px calc(16px + var(--sl))}
-.day{position:sticky;top:calc(70px + var(--st));z-index:2;text-align:center;margin:18px 0 12px}
-.day span{display:inline-block;font-size:16px;font-weight:500;color:var(--dayText);background:var(--dayBg);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);padding:3px 26px;border-radius:14px;line-height:22px}
+.day.stuck span{min-width:0}
+.day{position:sticky;top:calc(66px + var(--st));z-index:2;text-align:center;margin:16px 0 10px}
+.day span{display:inline-block;box-sizing:border-box;min-width:135px;transition:min-width .28s var(--ease);font-size:15px;font-weight:600;letter-spacing:-.1px;color:var(--dayText);background:var(--dayBg);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);padding:5px 22px;border-radius:15px;line-height:20px}
 .info{margin:2px 9px 6px;padding:30px 16px 15px;border-radius:32px;background:var(--card);text-align:center}
 .info .av{margin:0 auto 30px}
 .info h2{margin:0;font-size:19.5px;font-weight:600}
@@ -177,8 +178,15 @@ svg{display:block}
 .m{display:flex;margin-top:2px}
 .m.gap{margin-top:8px}
 .m.me{justify-content:flex-end}
-.m.tail.me .b{border-bottom-right-radius:6px}
-.m.tail.them .b{border-bottom-left-radius:6px}
+/* colita de la burbuja (último mensaje de cada grupo), con máscara para que se vea sobre el fondo */
+.m.tail.me .b{border-bottom-right-radius:0}
+.m.tail.them .b{border-bottom-left-radius:0}
+.m.tail .b::after{content:"";position:absolute;bottom:-4px;width:20px;height:17px;background:inherit;pointer-events:none;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 17'%3E%3Cpath d='M6 0V4C6 10.5 4 14.8 0 17C5 17.2 9.5 15.8 13.3 13H20V0Z'/%3E%3C/svg%3E") 0 0/100% 100% no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 17'%3E%3Cpath d='M6 0V4C6 10.5 4 14.8 0 17C5 17.2 9.5 15.8 13.3 13H20V0Z'/%3E%3C/svg%3E") 0 0/100% 100% no-repeat}
+.m.tail.them .b::after{left:-6px}
+.m.tail.me .b::after{right:-6px;transform:scaleX(-1)}
+.m.tail{margin-bottom:4px}
 .b{position:relative;max-width:min(80%,520px);padding:7px 12px 7px;border-radius:22px;font-size:18px;line-height:24px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;background:var(--in);color:var(--inText)}
 .me .b{background:var(--out);color:var(--outText)}
 .meta{float:right;display:inline-flex;align-items:center;gap:3px;font-size:12px;line-height:1;margin:10px -4px -4px 10px;opacity:.75;position:relative;z-index:1}
@@ -759,7 +767,7 @@ $('#photoInput').addEventListener('change', e => {
 });
 
 /* ---------- render lista ---------- */
-let rafList = 0, rafChat = 0;
+let rafList = 0, rafChat = 0, rafStuck = 0;
 const queueList = () => { if (!rafList) rafList = requestAnimationFrame(() => { rafList = 0; renderList(); }); };
 const queueChat = () => { if (!rafChat) rafChat = requestAnimationFrame(() => { rafChat = 0; renderChat(); }); };
 
@@ -811,6 +819,7 @@ function renderChat(keepScroll){
   });
   if (typing.has(c.id)) html += '<div class="m them tail gap typing-b"><div class="b"><i></i><i></i><i></i></div></div>';
   $('#msgs').innerHTML = html;
+  queueStuck();
   if (!keepScroll || atBottom) scrollBottom();
 }
 function chatDay(t){
@@ -1073,7 +1082,14 @@ $('#composer').addEventListener('submit', e => {
   renderChat(); renderList(); input.focus();
 });
 input.addEventListener('focus', () => setTimeout(scrollBottom, 300));
-$('#chatScroll').addEventListener('scroll', e => { const t = e.target; $('#downBtn').classList.toggle('on', t.scrollHeight - t.scrollTop - t.clientHeight > 200); }, { passive: true });
+$('#chatScroll').addEventListener('scroll', e => { const t = e.target; $('#downBtn').classList.toggle('on', t.scrollHeight - t.scrollTop - t.clientHeight > 200); queueStuck(); }, { passive: true });
+// la etiqueta del día que queda fija arriba se ve compacta; las que están entre mensajes, más anchas (como en WhatsApp)
+function markStuck(){
+  const days = document.querySelectorAll('#msgs .day'); if (!days.length) return;
+  const lim = parseFloat(getComputedStyle(days[0]).top) + $('#chatScroll').getBoundingClientRect().top + 1;
+  days.forEach(d => d.classList.toggle('stuck', d.getBoundingClientRect().top <= lim));
+}
+function queueStuck(){ if (!rafStuck) rafStuck = requestAnimationFrame(() => { rafStuck = 0; markStuck(); }); }
 $('#downBtn').addEventListener('click', () => $('#chatScroll').scrollTo({ top: $('#chatScroll').scrollHeight, behavior: 'smooth' }));
 $('#chat').addEventListener('click', e => { if (e.target.closest('.info .av')) pickPhoto(); });
 $('#chat').addEventListener('click', e => { const b = e.target.closest('[data-soon]'); if (b) toast(b.dataset.soon + ': no disponible en el simulador'); });
