@@ -229,7 +229,7 @@ function describe(content) {
 				file_name: m.fileName || null
 			}
 		case 'locationMessage':
-			return { type: 'location', text: `📍 https://maps.google.com/?q=${m.degreesLatitude},${m.degreesLongitude}${m.name ? '\n' + m.name : ''}${m.address ? '\n' + m.address : ''}` }
+			return { type: 'location', text: `📍 ${m.isLive ? 'En tiempo real ' : ''}https://maps.google.com/?q=${m.degreesLatitude},${m.degreesLongitude}${m.name ? '\n' + m.name : ''}${m.address ? '\n' + m.address : ''}` }
 		case 'liveLocationMessage':
 			// Ubicación en tiempo real del cliente: aquí se ve la posición con la que empezó a compartir
 			return { type: 'location', text: `📍 En tiempo real https://maps.google.com/?q=${m.degreesLatitude},${m.degreesLongitude}${m.caption ? '\n' + m.caption : ''}` }
@@ -397,6 +397,8 @@ export class Session {
 			syncFullHistory: false,
 			markOnlineOnConnect: false,
 			getMessage: async key => {
+				const sent = this.sentContent?.get(key.id)
+				if (sent) return sent
 				const row = stmt.getMessage.get(this.accountId, key.id)
 				if (row?.raw) return JSON.parse(row.raw, BufferJSON.reviver).message
 				return row?.text ? { conversation: row.text } : undefined
@@ -886,6 +888,10 @@ export class Session {
 	async sendLocationMessage(jid, content, kind) {
 		const sock = await this.waitSocket()
 		const full = generateWAMessageFromContent(jid, content, { userJid: sock.user?.id, messageId: generateMessageIDV2(sock.user?.id) })
+		// Si el teléfono del cliente pide que se reenvíe (no pudo descifrarlo), se reenvía igual y no como texto
+		this.sentContent = this.sentContent || new Map()
+		this.sentContent.set(full.key.id, full.message)
+		if (this.sentContent.size > 200) this.sentContent.delete(this.sentContent.keys().next().value)
 		await this.relayReliable(jid, full.message, full.key.id, kind)
 		this.saveMessage(full, false)
 		const row = stmt.getMessage.get(this.accountId, full.key.id)
@@ -912,8 +918,9 @@ export class Session {
 	}
 
 	/** Ubicación normal de WhatsApp (pin con nombre y dirección) */
-	async sendLocation(jid, { lat, lng, name, address, jpegThumbnail }) {
+	async sendLocation(jid, { lat, lng, name, address, jpegThumbnail, isLive }) {
 		const loc = { degreesLatitude: lat, degreesLongitude: lng }
+		if (isLive) { loc.isLive = true; loc.accuracyInMeters = 10 }
 		if (name) loc.name = name
 		if (address) loc.address = address
 		if (jpegThumbnail) loc.jpegThumbnail = jpegThumbnail
@@ -931,15 +938,44 @@ export class Session {
 		if (Number.isFinite(speed)) live.speedInMps = speed
 		if (Number.isFinite(heading)) live.degreesClockwiseFromMagneticNorth = Math.round(heading) % 360
 		if (caption) live.caption = caption
-		if (!jpegThumbnail) return this.sendLocationMessage(jid, { liveLocationMessage: live }, 'liveLocationMessage')
-		try {
-			return await this.sendLocationMessage(jid, { liveLocationMessage: { ...live, jpegThumbnail } }, 'liveLocationMessage')
-		} catch (e) {
-			// Si WhatsApp no la acepta con la miniatura del mapa, se manda sin ella (como antes)
-			if (/no está conectada/.test(e.message)) throw e
-			note(this.accountId, 'send-error', `liveLocationMessage sin miniatura tras: ${e.message}`)
-			return this.sendLocationMessage(jid, { liveLocationMessage: live }, 'liveLocationMessage')
+		let m
+		if (!jpegThumbnail) m = await this.sendLocationMessage(jid, { liveLocationMessage: live }, 'liveLocationMessage')
+		else {
+			try {
+				m = await this.sendLocationMessage(jid, { liveLocationMessage: { ...live, jpegThumbnail } }, 'liveLocationMessage')
+			} catch (e) {
+				// Si WhatsApp no la acepta con la miniatura del mapa, se manda sin ella
+				if (/no está conectada/.test(e.message)) throw e
+				note(this.accountId, 'send-error', `liveLocationMessage sin miniatura tras: ${e.message}`)
+				m = await this.sendLocationMessage(jid, { liveLocationMessage: live }, 'liveLocationMessage')
+			}
 		}
+		this.watchLiveDelivery(jid, m.id, { lat, lng, caption, jpegThumbnail })
+		return m
+	}
+
+	/**
+	 * WhatsApp a veces no entrega la burbuja de tiempo real cuando sale de un dispositivo vinculado (se queda con el
+	 * reloj). Si en 15 s no llega la confirmación de entrega, se manda el mismo punto como ubicación marcada «en tiempo
+	 * real», que sí se entrega siempre, y la burbuja original queda marcada como no entregada.
+	 */
+	watchLiveDelivery(jid, id, p, waitMs = 15000) {
+		const timer = setTimeout(async () => {
+			try {
+				const row = stmt.getMessage.get(this.accountId, id)
+				if (!row || row.status >= 3) return
+				note(this.accountId, 'send-error', `liveLocationMessage sin entregar (${row.status}); se manda como ubicación`)
+				await this.sendLocation(jid, { lat: p.lat, lng: p.lng, name: p.caption, jpegThumbnail: p.jpegThumbnail, isLive: true })
+				const now = stmt.getMessage.get(this.accountId, id)
+				if (now && now.status < 3) {
+					stmt.forceStatus.run(0, 'WhatsApp no entregó la burbuja de tiempo real; se mandó otra vez como ubicación', this.accountId, id)
+					this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(stmt.getMessage.get(this.accountId, id)) })
+				}
+			} catch (e) {
+				note(this.accountId, 'send-error', `respaldo de ubicación: ${e.message}`)
+			}
+		}, waitMs)
+		timer.unref?.()
 	}
 
 	async markRead(jid) {

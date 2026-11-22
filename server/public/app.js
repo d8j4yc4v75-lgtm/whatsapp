@@ -3505,7 +3505,7 @@ function renderLocPick(el, key, from) {
 		</div>
 		<div class="pad lp-actions"><button class="btn primary" id="lp-live">Mandar este punto en tiempo real</button><button class="btn" id="lp-send">Mandar como ubicación normal</button></div>
 		<p class="lp-err" id="lp-err" hidden></p>
-		<p class="hint">«En tiempo real» llega como la burbuja de «Ubicación en tiempo real» de WhatsApp en el punto del pin (no en donde estás), con el nombre o la dirección como comentario. <b>No se va actualizando</b>, y como WhatsApp Web nunca manda ese tipo de mensaje, puede hacer que WhatsApp quite el dispositivo. «Ubicación normal» llega con el pin, el nombre y la dirección. En cada chat puedes mandar un punto distinto; los que ya mandaste se quedan como estaban.</p>`
+		<p class="hint">«En tiempo real» llega como la burbuja de «Ubicación en tiempo real» de WhatsApp en el punto del pin (no en donde estás), con el nombre o la dirección como comentario. <b>No se va actualizando</b>. Si WhatsApp no la entrega en 15 segundos (se queda con el reloj), se manda sola otra vez como ubicación del mismo punto, que sí llega. Como WhatsApp Web nunca manda este tipo de mensaje, puede hacer que WhatsApp quite el dispositivo. «Ubicación normal» llega con el pin, el nombre y la dirección. En cada chat puedes mandar un punto distinto; los que ya mandaste se quedan como estaban.</p>`
 	const box = $('#lp-map', body), layer = box.querySelector('.lp-tiles')
 	const nameIn = $('#lp-name', body), addrIn = $('#lp-addr', body)
 	let c = saved ? { lat: saved.lat, lng: saved.lng } : S.lastPick || { lat: 19.4326, lng: -99.1332 }
