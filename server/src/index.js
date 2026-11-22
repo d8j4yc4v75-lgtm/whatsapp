@@ -21,6 +21,7 @@ import { WarmupManager, library as warmupLibrary } from './warmup.js'
 import { smartEnabled, setSmartEnabled } from './smart.js'
 import { correctorStatus, correctorSave, rewrite } from './corrector.js'
 import { setupExtras } from './extras.js'
+import { setupLocation } from './location.js'
 import { diskInfo, startMaintenance, mediaDays, setMediaDays, chatMonths, setChatMonths } from './maintenance.js'
 
 const STARTED_AT = new Date().toISOString()
@@ -713,6 +714,7 @@ app.get('/api/media/:id/:msgId', route(async (req, res) => {
 }))
 
 setupExtras({ app, route, manager })
+setupLocation({ app, route, manager, accountParam })
 
 // ---- Etiquetas ----
 app.get('/api/labels', route(() => db.prepare('SELECT * FROM labels ORDER BY name').all()))

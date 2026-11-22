@@ -863,3 +863,23 @@ select option { background: var(--card); color: var(--text); }
 .wu-days span { font-size: 10px; color: var(--muted); }
 .wu-days b { font-size: 11px; }
 .hint code { word-break: break-all; font-size: 12px; background: var(--fill); padding: 1px 4px; border-radius: 4px; }
+
+/* ---------- Ubicación ---------- */
+.loc { display: block; width: 250px; max-width: 100%; text-decoration: none; color: inherit; border-radius: 12px; overflow: hidden; margin: -2px -4px 0; }
+.map { position: relative; overflow: hidden; background: #e5e3df; }
+.map .tile { position: absolute; width: 256px; height: 256px; max-width: none; max-height: none; border-radius: 0; }
+.map-pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -92%); color: #ea4335; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35)); }
+.map-pin .ic { width: 34px; height: 34px; fill: #ea4335; stroke: #fff; stroke-width: 1.4; }
+.map-attr { position: absolute; right: 4px; bottom: 2px; font-size: 9px; color: #333; background: rgba(255, 255, 255, 0.7); padding: 0 3px; border-radius: 3px; }
+.loc-info { padding: 7px 10px 2px; }
+.loc-info b { display: block; font-size: 15px; font-weight: 600; }
+.loc-info small { display: block; color: var(--meta); font-size: 12.5px; line-height: 1.3; }
+.loc-sheet-map { margin: 12px 16px 0; height: 210px; border-radius: 22px; overflow: hidden; background: var(--fill); display: grid; }
+.loc-sheet-map .map { height: 210px !important; }
+.loc-wait { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; padding: 16px; font-size: 14.5px; }
+.loc-wait .ic { width: 30px; height: 30px; }
+.banner.live { background: color-mix(in srgb, #1a73e8 16%, var(--card)); align-items: center; }
+.banner.live b { margin-left: auto; color: var(--danger); font-weight: 600; }
+.live-pill { position: fixed; z-index: 9; left: 50%; transform: translateX(-50%); top: calc(8px + var(--safe-top)); display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13.5px; font-weight: 600; color: #fff; background: #1a73e8; box-shadow: 0 6px 18px rgba(26, 115, 232, 0.35); max-width: calc(100% - 24px); }
+.live-pill .ic { width: 16px; height: 16px; }
+.live-pill span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

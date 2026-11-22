@@ -227,8 +227,10 @@ function describe(content) {
 				file_name: m.fileName || null
 			}
 		case 'locationMessage':
+			return { type: 'location', text: `📍 https://maps.google.com/?q=${m.degreesLatitude},${m.degreesLongitude}${m.name ? '\n' + m.name : ''}${m.address ? '\n' + m.address : ''}` }
 		case 'liveLocationMessage':
-			return { type: 'location', text: `📍 https://maps.google.com/?q=${m.degreesLatitude},${m.degreesLongitude}` }
+			// Ubicación en tiempo real del cliente: aquí se ve la posición con la que empezó a compartir
+			return { type: 'location', text: `📍 En tiempo real https://maps.google.com/?q=${m.degreesLatitude},${m.degreesLongitude}${m.caption ? '\n' + m.caption : ''}` }
 		case 'contactMessage':
 			return { type: 'contact', text: `👤 ${m.displayName || 'Contacto'}` }
 		case 'contactsArrayMessage':
@@ -251,6 +253,7 @@ export function preview(row) {
 	if (!row) return ''
 	if (row.deleted) return '🚫 Mensaje eliminado'
 	const icons = { image: '📷 Foto', video: '🎥 Video', audio: '🎤 Audio', document: '📄 Documento', sticker: '🏷️ Sticker' }
+	if (row.type === 'location') return /En tiempo real/.test(row.text || '') ? '📍 Ubicación en tiempo real' : '📍 Ubicación'
 	if (row.text) return row.text
 	return icons[row.type] || row.file_name || ''
 }

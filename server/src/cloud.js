@@ -210,6 +210,16 @@ export class CloudSession {
 			const { id } = await this.sendPayload(to, { type: 'text', text: { body: content.text, preview_url: true } }, { type: 'text', text: content.text })
 			return this.manager.formatMessage(stmt.getMessage.get(this.accountId, id))
 		}
+		if (content.location) {
+			const l = content.location
+			const loc = { latitude: l.degreesLatitude, longitude: l.degreesLongitude }
+			if (l.name) loc.name = l.name
+			if (l.address) loc.address = l.address
+			const { id } = await this.sendPayload(to, { type: 'location', location: loc }, {
+				type: 'location', text: `📍 https://maps.google.com/?q=${loc.latitude},${loc.longitude}${l.name ? '\n' + l.name : ''}${l.address ? '\n' + l.address : ''}`
+			})
+			return this.manager.formatMessage(stmt.getMessage.get(this.accountId, id))
+		}
 		const kind = content.image ? 'image' : content.video ? 'video' : content.audio ? 'audio' : 'document'
 		const buffer = content[kind]
 		const mime = String(content.mimetype || localMedia?.mime || 'application/octet-stream').split(';')[0]

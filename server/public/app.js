@@ -161,6 +161,8 @@ const healthDot = a => a?.health ? `<i class="hdot ${a.health.level}" title="${H
 // Íconos (trazo fino, estilo iOS)
 const svg = (d, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
 const IC = {
+	pin: svg('<path d="M12 21s-6.5-5.6-6.5-11A6.5 6.5 0 0 1 18.5 10c0 5.4-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.4"/>'),
+	clip: svg('<path d="m20.5 11.5-8.4 8.4a5 5 0 0 1-7.1-7.1l8.4-8.4a3.4 3.4 0 0 1 4.8 4.8l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/>'),
 	chats: svg('<path d="M4.5 12a7.5 7.5 0 1 1 3.1 6.1L4 19.5l1.3-3.4A7.4 7.4 0 0 1 4.5 12Z"/><path d="M8.5 11h7M8.5 14h4.5"/>'),
 	sparkle: svg('<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z"/>'),
 	send: svg('<path d="M21 3 10.5 13.5"/><path d="M21 3 14.5 21l-4-7.5L3 9.5 21 3Z"/>'),
@@ -729,6 +731,7 @@ function renderChatHeader() {
 	if (banners) {
 		const html = (c?.note ? `<div class="banner note" data-act="note">${IC.note}<span>${esc(c.note)}</span></div>` : '')
 			+ (c?.reminder ? `<div class="banner reminder" data-act="reminder">${IC.clock}<span>${esc(reminderLabel(c.reminder.at))}${c.reminder.text ? ' · ' + esc(c.reminder.text) : ''}</span></div>` : '')
+			+ liveActive().filter(l => l.key === S.active).map(l => `<div class="banner live" data-act="live-stop" data-val="${esc(l.token)}">${IC.pin}<span>Compartiendo tu ubicación en tiempo real · ${liveLeft(l.expiresAt)}${liveWatch == null ? ' · abre la app para que se actualice' : ''}</span><b>Detener</b></div>`).join('')
 		if (banners.innerHTML !== html) banners.innerHTML = html
 	}
 }
@@ -1150,6 +1153,12 @@ function msgContent(m) {
 			return `<audio src="${mediaURL(m)}" controls preload="none"></audio>`
 		case 'document':
 			return `<a class="doc" href="${mediaURL(m)}" target="_blank" rel="noopener">${IC.doc}<span>${esc(m.fileName || 'Documento')}</span></a>${cap}`
+		case 'location': {
+			const g = parseLoc(m.text)
+			if (!g) return `<div class="text">${linkify(m.text || '')}</div>`
+			return `<a class="loc" href="https://www.google.com/maps/search/?api=1&query=${g.lat},${g.lng}" target="_blank" rel="noopener">${mapTiles(g.lat, g.lng, 250, 135)}
+				<div class="loc-info">${g.live ? '<b>Ubicación en tiempo real</b><small>Se ve la posición con la que empezó; lo demás solo en su teléfono</small>' : `<b>${esc(g.name || 'Ubicación')}</b>${g.address ? `<small>${esc(g.address)}</small>` : ''}`}</div></a>`
+		}
 		default:
 			return `<div class="text">${linkify(m.text || '')}</div>`
 	}
@@ -3074,7 +3083,15 @@ document.addEventListener('click', async e => {
 			S.replies = S.replies.filter(r => r.id !== Number(val))
 			return renderSettings()
 		}
-		case 'attach': return $('#file').click()
+		case 'attach': return actionSheet('', [
+			{ act: 'attach-file', text: 'Foto, video o documento', icon: IC.clip },
+			{ act: 'loc-open', text: 'Ubicación', icon: IC.pin }
+		])
+		case 'attach-file': return $('#file')?.click()
+		case 'loc-open': return openLocation()
+		case 'loc-min': { S.locMin = Number(val); document.querySelectorAll('[data-act=loc-min]').forEach(b => b.classList.toggle('on', Number(b.dataset.val) === S.locMin)); return }
+		case 'live-stop': return stopLive(val)
+		case 'live-list': return actionSheet('Compartiendo tu ubicación en tiempo real', liveActive().map(l => ({ act: 'live-stop', val: l.token, text: `Detener · ${convName(conv(l.key)) || 'chat'} · ${liveLeft(l.expiresAt)}`, danger: true })))
 		case 'send': return $('#text').value.trim() ? sendText() : startRecording()
 		case 'sg-use': {
 			const list = S.msgs[S.active] || []
@@ -3323,6 +3340,7 @@ window.addEventListener('hashchange', () => {
 	// Recuerda en qué parte de la lista de chats estabas para volver ahí al regresar
 	if (lastRoute.startsWith('inbox:') && $('#view')) S.inboxScroll = $('#view').scrollTop
 	render()
+	if ((S.live || []).length) renderLiveUI()
 })
 
 document.addEventListener('visibilitychange', () => {
@@ -3338,6 +3356,162 @@ navigator.serviceWorker?.addEventListener('message', e => {
 	else if (e.data?.type === 'open' && e.data.jid) go('#/chat/' + enc(e.data.jid))
 })
 
+// ---------- Ubicación ----------
+// Mini mapa con mosaicos de OpenStreetMap (sin librerías): 3×3 mosaicos centrados en el punto y un pin
+function mapTiles(lat, lng, w, h, z = 16) {
+	const n = 2 ** z
+	const fx = (lng + 180) / 360 * n
+	const r = lat * Math.PI / 180
+	const fy = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n
+	const tx = Math.floor(fx), ty = Math.floor(fy)
+	const left = w / 2 - (256 + (fx - tx) * 256), top = h / 2 - (256 + (fy - ty) * 256)
+	let tiles = ''
+	for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+		const x = ((tx + i) % n + n) % n, y = ty + j
+		if (y < 0 || y >= n) continue
+		tiles += `<img class="tile" src="https://tile.openstreetmap.org/${z}/${x}/${y}.png" style="left:${left + (i + 1) * 256}px;top:${top + (j + 1) * 256}px" loading="lazy" alt="">`
+	}
+	return `<div class="map" style="height:${h}px">${tiles}<span class="map-pin">${IC.pin}</span><span class="map-attr">© OpenStreetMap</span></div>`
+}
+function parseLoc(text) {
+	const t = String(text || '')
+	const m = t.match(/[?&]q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/)
+	if (!m) return null
+	const lines = t.split('\n').slice(1).map(x => x.trim()).filter(Boolean)
+	return { lat: Number(m[1]), lng: Number(m[2]), live: /En tiempo real/.test(t.split('\n')[0]), name: lines[0] || '', address: lines[1] || '' }
+}
+const GEO_HELP = 'Activa la ubicación: en iPhone, Ajustes › Privacidad y seguridad › Localización › Safari (o esta app) › «Al usar la app». En la computadora, permítela en el candado junto a la dirección.'
+function geoError(e) {
+	return e?.code === 1 ? GEO_HELP : e?.code === 3 ? 'No se pudo obtener tu ubicación a tiempo. Intenta de nuevo, de preferencia cerca de una ventana.' : 'No se pudo obtener tu ubicación en este dispositivo.'
+}
+
+function openLocation() {
+	const key = S.active
+	const from = defaultFrom(key)
+	if (!from) return toast('No hay cuentas conectadas')
+	if (!('geolocation' in navigator)) return toast('Este navegador no permite obtener la ubicación')
+	S.locMin = S.locMin || 60
+	const current = liveActive().find(l => l.key === key)
+	sheet('Ubicación', `
+		<div class="loc-sheet-map" id="loc-map"><div class="loc-wait">${IC.pin}<span>Buscando tu ubicación…</span></div></div>
+		<p class="hint" id="loc-acc" style="text-align:center"></p>
+		<div class="group"><button class="btn primary" id="loc-send" disabled>Enviar mi ubicación actual</button></div>
+		<div class="section">En tiempo real</div>
+		<div class="group">${current
+			? `<div class="item"><span class="grow">Ya la compartes en este chat · ${liveLeft(current.expiresAt)}</span><button class="chip" style="--c:var(--danger)" data-act="live-stop" data-val="${esc(current.token)}">Detener</button></div>`
+			: `<div class="item"><span class="grow">Durante</span><span class="chips" style="padding:0;overflow:visible">${[[15, '15 min'], [60, '1 hora'], [480, '8 horas']].map(([v, t]) => `<button class="chip ${S.locMin === v ? 'on' : ''}" data-act="loc-min" data-val="${v}">${t}</button>`).join('')}</span></div>
+				<button class="btn" id="loc-live" disabled>Compartir en tiempo real</button>`}</div>
+		<p class="hint">Se manda tu ubicación actual como en WhatsApp y, en tiempo real, además un enlace con un mapa que se actualiza mientras tengas esta app abierta (con la app cerrada, en el iPhone se pausa). WhatsApp no deja compartir la ubicación en tiempo real desde dispositivos vinculados, como esta app o WhatsApp Web; solo desde la app del teléfono.</p>`, el => {
+		let pos = null
+		const show = p => {
+			pos = p
+			const box = $('#loc-map', el); if (!box) return
+			box.innerHTML = mapTiles(p.coords.latitude, p.coords.longitude, box.clientWidth || 340, 210, 17)
+			$('#loc-acc', el).textContent = p.coords.accuracy ? `Precisión: ±${Math.round(p.coords.accuracy)} m` : ''
+			$('#loc-send', el).disabled = false
+			const lb = $('#loc-live', el); if (lb) lb.disabled = false
+		}
+		// Se va afinando la precisión mientras la ventana está abierta
+		const watch = navigator.geolocation.watchPosition(p => { if (!document.body.contains(el)) return navigator.geolocation.clearWatch(watch); if (!pos || p.coords.accuracy <= pos.coords.accuracy || Date.now() - pos.timestamp > 15000) show(p) },
+			e => { if (pos) return; const box = $('#loc-map', el); if (box) box.innerHTML = `<div class="loc-wait">${IC.pin}<span>${esc(geoError(e))}</span></div>` },
+			{ enableHighAccuracy: true, timeout: 25000, maximumAge: 10000 })
+		const stopWatch = () => navigator.geolocation.clearWatch(watch)
+		const body = p => ({ accountId: from, jid: jidOf(key), lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, heading: p.coords.heading, speed: p.coords.speed })
+		$('#loc-send', el).onclick = async () => {
+			if (!pos) return
+			const b = $('#loc-send', el); b.disabled = true; b.textContent = 'Enviando…'
+			try {
+				const m = await api('POST', '/send-location', body(pos))
+				stopWatch(); closeSheet()
+				if (S.active === key) { insertMsg(m); renderMessages(true) }
+			} catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Enviar mi ubicación actual' }
+		}
+		const lb = $('#loc-live', el)
+		if (lb) lb.onclick = async () => {
+			if (!pos) return
+			lb.disabled = true; lb.textContent = 'Compartiendo…'
+			try {
+				const r = await api('POST', '/live-location', { ...body(pos), minutes: S.locMin || 60 })
+				stopWatch(); closeSheet()
+				S.live = [...liveActive().filter(l => l.token !== r.share.token), r.share]
+				liveLast = { at: Date.now(), latitude: pos.coords.latitude, longitude: pos.coords.longitude }
+				startLiveWatch()
+				if (S.active === key) { for (const m of r.messages || []) insertMsg(m); renderMessages(true) }
+				toast('Compartiendo tu ubicación en tiempo real')
+			} catch (e) { toast(e.message); lb.disabled = false; lb.textContent = 'Compartir en tiempo real' }
+		}
+	})
+}
+
+// Ubicación en tiempo real: mientras la app está abierta se manda la posición cada 10 s (o antes si te moviste)
+let liveWatch = null
+let liveLast = null
+function liveActive() { S.live = (S.live || []).filter(l => l.expiresAt > Date.now()); return S.live }
+function liveLeft(t) {
+	const m = Math.max(1, Math.round((t - Date.now()) / 60000))
+	return m < 60 ? `quedan ${m} min` : `quedan ${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`
+}
+function distM(a, b) {
+	const R = 6371000, r = Math.PI / 180
+	const dLat = (b.latitude - a.latitude) * r, dLng = (b.longitude - a.longitude) * r
+	const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * r) * Math.cos(b.latitude * r) * Math.sin(dLng / 2) ** 2
+	return 2 * R * Math.asin(Math.sqrt(x))
+}
+function startLiveWatch() {
+	if (!('geolocation' in navigator) || !liveActive().length) return stopLiveWatch()
+	if (liveWatch == null) {
+		liveWatch = navigator.geolocation.watchPosition(pushLive, e => {
+			if (e.code === 1) { toast('Sin permiso de ubicación: tu ubicación en tiempo real no se está actualizando. ' + GEO_HELP, 9000); stopLiveWatch() }
+		}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 })
+	}
+	renderLiveUI()
+}
+function stopLiveWatch() {
+	if (liveWatch != null) navigator.geolocation.clearWatch(liveWatch)
+	liveWatch = null
+	renderLiveUI()
+}
+let livePushing = false
+async function pushLive(pos) {
+	const c = pos.coords
+	if (livePushing) return
+	if (liveLast && Date.now() - liveLast.at < 10000 && distM(liveLast, c) < 25) return
+	livePushing = true
+	liveLast = { at: Date.now(), latitude: c.latitude, longitude: c.longitude }
+	try {
+		for (const l of liveActive()) {
+			try {
+				const r = await api('POST', `/live-location/${enc(l.token)}`, { lat: c.latitude, lng: c.longitude, accuracy: c.accuracy, heading: c.heading, speed: c.speed })
+				if (r && r.active === false) S.live = S.live.filter(x => x.token !== l.token)
+			} catch (e) { if (/ya no existe/.test(e.message)) S.live = S.live.filter(x => x.token !== l.token) }
+		}
+	} finally { livePushing = false }
+	if (!liveActive().length) stopLiveWatch()
+	else renderLiveUI()
+}
+async function stopLive(token) {
+	if (!confirm('¿Dejar de compartir tu ubicación en tiempo real?')) return
+	try { await api('POST', `/live-location/${enc(token)}/stop`) } catch (e) { return toast(e.message) }
+	S.live = liveActive().filter(l => l.token !== token)
+	closeSheet()
+	if (!S.live.length) stopLiveWatch()
+	else renderLiveUI()
+	toast('Dejaste de compartir tu ubicación')
+}
+// Aviso flotante mientras compartes (y el aviso dentro del chat)
+function renderLiveUI() {
+	const list = liveActive()
+	let pill = $('#live-pill')
+	if (!list.length) { pill?.remove() } else {
+		if (!pill) { pill = document.createElement('button'); pill.id = 'live-pill'; pill.className = 'live-pill'; pill.dataset.act = 'live-list'; document.body.appendChild(pill) }
+		pill.innerHTML = `${IC.pin}<span>Compartiendo ubicación${list.length > 1 ? ` (${list.length})` : ''} · ${liveLeft(Math.min(...list.map(l => l.expiresAt)))}</span>`
+		// Dentro de un chat en el celular no se muestra (ahí está el aviso del chat)
+		pill.hidden = route().name === 'chat' && !isWide()
+	}
+	if (S.active && $('#c-banners')) renderChatHeader()
+}
+setInterval(() => { if ((S.live || []).length) { if (!liveActive().length) stopLiveWatch(); else renderLiveUI() } }, 30000)
+
 async function boot() {
 	if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {})
 	if (!S.token) return showLogin()
@@ -3352,6 +3526,7 @@ async function boot() {
 	lastRoute = ''
 	render()
 	connectWS()
+	api('GET', '/live-location').then(list => { S.live = list || []; if (S.live.length) startLiveWatch() }).catch(() => {})
 }
 
 // ---------- Listas desplegables en PC ----------
