@@ -297,6 +297,13 @@ svg{display:block}
 #msgTicksRow[hidden]{display:none}
 .b{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;transition:transform .18s var(--ease)}
 .m.press .b{transform:scale(.96)}
+.phpick{display:flex;flex-direction:column;align-items:center;gap:6px;margin:4px 0 2px}
+.av.xl{width:84px;height:84px;cursor:pointer}
+.phbtns{display:flex;gap:14px}
+.tlink{color:var(--blue);font-size:16px;padding:4px 6px}
+.tlink.d{color:var(--red)}
+.tlink:active,.av.xl:active{opacity:.5}
+.info .av{cursor:pointer}
 .big-btn.ghost{background:var(--groupBg);color:var(--red);margin-top:12px}
 </style>
 </head>
@@ -391,6 +398,11 @@ svg{display:block}
       <button class="tbtn b" type="button" id="newCreate" disabled>Crear</button>
     </div>
     <div class="sh-body">
+      <div class="phpick">
+        <button type="button" class="av xl" id="newPhAv" aria-label="Elegir foto de perfil"></button>
+        <div class="phbtns"><button type="button" class="tlink" id="newPhBtn">Agregar foto</button><button type="button" class="tlink d" id="newPhDel" hidden>Quitar</button></div>
+        <input type="file" id="newPhInput" accept="image/*" hidden>
+      </div>
       <div class="lbl">Contacto</div>
       <div class="group">
         <input id="newNum" type="tel" inputmode="tel" placeholder="Número (ej. +52 55 1234 5678)">
@@ -441,6 +453,11 @@ svg{display:block}
       <span style="width:70px"></span>
     </div>
     <div class="sh-body">
+      <div class="phpick">
+        <button type="button" class="av xl" id="convPhAv" aria-label="Elegir foto de perfil"></button>
+        <div class="phbtns"><button type="button" class="tlink" id="convPhBtn">Agregar foto</button><button type="button" class="tlink d" id="convPhDel" hidden>Quitar</button></div>
+        <input type="file" id="convPhInput" accept="image/*" hidden>
+      </div>
       <div class="lbl">Contacto</div>
       <div class="group">
         <input id="convNum" type="tel" inputmode="tel" placeholder="Número (ej. +52 55 1234 5678)" autocomplete="off">
@@ -680,6 +697,37 @@ const avTone = c => { let h = 0; for (const ch of String(normNum(c.number) || c.
 const avStyle = c => { const [fg, dk, lt] = avTone(c); return `color:${fg};--avDk:${dk};--avLt:${lt};background-color:var(--avBg)` + (c.photo ? `;background-image:url('${c.photo}')` : ''); };
 const PERSON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="7.6" r="4.4"/><path d="M3.6 20.6c0-3.9 3.8-6.6 8.4-6.6s8.4 2.7 8.4 6.6c0 .8-.6 1.4-1.4 1.4H5c-.8 0-1.4-.6-1.4-1.4z"/></svg>';
 function pickPhoto(){ if (current) $('#photoInput').click(); }
+// recorta una imagen en cuadro y la devuelve como JPEG (data URL)
+function cropPhoto(f, S = 192){
+  return new Promise((ok, no) => {
+    const url = URL.createObjectURL(f), img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = cv.height = S;
+      const k = Math.min(img.width, img.height);
+      cv.getContext('2d').drawImage(img, (img.width - k) / 2, (img.height - k) / 2, k, k, 0, 0, S, S);
+      URL.revokeObjectURL(url); ok(cv.toDataURL('image/jpeg', .82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); no(new Error('img')); };
+    img.src = url;
+  });
+}
+// selector de foto de perfil en las hojas (nuevo chat / simular conversación)
+function photoPicker(pre, getNum, onChange){
+  let photo = null;
+  const av = $('#' + pre + 'PhAv'), btn = $('#' + pre + 'PhBtn'), del = $('#' + pre + 'PhDel'), inp = $('#' + pre + 'PhInput');
+  function render(){
+    const num = getNum(), ex = validNum(num) && findByNum(num), ph = photo || (ex && ex.photo) || null;
+    av.className = 'av xl' + (ph ? ' photo' : ''); av.style.cssText = avStyle({ number: num, name: '', photo: ph }); av.innerHTML = PERSON;
+    btn.textContent = ph ? 'Cambiar foto' : 'Agregar foto'; del.hidden = !photo;
+  }
+  av.addEventListener('click', () => inp.click()); btn.addEventListener('click', () => inp.click());
+  del.addEventListener('click', () => { photo = null; render(); onChange && onChange(); });
+  inp.addEventListener('change', async e => {
+    const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return;
+    try { photo = await cropPhoto(f); render(); onChange && onChange(); } catch(_){ toast('No se pudo leer la imagen'); }
+  });
+  return { get: () => photo, set: v => { photo = v || null; render(); }, render };
+}
 $('#photoInput').addEventListener('change', e => {
   const f = e.target.files && e.target.files[0]; e.target.value = ''; const id = current;
   if (!f || !id) return;
@@ -1012,6 +1060,7 @@ $('#composer').addEventListener('submit', e => {
 input.addEventListener('focus', () => setTimeout(scrollBottom, 300));
 $('#chatScroll').addEventListener('scroll', e => { const t = e.target; $('#downBtn').classList.toggle('on', t.scrollHeight - t.scrollTop - t.clientHeight > 200); }, { passive: true });
 $('#downBtn').addEventListener('click', () => $('#chatScroll').scrollTo({ top: $('#chatScroll').scrollHeight, behavior: 'smooth' }));
+$('#chat').addEventListener('click', e => { if (e.target.closest('.info .av')) pickPhoto(); });
 $('#chat').addEventListener('click', e => { const b = e.target.closest('[data-soon]'); if (b) toast(b.dataset.soon + ': no disponible en el simulador'); });
 window.addEventListener('resize', () => { if (current){ layoutChat(); } });
 if (window.visualViewport) visualViewport.addEventListener('resize', () => { if (current) { layoutChat(); scrollBottom(); } });
@@ -1061,11 +1110,14 @@ $('#mePhotoInput').addEventListener('change', e => {
   img.src = url;
 });
 renderMe();
-$('#newBtn').addEventListener('click', () => { newNum.value = newName.value = ''; $('#newCreate').disabled = true; showSheet($('#newSheet')); setTimeout(() => newNum.focus(), 350); });
-newNum.addEventListener('input', () => $('#newCreate').disabled = !validNum(newNum.value));
+const newPh = photoPicker('new', () => newNum.value);
+$('#newBtn').addEventListener('click', () => { newNum.value = newName.value = ''; newPh.set(null); $('#newCreate').disabled = true; showSheet($('#newSheet')); setTimeout(() => newNum.focus(), 350); });
+newNum.addEventListener('input', () => { $('#newCreate').disabled = !validNum(newNum.value); newPh.render(); });
 function createNew(){
   if (!validNum(newNum.value)) return;
-  const c = getOrCreate(newNum.value, newName.value); save(); hideSheet(); renderList();
+  const c = getOrCreate(newNum.value, newName.value), ph = newPh.get();
+  if (ph){ c.photo = ph; c.photoBy = 'user'; }
+  save(); hideSheet(); renderList();
   setTimeout(() => openChat(c.id), 250);
 }
 $('#newCreate').addEventListener('click', createNew);
@@ -1208,7 +1260,8 @@ const ME_W = ['yo', 'y', 'me', 'mi'];
 const THEM_W = ['contacto', 'c', 'el', 'ella', 'ellos', 'ellas', 'cliente', 'otro', 'otra', 'persona'];
 const PACE = { fast: [20, 60], normal: [60, 240], slow: [300, 1200] };          // segundos entre mensajes (historial)
 const PACE_LIVE = { fast: [700, 1500], normal: [1400, 3200], slow: [2800, 6000] }; // milisegundos (en vivo)
-try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
+const convPh = photoPicker('conv', () => convNum.value, () => updateConv());
+try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
 function parseScript(){
   const them = new Set(THEM_W), nm = normW(convName.value);
   if (nm){ them.add(nm); them.add(nm.split(' ')[0]); }
@@ -1268,7 +1321,7 @@ function updateConv(){
   const times = p.times || list.map(() => Date.now());
   $('#convPrev').innerHTML = list.length ? list.slice(0, 8).map((m, i) => `<div class="m ${m.mine ? 'me' : 'them'} tail gap"><div class="b">${esc(m.text)}<span class="meta">${hhmm(times[i])}</span></div></div>`).join('') + (list.length > 8 ? `<div class="chatempty" style="margin:8px 4px 0">+ ${list.length - 8} más</div>` : '')
     : '<div class="chatempty" style="margin:4px">Escribe el guion</div>';
-  try { localStorage.setItem(CONV_KEY, JSON.stringify({ num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
+  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
 }
 function openConv(){
   const d = new Date(Date.now() - 30 * 6e4);
@@ -1323,7 +1376,8 @@ function playLive(id, list){
 $('#convGo').addEventListener('click', () => {
   const p = convPlan(); if (p.err) return;
   hideSheet();
-  const c = getOrCreate(p.num, convName.value.trim());
+  const c = getOrCreate(p.num, convName.value.trim()), ph = convPh.get();
+  if (ph){ c.photo = ph; c.photoBy = 'user'; convPh.set(null); updateConv(); }
   save(); renderList();
   WA.check(c).then(ok => {
     const ch = getChat(c.id); if (!ch) return;
