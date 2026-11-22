@@ -3389,10 +3389,32 @@ function openLocation() {
 	const key = S.active
 	const from = defaultFrom(key)
 	if (!from) return toast('No hay cuentas conectadas')
-	if (!('geolocation' in navigator)) return toast('Este navegador no permite obtener la ubicación')
 	S.locMin = S.locMin || 60
-	const current = liveActive().find(l => l.key === key)
+	const mode = S.locMode || 'gps'
 	sheet('Ubicación', `
+		<div class="seg" style="margin:12px 16px 0">
+			<button class="seg-btn ${mode === 'gps' ? 'on' : ''}" data-loc-mode="gps">📍 Mi ubicación</button>
+			<button class="seg-btn ${mode === 'pick' ? 'on' : ''}" data-loc-mode="pick">🗺️ Elegir en el mapa</button>
+		</div>
+		<div id="loc-body"></div>`, el => {
+		let cleanup = null
+		const show = m => {
+			S.locMode = m
+			cleanup?.(); cleanup = null
+			el.querySelectorAll('[data-loc-mode]').forEach(b => b.classList.toggle('on', b.dataset.locMode === m))
+			cleanup = m === 'pick' ? renderLocPick(el, key, from) : renderLocGps(el, key, from)
+		}
+		el.querySelectorAll('[data-loc-mode]').forEach(b => { b.onclick = () => show(b.dataset.locMode) })
+		show(mode)
+	})
+}
+
+// Modo «Mi ubicación»: tu posición real (ubicación normal o burbuja de tiempo real)
+function renderLocGps(el, key, from) {
+	const body = $('#loc-body', el)
+	if (!('geolocation' in navigator)) { body.innerHTML = `<p class="hint" style="padding-top:12px">Este navegador no permite obtener la ubicación. Usa «Elegir en el mapa».</p>`; return null }
+	const current = liveActive().find(l => l.key === key)
+	body.innerHTML = `
 		<div class="loc-sheet-map" id="loc-map"><div class="loc-wait">${IC.pin}<span>Buscando tu ubicación…</span></div></div>
 		<p class="hint" id="loc-acc" style="text-align:center"></p>
 		<div class="group"><button class="btn primary" id="loc-send" disabled>Enviar mi ubicación actual</button></div>
@@ -3402,7 +3424,8 @@ function openLocation() {
 			<div class="item"><input type="text" id="loc-caption" maxlength="120" placeholder="Comentario (opcional)"></div>
 			<button class="btn" id="loc-bubble" disabled>Mandar ubicación en tiempo real</button>
 		</div>
-		<p class="hint">Llega como la burbuja de «Ubicación en tiempo real» de WhatsApp, con tu posición de este momento. <b>No se va actualizando</b>: WhatsApp solo deja mandar las actualizaciones desde la app del teléfono, no desde dispositivos vinculados como esta app. WhatsApp Web nunca manda este tipo de mensaje, así que mandarlo desde aquí puede hacer que WhatsApp quite el dispositivo.</p>`, el => {
+		<p class="hint">Llega como la burbuja de «Ubicación en tiempo real» de WhatsApp, con tu posición de este momento. <b>No se va actualizando</b>: WhatsApp solo deja mandar las actualizaciones desde la app del teléfono, no desde dispositivos vinculados como esta app. WhatsApp Web nunca manda este tipo de mensaje, así que mandarlo desde aquí puede hacer que WhatsApp quite el dispositivo.</p>`
+	{
 		let pos = null
 		const show = p => {
 			pos = p
@@ -3452,7 +3475,176 @@ function openLocation() {
 				toast('Compartiendo tu ubicación en tiempo real')
 			} catch (e) { toast(e.message); lb.disabled = false; lb.textContent = 'Compartir en tiempo real' }
 		}
+		return () => { try { stopWatch() } catch {} }
+	}
+}
+
+// Modo «Elegir en el mapa»: mueves el mapa (o buscas una dirección) y mandas ese punto como ubicación normal de WhatsApp.
+// Cada chat recuerda el último punto que le mandaste; mandar en otro chat no cambia los anteriores.
+function renderLocPick(el, key, from) {
+	const body = $('#loc-body', el)
+	const picks = store.get('locPicks', {}) || {}
+	const saved = picks[key]
+	body.innerHTML = `
+		<div class="lp-search"><input type="search" id="lp-q" placeholder="Buscar un lugar o dirección" autocomplete="off" enterkeyhint="search"><button class="chip" id="lp-go" style="--c:#25D366">Buscar</button></div>
+		<div class="group lp-results" id="lp-res" hidden></div>
+		<div class="loc-pick" id="lp-map">
+			<div class="lp-tiles"></div>
+			<span class="map-pin lp-pin">${IC.pin}</span>
+			<div class="lp-zoom"><button type="button" data-z="1" aria-label="Acercar">+</button><button type="button" data-z="-1" aria-label="Alejar">−</button></div>
+			${'geolocation' in navigator ? '<button type="button" class="lp-me" aria-label="Ir a mi ubicación">◎</button>' : ''}
+			<span class="map-attr">© OpenStreetMap</span>
+		</div>
+		<p class="hint" style="text-align:center">Mueve el mapa para poner el pin donde quieras</p>
+		<div class="group">
+			<div class="item"><input type="text" id="lp-name" maxlength="120" placeholder="Nombre del lugar (opcional)"></div>
+			<div class="item"><input type="text" id="lp-addr" maxlength="120" placeholder="Dirección (se llena sola)"></div>
+		</div>
+		<div class="pad"><button class="btn primary" id="lp-send">Enviar esta ubicación</button></div>
+		<p class="hint">Llega como una ubicación normal de WhatsApp: el pin en el mapa con el nombre y la dirección. En cada chat puedes mandar un punto distinto; los que ya mandaste se quedan como estaban.</p>`
+	const box = $('#lp-map', body), layer = box.querySelector('.lp-tiles')
+	const nameIn = $('#lp-name', body), addrIn = $('#lp-addr', body)
+	let c = saved ? { lat: saved.lat, lng: saved.lng } : S.lastPick || { lat: 19.4326, lng: -99.1332 }
+	let z = saved?.z || (saved || S.lastPick ? 16 : 12)
+	if (saved?.name) nameIn.value = saved.name
+	if (saved?.address) addrIn.value = saved.address
+	let addrTouched = Boolean(saved?.address), nameTouched = Boolean(saved?.name)
+	nameIn.oninput = () => { nameTouched = true }
+	addrIn.oninput = () => { addrTouched = true }
+	// Proyección Web Mercator (la de los mosaicos de OpenStreetMap)
+	const proj = (lat, lng, zz) => { const n = 2 ** zz * 256, r = lat * Math.PI / 180; return { x: (lng + 180) / 360 * n, y: (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n } }
+	const unproj = (x, y, zz) => { const n = 2 ** zz * 256; return { lat: Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI, lng: ((x / n * 360 - 180) % 360 + 540) % 360 - 180 } }
+	const clampLat = p => ({ lat: Math.max(-85, Math.min(85, p.lat)), lng: p.lng })
+	const tiles = new Map()
+	let frame = 0
+	const draw = () => {
+		frame = 0
+		const w = box.clientWidth || 340, h = box.clientHeight || 260
+		const p = proj(c.lat, c.lng, z), n = 2 ** z
+		const want = new Set()
+		const x0 = Math.floor((p.x - w / 2) / 256), x1 = Math.floor((p.x + w / 2) / 256)
+		const y0 = Math.max(0, Math.floor((p.y - h / 2) / 256)), y1 = Math.min(n - 1, Math.floor((p.y + h / 2) / 256))
+		for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+			const k = `${z}/${tx}/${ty}`
+			want.add(k)
+			let img = tiles.get(k)
+			if (!img) {
+				img = new Image()
+				img.className = 'tile'; img.alt = ''; img.draggable = false
+				img.src = `https://tile.openstreetmap.org/${z}/${((tx % n) + n) % n}/${ty}.png`
+				layer.appendChild(img); tiles.set(k, img)
+			}
+			img.style.left = `${Math.round(tx * 256 - p.x + w / 2)}px`
+			img.style.top = `${Math.round(ty * 256 - p.y + h / 2)}px`
+		}
+		for (const [k, img] of tiles) if (!want.has(k)) { img.remove(); tiles.delete(k) }
+	}
+	const redraw = () => { if (!frame) frame = requestAnimationFrame(draw) }
+	// Cuando el mapa se queda quieto, busca la dirección del punto
+	let idleTimer = null, geoReq = 0
+	const idle = () => {
+		clearTimeout(idleTimer)
+		idleTimer = setTimeout(async () => {
+			const id = ++geoReq
+			try {
+				const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=es&lat=${c.lat.toFixed(6)}&lon=${c.lng.toFixed(6)}`)
+				const j = await r.json()
+				if (id !== geoReq || !document.body.contains(box)) return
+				const a = j.address || {}
+				const street = [a.road || a.pedestrian || a.footway, a.house_number].filter(Boolean).join(' ')
+				const addr = [street, a.neighbourhood || a.suburb, a.city || a.town || a.village || a.municipality, a.state].filter(Boolean).join(', ') || j.display_name || ''
+				if (!addrTouched) addrIn.value = addr.slice(0, 120)
+				if (!nameTouched) nameIn.value = (j.name || '').slice(0, 120)
+			} catch {}
+		}, 700)
+	}
+	const zoomBy = d => { const nz = Math.max(3, Math.min(19, z + d)); if (nz !== z) { z = nz; redraw(); idle() } }
+	// Arrastrar para mover; dos dedos (o la rueda) para acercar y alejar
+	const pts = new Map()
+	let pinch = null
+	const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1 }
+	box.addEventListener('pointerdown', e => {
+		if (e.target.closest('button')) return
+		box.setPointerCapture?.(e.pointerId)
+		pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
+		if (pts.size === 2) pinch = { d: dist(), z }
 	})
+	box.addEventListener('pointermove', e => {
+		const prev = pts.get(e.pointerId)
+		if (!prev) return
+		pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
+		if (pts.size === 1) {
+			const p = proj(c.lat, c.lng, z)
+			c = clampLat(unproj(p.x - (e.clientX - prev.x), p.y - (e.clientY - prev.y), z))
+			redraw()
+		} else if (pts.size === 2 && pinch) {
+			const nz = Math.max(3, Math.min(19, Math.round(pinch.z + Math.log2(dist() / pinch.d))))
+			if (nz !== z) { z = nz; redraw() }
+		}
+	})
+	const up = e => { if (!pts.delete(e.pointerId)) return; if (pts.size < 2) pinch = null; if (!pts.size) idle() }
+	box.addEventListener('pointerup', up)
+	box.addEventListener('pointercancel', up)
+	box.addEventListener('wheel', e => { e.preventDefault(); zoomBy(e.deltaY < 0 ? 1 : -1) }, { passive: false })
+	box.addEventListener('dblclick', e => { if (!e.target.closest('button')) zoomBy(1) })
+	box.querySelectorAll('[data-z]').forEach(b => { b.onclick = () => zoomBy(Number(b.dataset.z)) })
+	const me = box.querySelector('.lp-me')
+	if (me) me.onclick = () => navigator.geolocation.getCurrentPosition(
+		p => { c = { lat: p.coords.latitude, lng: p.coords.longitude }; z = Math.max(z, 16); addrTouched = false; nameTouched = false; redraw(); idle() },
+		e => toast(geoError(e)), { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 })
+	// Buscar un lugar o dirección
+	const res = $('#lp-res', body), q = $('#lp-q', body)
+	const search = async () => {
+		const text = q.value.trim()
+		if (!text) return
+		res.hidden = false
+		res.innerHTML = '<div class="item"><span class="grow muted">Buscando…</span></div>'
+		try {
+			const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=es&q=${encodeURIComponent(text)}`)
+			const list = await r.json()
+			if (!list.length) { res.innerHTML = '<div class="item"><span class="grow muted">No encontré ese lugar. Prueba con calle, colonia y ciudad.</span></div>'; return }
+			res.innerHTML = list.map((x, i) => `<button class="item" data-i="${i}"><span class="grow">${esc(x.name || x.display_name.split(',')[0])}<small>${esc(x.display_name)}</small></span></button>`).join('')
+			res.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => {
+				const x = list[Number(b.dataset.i)]
+				c = { lat: Number(x.lat), lng: Number(x.lon) }
+				z = 17
+				nameIn.value = (x.name || '').slice(0, 120); nameTouched = Boolean(x.name)
+				addrIn.value = x.display_name.slice(0, 120); addrTouched = true
+				res.hidden = true
+				redraw()
+			} })
+		} catch { res.innerHTML = '<div class="item"><span class="grow muted">No se pudo buscar ahora. Mueve el mapa a mano.</span></div>' }
+	}
+	$('#lp-go', body).onclick = search
+	q.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); search() } }
+	// Enviar el punto elegido como ubicación normal de WhatsApp
+	$('#lp-send', body).onclick = async () => {
+		const b = $('#lp-send', body)
+		b.disabled = true; b.textContent = 'Enviando…'
+		const point = { lat: Number(c.lat.toFixed(6)), lng: Number(c.lng.toFixed(6)) }
+		try {
+			const m = await api('POST', '/send-location', { accountId: from, jid: jidOf(key), ...point, name: nameIn.value.trim(), address: addrIn.value.trim() })
+			const all = store.get('locPicks', {}) || {}
+			all[key] = { ...point, z, name: nameIn.value.trim(), address: addrIn.value.trim(), at: Date.now() }
+			// Se guardan los últimos 50 chats
+			const keep = Object.entries(all).sort((x, y) => (y[1].at || 0) - (x[1].at || 0)).slice(0, 50)
+			store.set('locPicks', Object.fromEntries(keep))
+			S.lastPick = point
+			closeSheet()
+			if (S.active === key) { insertMsg(m); renderMessages(true) }
+		} catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Enviar esta ubicación' }
+	}
+	requestAnimationFrame(draw)
+	if (!saved) idle()
+	// La primera vez empieza donde estás (si el teléfono lo permite), mientras no hayas movido el mapa
+	if (!saved && !S.lastPick && 'geolocation' in navigator) {
+		const start = { ...c }
+		navigator.geolocation.getCurrentPosition(p => {
+			if (!document.body.contains(box) || c.lat !== start.lat || c.lng !== start.lng) return
+			c = { lat: p.coords.latitude, lng: p.coords.longitude }; z = 16; redraw(); idle()
+		}, () => {}, { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 })
+	}
+	return () => { clearTimeout(idleTimer); if (frame) cancelAnimationFrame(frame) }
 }
 
 // Ubicación en tiempo real: mientras la app está abierta se manda la posición cada 10 s (o antes si te moviste)
