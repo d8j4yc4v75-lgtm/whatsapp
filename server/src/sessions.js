@@ -10,6 +10,7 @@ import makeWASocket, {
 	downloadMediaMessage,
 	fetchLatestBaileysVersion,
 	generateWAMessageFromContent,
+	generateMessageIDV2,
 	getContentType,
 	isJidBroadcast,
 	isJidGroup,
@@ -849,6 +850,49 @@ export class Session {
 		return this.sock
 	}
 
+	/** Si la cuenta se está reconectando, espera a que vuelva (hasta `ms`) en vez de fallar de inmediato */
+	async waitSocket(ms = 15000) {
+		const end = Date.now() + ms
+		while ((!this.sock || this.status !== 'connected') && !this.stopped && ['connecting', 'reconnecting'].includes(this.status) && Date.now() < end) {
+			await new Promise(r => setTimeout(r, 500))
+		}
+		return this.requireSocket()
+	}
+
+	/**
+	 * Manda con reintentos: si se cae la conexión a medio envío, espera a que vuelva y lo manda otra vez con el
+	 * mismo ID de mensaje, así WhatsApp nunca lo entrega dos veces.
+	 */
+	async relayReliable(jid, message, messageId, kind) {
+		let last
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const sock = await this.waitSocket(attempt ? 25000 : 15000)
+			try {
+				await sock.relayMessage(jid, message, { messageId })
+				note(this.accountId, 'sent', kind)
+				return
+			} catch (e) {
+				last = e
+				note(this.accountId, 'send-error', `${kind}: ${e.message}`)
+				const transient = /closed|timed? ?out|timeout|connection|socket|stream|ECONN|ETIMEDOUT|EPIPE|lost|not open/i.test(String(e?.message || e))
+				if (!transient) break
+				await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+			}
+		}
+		throw last
+	}
+
+	/** Ubicación normal o burbuja de tiempo real, con reintentos y sin duplicados */
+	async sendLocationMessage(jid, content, kind) {
+		const sock = await this.waitSocket()
+		const full = generateWAMessageFromContent(jid, content, { userJid: sock.user?.id, messageId: generateMessageIDV2(sock.user?.id) })
+		await this.relayReliable(jid, full.message, full.key.id, kind)
+		this.saveMessage(full, false)
+		const row = stmt.getMessage.get(this.accountId, full.key.id)
+		if (!row) throw new Error('Se mandó, pero no se pudo guardar en el chat. Actualiza la página.')
+		return this.manager.formatMessage(row)
+	}
+
 	async send(jid, content, localMedia, opts) {
 		const sock = this.requireSocket()
 		let sent
@@ -867,28 +911,28 @@ export class Session {
 		return this.manager.formatMessage(stmt.getMessage.get(this.accountId, sent.key.id))
 	}
 
+	/** Ubicación normal de WhatsApp (pin con nombre y dirección) */
+	async sendLocation(jid, { lat, lng, name, address, jpegThumbnail }) {
+		const loc = { degreesLatitude: lat, degreesLongitude: lng }
+		if (name) loc.name = name
+		if (address) loc.address = address
+		if (jpegThumbnail) loc.jpegThumbnail = jpegThumbnail
+		return this.sendLocationMessage(jid, { locationMessage: loc }, 'locationMessage')
+	}
+
 	/**
-	 * Burbuja de «ubicación en tiempo real» de WhatsApp con la posición actual. Desde un dispositivo vinculado
-	 * WhatsApp no deja mandar las actualizaciones (eso solo lo hace la app del teléfono): el cliente ve la
-	 * posición del momento en que se mandó.
+	 * Burbuja de «ubicación en tiempo real» de WhatsApp en el punto dado (el que eligió el usuario en el mapa).
+	 * Desde un dispositivo vinculado WhatsApp no deja mandar las actualizaciones (eso solo lo hace la app del
+	 * teléfono): el cliente ve ese punto fijo.
 	 */
-	async sendLiveLocation(jid, { lat, lng, accuracy, speed, heading, caption }) {
-		const sock = this.requireSocket()
+	async sendLiveLocation(jid, { lat, lng, accuracy, speed, heading, caption, jpegThumbnail }) {
 		const live = { degreesLatitude: lat, degreesLongitude: lng }
 		if (Number.isFinite(accuracy)) live.accuracyInMeters = Math.round(accuracy)
 		if (Number.isFinite(speed)) live.speedInMps = speed
 		if (Number.isFinite(heading)) live.degreesClockwiseFromMagneticNorth = Math.round(heading) % 360
 		if (caption) live.caption = caption
-		const full = generateWAMessageFromContent(jid, { liveLocationMessage: live }, { userJid: sock.user?.id })
-		try {
-			await sock.relayMessage(jid, full.message, { messageId: full.key.id })
-		} catch (e) {
-			note(this.accountId, 'send-error', e.message)
-			throw e
-		}
-		note(this.accountId, 'sent', 'liveLocationMessage')
-		this.saveMessage(full, false)
-		return this.manager.formatMessage(stmt.getMessage.get(this.accountId, full.key.id))
+		if (jpegThumbnail) live.jpegThumbnail = jpegThumbnail
+		return this.sendLocationMessage(jid, { liveLocationMessage: live }, 'liveLocationMessage')
 	}
 
 	async markRead(jid) {

@@ -3385,6 +3385,21 @@ function geoError(e) {
 	return e?.code === 1 ? GEO_HELP : e?.code === 3 ? 'No se pudo obtener tu ubicación a tiempo. Intenta de nuevo, de preferencia cerca de una ventana.' : 'No se pudo obtener tu ubicación en este dispositivo.'
 }
 
+// Envío de ubicaciones: un ID por envío para que el servidor no lo mande dos veces si la app reintenta
+const locRequestId = () => (globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`).replace(/[^\w-]/g, '')
+async function locApi(path, body) {
+	for (let i = 0; ; i++) {
+		try {
+			return await api('POST', path, body)
+		} catch (e) {
+			const network = e instanceof TypeError || /^Error 5\d\d$/.test(e.message)
+			if (!network) throw e
+			if (i >= 2) throw new Error('No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.')
+			await new Promise(r => setTimeout(r, 1500 * (i + 1)))
+		}
+	}
+}
+
 function openLocation() {
 	const key = S.active
 	const from = defaultFrom(key)
@@ -3443,7 +3458,7 @@ function renderLocGps(el, key, from) {
 			if (!pos) return
 			const b = $('#loc-send', el); b.disabled = true; b.textContent = 'Enviando…'
 			try {
-				const m = await api('POST', '/send-location', body(pos))
+				const m = await locApi('/send-location', { ...body(pos), requestId: locRequestId() })
 				stopWatch(); closeSheet()
 				if (S.active === key) { insertMsg(m); renderMessages(true) }
 			} catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Enviar mi ubicación actual' }
@@ -3496,9 +3511,23 @@ function renderLocPick(el, key, from) {
 	let z = saved?.z || (saved || S.lastPick ? 16 : 12)
 	if (saved?.name) nameIn.value = saved.name
 	if (saved?.address) addrIn.value = saved.address
-	let addrTouched = Boolean(saved?.address), nameTouched = Boolean(saved?.name)
-	nameIn.oninput = () => { nameTouched = true }
-	addrIn.oninput = () => { addrTouched = true }
+	// El nombre y la dirección que llena la app son del punto `autoFor`: si el pin se mueve, se borran y se vuelven a buscar.
+	// Lo que escribes tú no se toca.
+	const posKey = p => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`
+	let nameTouched = Boolean(saved?.typed?.name && saved.name), addrTouched = Boolean(saved?.typed?.address && saved.address)
+	let autoFor = saved ? posKey(c) : null
+	nameIn.oninput = () => { nameTouched = nameIn.value.trim() !== '' }
+	addrIn.oninput = () => { addrTouched = addrIn.value.trim() !== '' }
+	const ADDR_PH = addrIn.placeholder
+	const moved = () => {
+		if (autoFor === posKey(c)) return
+		if (autoFor !== null || nameIn.value || addrIn.value) {
+			if (!nameTouched) nameIn.value = ''
+			if (!addrTouched) addrIn.value = ''
+		}
+		autoFor = null; geoReq++
+		addrIn.placeholder = 'Buscando dirección…'
+	}
 	// Proyección Web Mercator (la de los mosaicos de OpenStreetMap)
 	const proj = (lat, lng, zz) => { const n = 2 ** zz * 256, r = lat * Math.PI / 180; return { x: (lng + 180) / 360 * n, y: (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n } }
 	const unproj = (x, y, zz) => { const n = 2 ** zz * 256; return { lat: Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI, lng: ((x / n * 360 - 180) % 360 + 540) % 360 - 180 } }
@@ -3519,7 +3548,9 @@ function renderLocPick(el, key, from) {
 			if (!img) {
 				img = new Image()
 				img.className = 'tile'; img.alt = ''; img.draggable = false
-				img.src = `https://tile.openstreetmap.org/${z}/${((tx % n) + n) % n}/${ty}.png`
+				const url = `https://tile.openstreetmap.org/${z}/${((tx % n) + n) % n}/${ty}.png`
+				img.onerror = () => { if (img.dataset.retry) return; img.dataset.retry = '1'; setTimeout(() => { if (img.isConnected) img.src = `${url}?r=${Date.now()}` }, 1200) }
+				img.src = url
 				layer.appendChild(img); tiles.set(k, img)
 			}
 			img.style.left = `${Math.round(tx * 256 - p.x + w / 2)}px`
@@ -3529,22 +3560,41 @@ function renderLocPick(el, key, from) {
 	}
 	const redraw = () => { if (!frame) frame = requestAnimationFrame(draw) }
 	// Cuando el mapa se queda quieto, busca la dirección del punto
-	let idleTimer = null, geoReq = 0
-	const idle = () => {
-		clearTimeout(idleTimer)
-		idleTimer = setTimeout(async () => {
-			const id = ++geoReq
+	let idleTimer = null, geoReq = 0, geoPending = null, geoPendingFor = null
+	const lookup = () => {
+		const id = ++geoReq, at = { ...c }, k = posKey(at)
+		geoPendingFor = k
+		geoPending = (async () => {
 			try {
-				const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=es&lat=${c.lat.toFixed(6)}&lon=${c.lng.toFixed(6)}`)
+				const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=es&lat=${at.lat.toFixed(6)}&lon=${at.lng.toFixed(6)}`, { signal: AbortSignal.timeout?.(8000) })
+				if (!r.ok) return
 				const j = await r.json()
-				if (id !== geoReq || !document.body.contains(box)) return
+				if (id !== geoReq || posKey(c) !== k || !document.body.contains(box)) return
 				const a = j.address || {}
 				const street = [a.road || a.pedestrian || a.footway, a.house_number].filter(Boolean).join(' ')
 				const addr = [street, a.neighbourhood || a.suburb, a.city || a.town || a.village || a.municipality, a.state].filter(Boolean).join(', ') || j.display_name || ''
 				if (!addrTouched) addrIn.value = addr.slice(0, 120)
 				if (!nameTouched) nameIn.value = (j.name || '').slice(0, 120)
-			} catch {}
-		}, 700)
+				autoFor = k
+			} catch {} finally {
+				if (id === geoReq) { addrIn.placeholder = ADDR_PH; geoPending = null; geoPendingFor = null }
+			}
+		})()
+		return geoPending
+	}
+	// Cuando el mapa se queda quieto, busca la dirección del punto
+	const idle = () => {
+		clearTimeout(idleTimer); idleTimer = null
+		if (autoFor === posKey(c)) return
+		idleTimer = setTimeout(() => { idleTimer = null; lookup() }, 700)
+	}
+	// Antes de mandar: que el nombre y la dirección sean del punto actual (espera la búsqueda hasta 3 s)
+	const freshInfo = async () => {
+		if (autoFor === posKey(c) || (nameTouched && addrTouched)) return
+		clearTimeout(idleTimer); idleTimer = null
+		const job = geoPending && geoPendingFor === posKey(c) ? geoPending : lookup()
+		await Promise.race([job, new Promise(r => setTimeout(r, 3000))])
+		if (autoFor !== posKey(c)) { if (!nameTouched) nameIn.value = ''; if (!addrTouched) addrIn.value = '' }
 	}
 	const zoomBy = d => { const nz = Math.max(3, Math.min(19, z + d)); if (nz !== z) { z = nz; redraw(); idle() } }
 	// Arrastrar para mover; dos dedos (o la rueda) para acercar y alejar
@@ -3564,7 +3614,7 @@ function renderLocPick(el, key, from) {
 		if (pts.size === 1) {
 			const p = proj(c.lat, c.lng, z)
 			c = clampLat(unproj(p.x - (e.clientX - prev.x), p.y - (e.clientY - prev.y), z))
-			redraw()
+			moved(); redraw()
 		} else if (pts.size === 2 && pinch) {
 			const nz = Math.max(3, Math.min(19, Math.round(pinch.z + Math.log2(dist() / pinch.d))))
 			if (nz !== z) { z = nz; redraw() }
@@ -3578,7 +3628,7 @@ function renderLocPick(el, key, from) {
 	box.querySelectorAll('[data-z]').forEach(b => { b.onclick = () => zoomBy(Number(b.dataset.z)) })
 	const me = box.querySelector('.lp-me')
 	if (me) me.onclick = () => navigator.geolocation.getCurrentPosition(
-		p => { c = { lat: p.coords.latitude, lng: p.coords.longitude }; z = Math.max(z, 16); addrTouched = false; nameTouched = false; redraw(); idle() },
+		p => { c = { lat: p.coords.latitude, lng: p.coords.longitude }; z = Math.max(z, 16); addrTouched = false; nameTouched = false; moved(); redraw(); idle() },
 		e => toast(geoError(e)), { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 })
 	// Buscar un lugar o dirección
 	const res = $('#lp-res', body), q = $('#lp-q', body)
@@ -3588,16 +3638,20 @@ function renderLocPick(el, key, from) {
 		res.hidden = false
 		res.innerHTML = '<div class="item"><span class="grow muted">Buscando…</span></div>'
 		try {
-			const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=es&q=${encodeURIComponent(text)}`)
-			const list = await r.json()
+			const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=es&q=${encodeURIComponent(text)}`, { signal: AbortSignal.timeout?.(10000) })
+			if (!r.ok) throw new Error()
+			const list = (await r.json()).filter(x => Number.isFinite(Number(x.lat)) && Number.isFinite(Number(x.lon)))
 			if (!list.length) { res.innerHTML = '<div class="item"><span class="grow muted">No encontré ese lugar. Prueba con calle, colonia y ciudad.</span></div>'; return }
 			res.innerHTML = list.map((x, i) => `<button class="item" data-i="${i}"><span class="grow">${esc(x.name || x.display_name.split(',')[0])}<small>${esc(x.display_name)}</small></span></button>`).join('')
 			res.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => {
 				const x = list[Number(b.dataset.i)]
 				c = { lat: Number(x.lat), lng: Number(x.lon) }
 				z = 17
-				nameIn.value = (x.name || '').slice(0, 120); nameTouched = Boolean(x.name)
-				addrIn.value = x.display_name.slice(0, 120); addrTouched = true
+				clearTimeout(idleTimer); idleTimer = null; geoReq++
+				nameTouched = false; addrTouched = false
+				nameIn.value = (x.name || '').slice(0, 120)
+				addrIn.value = x.display_name.slice(0, 120)
+				autoFor = posKey(c); addrIn.placeholder = ADDR_PH
 				res.hidden = true
 				redraw()
 			} })
@@ -3606,25 +3660,50 @@ function renderLocPick(el, key, from) {
 	$('#lp-go', body).onclick = search
 	q.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); search() } }
 	// Enviar el punto elegido como ubicación normal de WhatsApp o como burbuja de «Ubicación en tiempo real»
+	const acc = account(from)
+	const liveBtn = $('#lp-live', body)
+	if (acc?.kind === 'cloud') { liveBtn.disabled = true; liveBtn.textContent = 'En tiempo real no disponible (API oficial)' }
+	let sending = false, lastReq = null
 	const sendPick = async (live) => {
+		if (sending) return
+		if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng) || (Math.abs(c.lat) < 1e-6 && Math.abs(c.lng) < 1e-6)) return toast('Mueve el mapa para poner el pin en un punto')
+		const st = account(from)?.status
+		if (st && !['connected', 'connecting', 'reconnecting'].includes(st)) return toast('Este número no está conectado. Revísalo en Cuentas.', 5000)
+		sending = true
 		const b = $(live ? '#lp-live' : '#lp-send', body), label = b.textContent
-		const other = $(live ? '#lp-send' : '#lp-live', body)
-		b.disabled = true; other.disabled = true; b.textContent = live ? 'Mandando…' : 'Enviando…'
+		const other = $(live ? '#lp-send' : '#lp-live', body), otherOff = other.disabled
+		b.disabled = true; other.disabled = true; b.textContent = 'Preparando…'
+		box.classList.add('busy')
+		// El punto se toma al tocar el botón; el mapa queda fijo mientras se manda
 		const point = { lat: Number(c.lat.toFixed(6)), lng: Number(c.lng.toFixed(6)) }
-		const name = nameIn.value.trim(), address = addrIn.value.trim()
+		let slow = null
 		try {
-			const m = live
-				? await api('POST', '/send-live-location', { accountId: from, jid: jidOf(key), ...point, caption: name || address })
-				: await api('POST', '/send-location', { accountId: from, jid: jidOf(key), ...point, name, address })
+			await freshInfo()
+			const name = nameIn.value.trim(), address = addrIn.value.trim()
+			const payload = live
+				? { accountId: from, jid: jidOf(key), ...point, caption: (name || address).slice(0, 120) }
+				: { accountId: from, jid: jidOf(key), ...point, name, address }
+			// Si vuelves a tocar el mismo envío tras un error de red, va con el mismo ID: nunca llega dos veces
+			const sig = JSON.stringify([live, payload])
+			if (lastReq?.sig !== sig) lastReq = { sig, id: locRequestId() }
+			b.textContent = live ? 'Mandando…' : 'Enviando…'
+			slow = setTimeout(() => { b.textContent = 'Esperando a WhatsApp…' }, 6000)
+			const m = await locApi(live ? '/send-live-location' : '/send-location', { ...payload, requestId: lastReq.id })
+			lastReq = null
 			const all = store.get('locPicks', {}) || {}
-			all[key] = { ...point, z, name, address, at: Date.now() }
+			all[key] = { ...point, z, name, address, typed: { name: nameTouched, address: addrTouched }, at: Date.now() }
 			// Se guardan los últimos 50 chats
 			const keep = Object.entries(all).sort((x, y) => (y[1].at || 0) - (x[1].at || 0)).slice(0, 50)
 			store.set('locPicks', Object.fromEntries(keep))
 			S.lastPick = point
 			closeSheet()
-			if (S.active === key) { insertMsg(m); renderMessages(true) }
-		} catch (e) { toast(e.message, live ? 6000 : undefined); b.disabled = false; other.disabled = false; b.textContent = label }
+			if (m?.id && S.active === key) { insertMsg(m); renderMessages(true) }
+		} catch (e) {
+			toast(e.message, 6000)
+			b.disabled = false; other.disabled = otherOff; b.textContent = label
+		} finally {
+			clearTimeout(slow); sending = false; box.classList.remove('busy')
+		}
 	}
 	$('#lp-send', body).onclick = () => sendPick(false)
 	$('#lp-live', body).onclick = () => sendPick(true)
@@ -3635,7 +3714,7 @@ function renderLocPick(el, key, from) {
 		const start = { ...c }
 		navigator.geolocation.getCurrentPosition(p => {
 			if (!document.body.contains(box) || c.lat !== start.lat || c.lng !== start.lng) return
-			c = { lat: p.coords.latitude, lng: p.coords.longitude }; z = 16; redraw(); idle()
+			c = { lat: p.coords.latitude, lng: p.coords.longitude }; z = 16; moved(); redraw(); idle()
 		}, () => {}, { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 })
 	}
 	return () => { clearTimeout(idleTimer); if (frame) cancelAnimationFrame(frame) }

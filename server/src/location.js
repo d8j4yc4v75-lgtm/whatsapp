@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { db } from './db.js'
+import { mapThumbnail } from './mapthumb.js'
 
 // Ubicación desde la app:
 // - «Ubicación actual»: se manda como ubicación normal de WhatsApp (el cliente ve el mapa en su chat).
@@ -57,31 +58,53 @@ const purge = () => { const old = Date.now() - 864e5; try { q.purge.run(old, old
 purge()
 setInterval(purge, 3600000).unref?.()
 
+// Mismo envío repetido (la app reintenta si se corta el internet): se responde con el primero, sin mandarlo dos veces
+const inFlight = new Map()
+function once(accountId, requestId, fn) {
+	const id = typeof requestId === 'string' && /^[\w-]{8,64}$/.test(requestId) ? `${accountId}:${requestId}` : null
+	if (!id) return fn()
+	const hit = inFlight.get(id)
+	if (hit) return hit.promise
+	const promise = fn()
+	inFlight.set(id, { promise, at: Date.now() })
+	promise.catch(() => inFlight.delete(id))
+	for (const [k, v] of inFlight) if (Date.now() - v.at > 15 * 60000) inFlight.delete(k)
+	return promise
+}
+
 // Dirección pública de la app (detrás del proxy de Railway llega en x-forwarded-*)
 const baseUrl = req => `${String(req.get('x-forwarded-proto') || req.protocol).split(',')[0]}://${String(req.get('x-forwarded-host') || req.get('host')).split(',')[0]}`
 
 export function setupLocation({ app, route, manager, accountParam }) {
 	const nativeLocation = p => ({ location: { degreesLatitude: p.lat, degreesLongitude: p.lng } })
 
-	// Ubicación actual, como en WhatsApp
+	// Ubicación normal, como en WhatsApp (tu posición o un punto elegido en el mapa)
 	app.post('/api/send-location', route(async req => {
 		const accountId = accountParam(req)
 		const p = parsePosition(req.body)
-		const jid = req.body.jid || await manager.resolvePhone(accountId, req.body.phone)
-		const content = nativeLocation(p)
-		if (clean(req.body.name)) content.location.name = clean(req.body.name)
-		if (clean(req.body.address)) content.location.address = clean(req.body.address)
-		return manager.get(accountId).send(jid, content)
+		const name = clean(req.body.name), address = clean(req.body.address)
+		return once(accountId, req.body.requestId, async () => {
+			const session = manager.get(accountId)
+			const native = typeof session.sendLocation === 'function'
+			const [jid, jpegThumbnail] = await Promise.all([req.body.jid || manager.resolvePhone(accountId, req.body.phone), native ? mapThumbnail(p.lat, p.lng) : null])
+			if (native) return session.sendLocation(jid, { ...p, name, address, jpegThumbnail })
+			const content = nativeLocation(p)
+			if (name) content.location.name = name
+			if (address) content.location.address = address
+			return session.send(jid, content)
+		})
 	}))
 
-	// Burbuja de «ubicación en tiempo real» de WhatsApp (sin actualizaciones: ver sessions.js)
+	// Burbuja de «ubicación en tiempo real» de WhatsApp en el punto elegido (sin actualizaciones: ver sessions.js)
 	app.post('/api/send-live-location', route(async req => {
 		const accountId = accountParam(req)
 		const p = parsePosition(req.body)
-		const jid = req.body.jid || await manager.resolvePhone(accountId, req.body.phone)
 		const session = manager.get(accountId)
-		if (typeof session.sendLiveLocation !== 'function') throw new Error('La API oficial de WhatsApp no permite mandar ubicación en tiempo real. Usa «Enviar mi ubicación actual».')
-		return session.sendLiveLocation(jid, { ...p, caption: clean(req.body.caption) })
+		if (typeof session.sendLiveLocation !== 'function') throw new Error('Esta cuenta usa la API oficial de WhatsApp, que no permite mandar ubicación en tiempo real. Mándalo como ubicación normal.')
+		return once(accountId, req.body.requestId, async () => {
+			const [jid, jpegThumbnail] = await Promise.all([req.body.jid || manager.resolvePhone(accountId, req.body.phone), mapThumbnail(p.lat, p.lng)])
+			return session.sendLiveLocation(jid, { ...p, caption: clean(req.body.caption), jpegThumbnail })
+		})
 	}))
 
 	// Empezar a compartir en tiempo real: ubicación actual + enlace al mapa que se actualiza
