@@ -244,6 +244,27 @@ svg{display:block}
 .qbar .tx small{display:block;color:var(--label2);font-size:13px}
 .qbar button{color:var(--red);font-size:15px;padding:4px}
 .preview{overflow:hidden;margin-top:8px;padding:12px;border-radius:10px;background:var(--chatbg)}
+/* menú de los tres puntos */
+.pop-veil{position:absolute;inset:0;z-index:40;display:none}
+.pop-veil.on{display:block}
+.pop{position:absolute;z-index:41;top:calc(var(--st) + 62px);left:calc(16px + var(--sl));min-width:258px;border-radius:26px;padding:6px 0;overflow:hidden;
+  transform-origin:24px 0;transform:scale(.55);opacity:0;pointer-events:none;transition:transform .34s var(--ease),opacity .2s}
+.pop.on{transform:none;opacity:1;pointer-events:auto}
+.pop button{display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;height:50px;padding:0 20px;font-size:17px;color:var(--label);text-align:left}
+.pop button+button{box-shadow:inset 0 .5px 0 var(--sep)}
+.pop button:active{background:var(--fill)}
+.pop svg{flex:none;width:23px;height:23px}
+.trow select{border:0;outline:0;background:transparent;color:var(--blue);font-size:17px;text-align:right;-webkit-appearance:none;appearance:none;padding:0;cursor:pointer}
+#convTimeRows.off{display:none}
+#convTimeRows:not(.off)>.trow:first-child,#schedRows:not(.off)>.trow:first-child,#convTimeRows+.trow{border-top:.5px solid var(--sep)}
+.preview .m.them .b{background:var(--in);color:var(--inText)}
+/* escribiendo… */
+.rprev.typing{color:var(--accent);font-style:normal}
+.m.typing-b .b{display:flex;align-items:center;gap:5px;height:38px;padding:0 15px}
+.m.typing-b i{width:8px;height:8px;border-radius:50%;background:var(--label2);animation:tdot 1.2s infinite ease-in-out}
+.m.typing-b i:nth-child(2){animation-delay:.18s}
+.m.typing-b i:nth-child(3){animation-delay:.36s}
+@keyframes tdot{0%,60%,100%{opacity:.35;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
 .preview .b{max-width:90%}
 .actions{position:absolute;left:8px;right:8px;bottom:calc(8px + var(--sb));z-index:51;transform:translateY(calc(100% + 40px));visibility:hidden;transition:transform .4s var(--ease),visibility 0s .4s}
 .actions.on{transform:translateY(0);visibility:visible;transition:transform .4s var(--ease)}
@@ -294,7 +315,7 @@ svg{display:block}
     </div>
     <header class="nav" id="listNav">
       <div class="navrow">
-        <button class="gbtn glass" id="bulkBtn" type="button" aria-label="Difusión"><svg width="24" height="24" viewBox="0 0 22 22" fill="currentColor"><circle cx="4" cy="11" r="2.1"/><circle cx="11" cy="11" r="2.1"/><circle cx="18" cy="11" r="2.1"/></svg></button>
+        <button class="gbtn glass" id="bulkBtn" type="button" aria-label="Más opciones" aria-haspopup="menu"><svg width="24" height="24" viewBox="0 0 22 22" fill="currentColor"><circle cx="4" cy="11" r="2.1"/><circle cx="11" cy="11" r="2.1"/><circle cx="18" cy="11" r="2.1"/></svg></button>
         <div class="navtitle">Chats</div>
         <div class="navend">
           <button class="gbtn glass" id="camBtn" type="button" aria-label="Foto de Tú">
@@ -403,6 +424,45 @@ svg{display:block}
     </div>
   </div>
 
+  <!-- SIMULAR CONVERSACIÓN -->
+  <div class="sheet" id="convSheet" role="dialog" aria-label="Simular conversación">
+    <div class="sh-head">
+      <button class="tbtn" type="button" data-close>Cancelar</button>
+      <div class="t">Conversación</div>
+      <span style="width:70px"></span>
+    </div>
+    <div class="sh-body">
+      <div class="lbl">Contacto</div>
+      <div class="group">
+        <input id="convNum" type="tel" inputmode="tel" placeholder="Número (ej. +52 55 1234 5678)" autocomplete="off">
+        <input id="convName" type="text" placeholder="Nombre (opcional)" autocapitalize="words" autocomplete="off">
+      </div>
+      <div class="foot" id="convWho"></div>
+      <div class="lbl">Guion</div>
+      <div class="group"><textarea id="convScript" placeholder="Yo: Hola, buen día&#10;Contacto: Hola, ¿quién habla?&#10;Yo: Le escribo para darle seguimiento&#10;¿Tiene un minuto?&#10;Contacto: Sí, dígame"></textarea></div>
+      <div class="chips" id="convChips">
+        <button class="chip" type="button" data-who="Yo">+ Yo</button>
+        <button class="chip" type="button" data-who="Contacto">+ Contacto</button>
+      </div>
+      <div class="foot" id="convCount"></div>
+      <div class="foot">Un mensaje por línea. Empieza con <b>Yo:</b> para tus mensajes y con <b>Contacto:</b> (o <b>Él:</b>, <b>Ella:</b> o su nombre) para los suyos. Una línea sin prefijo la manda el mismo de la línea anterior. Para fijar la hora: <b>10:32 Yo: Hola</b>.</div>
+      <div class="lbl">Tiempo</div>
+      <div class="group">
+        <div class="trow"><span>En vivo</span><label class="sw"><input type="checkbox" id="convLive"><span></span></label></div>
+        <div id="convTimeRows">
+          <div class="trow"><span>Día</span><input type="date" id="convDay"></div>
+          <div class="trow"><span>Empieza</span><input type="time" id="convStart"></div>
+        </div>
+        <div class="trow"><span>Ritmo</span><select id="convPace"><option value="fast">Rápido</option><option value="normal" selected>Normal</option><option value="slow">Lento</option></select></div>
+      </div>
+      <div class="foot" id="convInfo"></div>
+      <div class="lbl">Vista previa</div>
+      <div class="preview" id="convPrev"></div>
+      <button class="big-btn" id="convGo" type="button" disabled>Simular conversación</button>
+      <div class="foot">Todo se simula en este navegador: no se envía nada.</div>
+    </div>
+  </div>
+
   <!-- WHATSAPP (Baileys) -->
   <div class="sheet" id="waSheet" role="dialog" aria-label="Conectar WhatsApp">
     <div class="sh-head">
@@ -449,6 +509,11 @@ svg{display:block}
     <div class="ag c"><button type="button" id="actCancel">Cancelar</button></div>
   </div>
 
+  <div class="pop-veil" id="popVeil"></div>
+  <div class="pop glass" id="moreMenu" role="menu" aria-label="Más opciones">
+    <button type="button" role="menuitem" id="mBulk"><span>Difusión</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><path d="M3.5 10v4a1 1 0 0 0 1 1H7l7 4.5v-15L7 9H4.5a1 1 0 0 0-1 1z"/><path d="M7 15l1.3 4.6a1 1 0 0 0 1 .7h1.2M17.5 9.2a4 4 0 0 1 0 5.6M19.8 6.8a7.4 7.4 0 0 1 0 10.4"/></svg></button>
+    <button type="button" role="menuitem" id="mConv"><span>Simular conversación</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h8A2.5 2.5 0 0 1 16 5.5v5a2.5 2.5 0 0 1-2.5 2.5H8l-3.5 3v-3h0A2.5 2.5 0 0 1 3 10.5z"/><path d="M19 8.5a2.5 2.5 0 0 1 2 2.45v5A2.5 2.5 0 0 1 18.5 18.5V21L15.5 18.5H11A2.5 2.5 0 0 1 8.6 16.6"/></svg></button>
+  </div>
   <div class="toast" id="toast"></div>
   <input type="file" id="photoInput" accept="image/*" hidden>
   <input type="file" id="mePhotoInput" accept="image/*" hidden>
@@ -585,6 +650,7 @@ const queueList = () => { if (!rafList) rafList = requestAnimationFrame(() => { 
 const queueChat = () => { if (!rafChat) rafChat = requestAnimationFrame(() => { rafChat = 0; renderChat(); }); };
 
 let filt = 'all';
+const typing = new Set(); // chats donde el contacto está "escribiendo…" (simulación en vivo)
 $('#chipbar').addEventListener('click', e => { const b = e.target.closest('.fchip'); if (!b) return; filt = b.dataset.f; document.querySelectorAll('.fchip').forEach(x => x.classList.toggle('on', x === b)); renderList(); });
 function renderList(){
   const q = $('#search').value.trim().toLowerCase();
@@ -593,10 +659,10 @@ function renderList(){
     title(c).toLowerCase().includes(q) || (qn && normNum(c.number).includes(qn)) || c.messages.some(m => m.text.toLowerCase().includes(q)));
   const rows = $('#rows');
   if (!chats.length){
-    rows.innerHTML = `<div class="empty">${q ? 'Sin resultados' : filt === 'unread' ? 'No hay chats sin leer' : filt === 'fav' ? 'No hay favoritos' : filt === 'groups' ? 'No hay grupos' : 'Aún no hay chats.<br>Toca el + para crear uno o los tres puntos para varios.'}</div>`;
+    rows.innerHTML = `<div class="empty">${q ? 'Sin resultados' : filt === 'unread' ? 'No hay chats sin leer' : filt === 'fav' ? 'No hay favoritos' : filt === 'groups' ? 'No hay grupos' : 'Aún no hay chats.<br>Toca el + para crear uno, o los tres puntos para una difusión o una conversación.'}</div>`;
   } else rows.innerHTML = chats.map(c => {
     const m = last(c);
-    const prev = m ? `<div class="rprev">${m.mine ? listIcon(m.status) : ''}<span>${esc(m.text.replace(/\s+/g,' '))}</span></div>` : '<div class="rprev"><span>Toca para escribir</span></div>';
+    const prev = typing.has(c.id) ? '<div class="rprev typing"><span>escribiendo…</span></div>' : m ? `<div class="rprev">${m.mine ? listIcon(m.status) : ''}<span>${esc(m.text.replace(/\s+/g,' '))}</span></div>` : '<div class="rprev"><span>Toca para escribir</span></div>';
     return `<button class="row" type="button" data-id="${c.id}">
       <div class="${avCls(c)}" style="${avStyle(c)}">${PERSON}</div>
       <div class="rbody">
@@ -617,7 +683,7 @@ function renderChat(keepScroll){
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
   $('#cAv').className = avCls(c) + ' sm'; $('#cAv').style.cssText = avStyle(c); $('#cAv').innerHTML = PERSON;
   $('#cName').textContent = title(c);
-  $('#cStatus').textContent = c.name || '';
+  $('#cStatus').textContent = typing.has(c.id) ? 'escribiendo…' : (c.name || '');
   let html = '', prevDay = null;
   const ms = c.messages;
   html = infoCard(c);
@@ -629,6 +695,7 @@ function renderChat(keepScroll){
     const sameN = n && n.mine === m.mine && startOfDay(n.ts) === day && n.ts - m.ts < 12e4;
     html += `<div class="m ${m.mine ? 'me' : 'them'}${sameN ? '' : ' tail'}${sameP ? '' : ' gap'}" data-id="${m.id}"><div class="b">${esc(m.text)}<span class="meta">${hhmm(m.ts)}${m.mine ? `<span class="st">${ICON[m.status] || ICON[1]}</span>` : ''}</span></div></div>`;
   });
+  if (typing.has(c.id)) html += '<div class="m them tail gap typing-b"><div class="b"><i></i><i></i><i></i></div></div>';
   $('#msgs').innerHTML = html;
   if (!keepScroll || atBottom) scrollBottom();
 }
@@ -1073,7 +1140,154 @@ function updateBulk(){
 }
 [bulkNums, bulkTpl, schedDay, schedFrom, schedTo].forEach(el => el.addEventListener('input', updateBulk));
 schedOn.addEventListener('change', updateBulk);
-$('#bulkBtn').addEventListener('click', () => { if (editing){ editing = false; $('#editNote').hidden = true; } updateBulk(); showSheet($('#bulkSheet')); });
+function openBulk(){ if (editing){ editing = false; $('#editNote').hidden = true; } updateBulk(); showSheet($('#bulkSheet')); }
+/* menú de los tres puntos */
+const moreMenu = $('#moreMenu'), popVeil = $('#popVeil');
+function hideMenu(){ moreMenu.classList.remove('on'); popVeil.classList.remove('on'); }
+$('#bulkBtn').addEventListener('click', () => { const on = !moreMenu.classList.contains('on'); moreMenu.classList.toggle('on', on); popVeil.classList.toggle('on', on); });
+popVeil.addEventListener('click', hideMenu);
+$('#mBulk').addEventListener('click', () => { hideMenu(); setTimeout(openBulk, 120); });
+$('#mConv').addEventListener('click', () => { hideMenu(); setTimeout(openConv, 120); });
+
+/* ---------- simular conversación ---------- */
+const convNum = $('#convNum'), convName = $('#convName'), convScript = $('#convScript'), convLive = $('#convLive'), convDay = $('#convDay'), convStart = $('#convStart'), convPace = $('#convPace');
+const CONV_KEY = KEY + '.conv';
+const normW = s => String(s).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
+const ME_W = ['yo', 'y', 'me', 'mi'];
+const THEM_W = ['contacto', 'c', 'el', 'ella', 'ellos', 'ellas', 'cliente', 'otro', 'otra', 'persona'];
+const PACE = { fast: [20, 60], normal: [60, 240], slow: [300, 1200] };          // segundos entre mensajes (historial)
+const PACE_LIVE = { fast: [700, 1500], normal: [1400, 3200], slow: [2800, 6000] }; // milisegundos (en vivo)
+try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
+function parseScript(){
+  const them = new Set(THEM_W), nm = normW(convName.value);
+  if (nm){ them.add(nm); them.add(nm.split(' ')[0]); }
+  let mine = true; const out = [];
+  for (const raw of convScript.value.split('\n')){
+    let line = raw.trim(); if (!line) continue;
+    let time = null;
+    const tm = line.match(/^\[?(\d{1,2})[:.](\d{2})\]?\s+(.*)$/);
+    if (tm && +tm[1] < 24 && +tm[2] < 60){ time = +tm[1] * 60 + +tm[2]; line = tm[3].trim(); }
+    const pm = line.match(/^([^:\n]{1,24}):\s*(.*)$/);
+    if (pm){ const k = normW(pm[1]); if (ME_W.includes(k)){ mine = true; line = pm[2].trim(); } else if (them.has(k)){ mine = false; line = pm[2].trim(); } }
+    if (line) out.push({ mine, text: line, time });
+  }
+  return out;
+}
+// horas de cada mensaje para el modo historial
+function planTimes(list){
+  const [a, b] = PACE[convPace.value] || PACE.normal;
+  const day = new Date(`${convDay.value}T00:00`).getTime();
+  let t = new Date(`${convDay.value}T${convStart.value}`).getTime();
+  return list.map((m, i) => {
+    if (m.time != null){
+      let x = day + m.time * 6e4 + Math.round(rand(0, 50)) * 1000;
+      while (i && x <= t) x += 864e5;
+      t = x;
+    } else if (i){
+      const same = list[i - 1].mine === m.mine;
+      t += Math.round(Math.max(same ? 8 : 15, rand(a, b) * (same ? .3 : 1) + m.text.length * .4) * 1000);
+    }
+    return t;
+  });
+}
+function convPlan(){
+  const list = parseScript(), num = convNum.value.trim(), live = convLive.checked;
+  if (!validNum(num)) return { list, err: num ? 'Número no válido' : 'Escribe el número del contacto' };
+  if (!list.length) return { list, err: 'Escribe al menos un mensaje' };
+  if (live) return { list, num, live };
+  if (!convDay.value || !convStart.value) return { list, err: 'Completa día y hora de inicio' };
+  const times = planTimes(list);
+  if (times[times.length - 1] > Date.now()) return { list, times, err: 'La conversación terminaría después de ahora: elige una hora más temprana o activa “En vivo”.' };
+  return { list, num, times };
+}
+function updateConv(){
+  const p = convPlan(), list = p.list;
+  const ex = validNum(convNum.value) && findByNum(convNum.value);
+  $('#convWho').textContent = ex ? `Se agregará al chat que ya existe con ${title(ex)}.` : '';
+  const mineN = list.filter(m => m.mine).length;
+  $('#convCount').textContent = list.length ? `${list.length} mensaje${list.length === 1 ? '' : 's'}: ${mineN} tuyo${mineN === 1 ? '' : 's'} y ${list.length - mineN} del contacto` : '';
+  $('#convTimeRows').classList.toggle('off', convLive.checked);
+  const info = $('#convInfo'); info.classList.toggle('err', !!p.err);
+  if (p.err) info.textContent = p.err;
+  else if (p.live) info.textContent = 'Los mensajes aparecen uno por uno, con “escribiendo…” antes de cada respuesta. Se abre el chat para que lo veas.';
+  else { const t0 = p.times[0], t1 = p.times[p.times.length - 1];
+    info.textContent = startOfDay(t0) === startOfDay(t1) ? `${chatDay(t0)}, de ${hhmm(t0)} a ${hhmm(t1)}.` : `De ${chatDay(t0).toLowerCase()} ${hhmm(t0)} a ${chatDay(t1).toLowerCase()} ${hhmm(t1)}.`; }
+  $('#convGo').disabled = !!p.err;
+  $('#convGo').textContent = list.length ? (convLive.checked ? `Reproducir ${list.length} mensajes` : `Simular ${list.length} mensajes`) : 'Simular conversación';
+  const times = p.times || list.map(() => Date.now());
+  $('#convPrev').innerHTML = list.length ? list.slice(0, 8).map((m, i) => `<div class="m ${m.mine ? 'me' : 'them'} tail gap"><div class="b">${esc(m.text)}<span class="meta">${hhmm(times[i])}</span></div></div>`).join('') + (list.length > 8 ? `<div class="chatempty" style="margin:8px 4px 0">+ ${list.length - 8} más</div>` : '')
+    : '<div class="chatempty" style="margin:4px">Escribe el guion</div>';
+  try { localStorage.setItem(CONV_KEY, JSON.stringify({ num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
+}
+function openConv(){
+  const d = new Date(Date.now() - 30 * 6e4);
+  convDay.value = ymd(d); convStart.value = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  updateConv(); showSheet($('#convSheet'));
+}
+[convNum, convName, convScript, convDay, convStart].forEach(el => el.addEventListener('input', updateConv));
+[convLive, convPace].forEach(el => el.addEventListener('change', updateConv));
+$('#convChips').addEventListener('pointerdown', e => { if (e.target.closest('[data-who]')) e.preventDefault(); });
+$('#convChips').addEventListener('click', e => {
+  const b = e.target.closest('[data-who]'); if (!b) return;
+  const v = convScript.value, pos = convScript.selectionStart ?? v.length;
+  const before = v.slice(0, pos), ins = (before && !before.endsWith('\n') ? '\n' : '') + b.dataset.who + ': ';
+  convScript.value = before + ins + v.slice(pos); const np = pos + ins.length;
+  convScript.focus(); try { convScript.setSelectionRange(np, np); } catch(e){} updateConv();
+});
+function addMsg(c, text, mine, ts, opt = {}){
+  const m = mine ? { id: uid(), text, mine: true, ts, final: opt.final ?? 2, status: opt.live ? 0 : (opt.final ?? 2) } : { id: uid(), text, mine: false, ts, status: null };
+  let k = c.messages.length; while (k > 0 && c.messages[k - 1].ts > ts) k--;
+  c.messages.splice(k, 0, m);
+  if (opt.live){ if (!mine && c.id !== current) c.unread = (c.unread || 0) + 1; save(); if (mine) advance(c.id, m.id); queueList(); if (c.id === current) queueChat(); }
+  return m;
+}
+function setTyping(c, on){
+  if (on) typing.add(c.id); else typing.delete(c.id);
+  if (c.id === current){ $('#cStatus').textContent = on ? 'escribiendo…' : (c.name || ''); queueChat(); }
+  queueList();
+}
+let convRun = 0;
+function playLive(id, list){
+  const run = ++convRun, [a, b] = PACE_LIVE[convPace.value] || PACE_LIVE.normal;
+  let i = 0;
+  const stop = () => { const c = getChat(id); typing.delete(id); if (c && c.id === current) $('#cStatus').textContent = c.name || ''; queueList(); if (c && c.id === current) queueChat(); };
+  const step = () => {
+    if (run !== convRun) return stop();
+    const c = getChat(id); if (!c) return stop();
+    if (i >= list.length){ stop(); toast('✓ Conversación simulada'); return; }
+    const m = list[i], same = i && list[i - 1].mine === m.mine;
+    let wait = i ? rand(a, b) * (same ? .5 : 1) : 700;
+    if (!m.mine){ const think = Math.min(wait, 900); setTimeout(() => { if (run === convRun && getChat(id)) setTyping(getChat(id), true); }, think); wait += Math.min(4500, 400 + m.text.length * 40); }
+    setTimeout(() => {
+      if (run !== convRun) return stop();
+      const ch = getChat(id); if (!ch) return stop();
+      if (!m.mine) typing.delete(id);
+      addMsg(ch, m.text, m.mine, Date.now(), { live: true });
+      if (!m.mine && ch.id === current) $('#cStatus').textContent = ch.name || '';
+      i++; step();
+    }, wait);
+  };
+  step();
+}
+$('#convGo').addEventListener('click', () => {
+  const p = convPlan(); if (p.err) return;
+  hideSheet();
+  const c = getOrCreate(p.num, convName.value.trim());
+  save(); renderList();
+  WA.check(c).then(ok => {
+    const ch = getChat(c.id); if (!ch) return;
+    if (ok === false){
+      if (!ch.messages.length) state.chats = state.chats.filter(x => x !== ch);
+      save(); renderList(); toast(`Omitido: ${title(ch)} no tiene WhatsApp`); return;
+    }
+    if (p.live){ openChat(ch.id); playLive(ch.id, p.list); return; }
+    const lastMine = p.list.reduce((k, m, i) => m.mine ? i : k, -1), lastThem = p.list.reduce((k, m, i) => m.mine ? k : i, -1);
+    p.list.forEach((m, i) => addMsg(ch, m.text, m.mine, p.times[i], { final: m.mine && i > lastThem ? randomFinal() : 2 }));
+    ch.unread = ch.id === current ? 0 : p.list.filter((m, i) => !m.mine && i > lastMine).length;
+    save(); renderList(); openChat(ch.id);
+    toast(`✓ ${p.list.length} mensajes simulados`);
+  });
+});
 // Editar programados: se sacan de la cola y se cargan en el formulario para cambiarlos y volver a programar
 function editQueue(){
   const q = [...state.queue].sort((a, b) => a.ts - b.ts); if (!q.length) return;
