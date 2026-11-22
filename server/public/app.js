@@ -723,8 +723,7 @@ function renderChatHeader() {
 	updateBadge()
 	const parts = []
 	if (c?.name) parts.push(c.name) // si WhatsApp tiene un nombre guardado, va de subtítulo
-	const acc = account(accOf(S.active))
-	if (acc) parts.push('vía ' + acc.name)
+	// De qué cuenta es el chat ya no va aquí: se ve abajo, en «Enviando desde», con su color
 	if (c?.labelIds.length) parts.push(c.labelIds.map(label).filter(Boolean).map(l => l.name).join(', '))
 	$('#c-sub').textContent = parts.join(' · ')
 	const banners = $('#c-banners')
