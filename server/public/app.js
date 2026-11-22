@@ -1157,7 +1157,7 @@ function msgContent(m) {
 			const g = parseLoc(m.text)
 			if (!g) return `<div class="text">${linkify(m.text || '')}</div>`
 			return `<a class="loc" href="https://www.google.com/maps/search/?api=1&query=${g.lat},${g.lng}" target="_blank" rel="noopener">${mapTiles(g.lat, g.lng, 250, 135)}
-				<div class="loc-info">${g.live ? `<b>Ubicación en tiempo real</b><small>${m.fromMe ? 'La posición que mandaste (desde aquí no se actualiza)' : 'Se ve la posición con la que empezó; lo demás solo en su teléfono'}</small>${g.name ? `<small>${esc(g.name)}</small>` : ''}` : `<b>${esc(g.name || 'Ubicación')}</b>${g.address ? `<small>${esc(g.address)}</small>` : ''}`}</div></a>`
+				<div class="loc-info">${g.live ? `<b>Ubicación en tiempo real</b><small>${m.fromMe ? 'El punto que mandaste (desde aquí no se actualiza)' : 'Se ve la posición con la que empezó; lo demás solo en su teléfono'}</small>${g.name ? `<small>${esc(g.name)}</small>` : ''}` : `<b>${esc(g.name || 'Ubicación')}</b>${g.address ? `<small>${esc(g.address)}</small>` : ''}`}</div></a>`
 		}
 		default:
 			return `<div class="text">${linkify(m.text || '')}</div>`
@@ -3390,7 +3390,7 @@ function openLocation() {
 	const from = defaultFrom(key)
 	if (!from) return toast('No hay cuentas conectadas')
 	S.locMin = S.locMin || 60
-	const mode = S.locMode || 'gps'
+	const mode = S.locMode || 'pick'
 	sheet('Ubicación', `
 		<div class="seg" style="margin:12px 16px 0">
 			<button class="seg-btn ${mode === 'gps' ? 'on' : ''}" data-loc-mode="gps">📍 Mi ubicación</button>
@@ -3409,7 +3409,7 @@ function openLocation() {
 	})
 }
 
-// Modo «Mi ubicación»: tu posición real (ubicación normal o burbuja de tiempo real)
+// Modo «Mi ubicación»: tu posición real como ubicación normal (la de tiempo real se manda con un punto elegido en el mapa)
 function renderLocGps(el, key, from) {
 	const body = $('#loc-body', el)
 	if (!('geolocation' in navigator)) { body.innerHTML = `<p class="hint" style="padding-top:12px">Este navegador no permite obtener la ubicación. Usa «Elegir en el mapa».</p>`; return null }
@@ -3421,10 +3421,9 @@ function renderLocGps(el, key, from) {
 		<div class="section">En tiempo real</div>
 		<div class="group">
 			${current ? `<div class="item"><span class="grow">Enlace de ubicación activo en este chat · ${liveLeft(current.expiresAt)}</span><button class="chip" style="--c:var(--danger)" data-act="live-stop" data-val="${esc(current.token)}">Detener</button></div>` : ''}
-			<div class="item"><input type="text" id="loc-caption" maxlength="120" placeholder="Comentario (opcional)"></div>
-			<button class="btn" id="loc-bubble" disabled>Mandar ubicación en tiempo real</button>
+			<button class="btn" id="loc-to-pick">Elegir un punto en el mapa para mandarlo en tiempo real</button>
 		</div>
-		<p class="hint">Llega como la burbuja de «Ubicación en tiempo real» de WhatsApp, con tu posición de este momento. <b>No se va actualizando</b>: WhatsApp solo deja mandar las actualizaciones desde la app del teléfono, no desde dispositivos vinculados como esta app. WhatsApp Web nunca manda este tipo de mensaje, así que mandarlo desde aquí puede hacer que WhatsApp quite el dispositivo.</p>`
+		<p class="hint">La ubicación en tiempo real no usa tu posición: eliges el punto en el mapa y llega como la burbuja de «Ubicación en tiempo real» de WhatsApp en ese punto.</p>`
 	{
 		let pos = null
 		const show = p => {
@@ -3433,7 +3432,6 @@ function renderLocGps(el, key, from) {
 			box.innerHTML = mapTiles(p.coords.latitude, p.coords.longitude, box.clientWidth || 340, 210, 17)
 			$('#loc-acc', el).textContent = p.coords.accuracy ? `Precisión: ±${Math.round(p.coords.accuracy)} m` : ''
 			$('#loc-send', el).disabled = false
-			const bb = $('#loc-bubble', el); if (bb) bb.disabled = false
 		}
 		// Se va afinando la precisión mientras la ventana está abierta
 		const watch = navigator.geolocation.watchPosition(p => { if (!document.body.contains(el)) return navigator.geolocation.clearWatch(watch); if (!pos || p.coords.accuracy <= pos.coords.accuracy || Date.now() - pos.timestamp > 15000) show(p) },
@@ -3450,17 +3448,7 @@ function renderLocGps(el, key, from) {
 				if (S.active === key) { insertMsg(m); renderMessages(true) }
 			} catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Enviar mi ubicación actual' }
 		}
-		// Burbuja de ubicación en tiempo real de WhatsApp (sin actualizaciones)
-		const bb = $('#loc-bubble', el)
-		if (bb) bb.onclick = async () => {
-			if (!pos) return
-			bb.disabled = true; bb.textContent = 'Mandando…'
-			try {
-				const m = await api('POST', '/send-live-location', { ...body(pos), caption: $('#loc-caption', el).value.trim() })
-				stopWatch(); closeSheet()
-				if (S.active === key) { insertMsg(m); renderMessages(true) }
-			} catch (e) { toast(e.message, 6000); bb.disabled = false; bb.textContent = 'Mandar ubicación en tiempo real' }
-		}
+		$('#loc-to-pick', el).onclick = () => el.querySelector('[data-loc-mode="pick"]').click()
 		const lb = $('#loc-live', el)
 		if (lb) lb.onclick = async () => {
 			if (!pos) return
@@ -3500,8 +3488,8 @@ function renderLocPick(el, key, from) {
 			<div class="item"><input type="text" id="lp-name" maxlength="120" placeholder="Nombre del lugar (opcional)"></div>
 			<div class="item"><input type="text" id="lp-addr" maxlength="120" placeholder="Dirección (se llena sola)"></div>
 		</div>
-		<div class="pad lp-actions"><button class="btn primary" id="lp-send">Enviar esta ubicación</button><button class="btn" id="lp-live">Mandar como ubicación en tiempo real</button></div>
-		<p class="hint">«Enviar esta ubicación» llega como ubicación normal de WhatsApp: el pin con el nombre y la dirección. «En tiempo real» llega como la burbuja de «Ubicación en tiempo real» mostrando este punto, con el nombre (o la dirección) como comentario; <b>no se va actualizando</b> y, como WhatsApp Web nunca manda ese tipo de mensaje, puede hacer que WhatsApp quite el dispositivo. En cada chat puedes mandar un punto distinto; los que ya mandaste se quedan como estaban.</p>`
+		<div class="pad lp-actions"><button class="btn primary" id="lp-live">Mandar este punto en tiempo real</button><button class="btn" id="lp-send">Mandar como ubicación normal</button></div>
+		<p class="hint">«En tiempo real» llega como la burbuja de «Ubicación en tiempo real» de WhatsApp en el punto del pin (no en donde estás), con el nombre o la dirección como comentario. <b>No se va actualizando</b>, y como WhatsApp Web nunca manda ese tipo de mensaje, puede hacer que WhatsApp quite el dispositivo. «Ubicación normal» llega con el pin, el nombre y la dirección. En cada chat puedes mandar un punto distinto; los que ya mandaste se quedan como estaban.</p>`
 	const box = $('#lp-map', body), layer = box.querySelector('.lp-tiles')
 	const nameIn = $('#lp-name', body), addrIn = $('#lp-addr', body)
 	let c = saved ? { lat: saved.lat, lng: saved.lng } : S.lastPick || { lat: 19.4326, lng: -99.1332 }
