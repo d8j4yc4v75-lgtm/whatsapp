@@ -9,6 +9,7 @@ import makeWASocket, {
 	DisconnectReason,
 	downloadMediaMessage,
 	fetchLatestBaileysVersion,
+	generateWAMessageFromContent,
 	getContentType,
 	isJidBroadcast,
 	isJidGroup,
@@ -864,6 +865,30 @@ export class Session {
 			stmt.setMedia.run(file, this.accountId, sent.key.id)
 		}
 		return this.manager.formatMessage(stmt.getMessage.get(this.accountId, sent.key.id))
+	}
+
+	/**
+	 * Burbuja de «ubicación en tiempo real» de WhatsApp con la posición actual. Desde un dispositivo vinculado
+	 * WhatsApp no deja mandar las actualizaciones (eso solo lo hace la app del teléfono): el cliente ve la
+	 * posición del momento en que se mandó.
+	 */
+	async sendLiveLocation(jid, { lat, lng, accuracy, speed, heading, caption }) {
+		const sock = this.requireSocket()
+		const live = { degreesLatitude: lat, degreesLongitude: lng }
+		if (Number.isFinite(accuracy)) live.accuracyInMeters = Math.round(accuracy)
+		if (Number.isFinite(speed)) live.speedInMps = speed
+		if (Number.isFinite(heading)) live.degreesClockwiseFromMagneticNorth = Math.round(heading) % 360
+		if (caption) live.caption = caption
+		const full = generateWAMessageFromContent(jid, { liveLocationMessage: live }, { userJid: sock.user?.id })
+		try {
+			await sock.relayMessage(jid, full.message, { messageId: full.key.id })
+		} catch (e) {
+			note(this.accountId, 'send-error', e.message)
+			throw e
+		}
+		note(this.accountId, 'sent', 'liveLocationMessage')
+		this.saveMessage(full, false)
+		return this.manager.formatMessage(stmt.getMessage.get(this.accountId, full.key.id))
 	}
 
 	async markRead(jid) {

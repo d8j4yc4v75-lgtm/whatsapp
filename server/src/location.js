@@ -74,6 +74,16 @@ export function setupLocation({ app, route, manager, accountParam }) {
 		return manager.get(accountId).send(jid, content)
 	}))
 
+	// Burbuja de «ubicación en tiempo real» de WhatsApp (sin actualizaciones: ver sessions.js)
+	app.post('/api/send-live-location', route(async req => {
+		const accountId = accountParam(req)
+		const p = parsePosition(req.body)
+		const jid = req.body.jid || await manager.resolvePhone(accountId, req.body.phone)
+		const session = manager.get(accountId)
+		if (typeof session.sendLiveLocation !== 'function') throw new Error('La API oficial de WhatsApp no permite mandar ubicación en tiempo real. Usa «Enviar mi ubicación actual».')
+		return session.sendLiveLocation(jid, { ...p, caption: clean(req.body.caption) })
+	}))
+
 	// Empezar a compartir en tiempo real: ubicación actual + enlace al mapa que se actualiza
 	app.post('/api/live-location', route(async req => {
 		const accountId = accountParam(req)

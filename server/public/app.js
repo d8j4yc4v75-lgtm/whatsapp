@@ -1157,7 +1157,7 @@ function msgContent(m) {
 			const g = parseLoc(m.text)
 			if (!g) return `<div class="text">${linkify(m.text || '')}</div>`
 			return `<a class="loc" href="https://www.google.com/maps/search/?api=1&query=${g.lat},${g.lng}" target="_blank" rel="noopener">${mapTiles(g.lat, g.lng, 250, 135)}
-				<div class="loc-info">${g.live ? '<b>Ubicación en tiempo real</b><small>Se ve la posición con la que empezó; lo demás solo en su teléfono</small>' : `<b>${esc(g.name || 'Ubicación')}</b>${g.address ? `<small>${esc(g.address)}</small>` : ''}`}</div></a>`
+				<div class="loc-info">${g.live ? `<b>Ubicación en tiempo real</b><small>${m.fromMe ? 'Tu posición al mandarla (desde aquí no se actualiza)' : 'Se ve la posición con la que empezó; lo demás solo en su teléfono'}</small>${g.name ? `<small>${esc(g.name)}</small>` : ''}` : `<b>${esc(g.name || 'Ubicación')}</b>${g.address ? `<small>${esc(g.address)}</small>` : ''}`}</div></a>`
 		}
 		default:
 			return `<div class="text">${linkify(m.text || '')}</div>`
@@ -3397,11 +3397,12 @@ function openLocation() {
 		<p class="hint" id="loc-acc" style="text-align:center"></p>
 		<div class="group"><button class="btn primary" id="loc-send" disabled>Enviar mi ubicación actual</button></div>
 		<div class="section">En tiempo real</div>
-		<div class="group">${current
-			? `<div class="item"><span class="grow">Ya la compartes en este chat · ${liveLeft(current.expiresAt)}</span><button class="chip" style="--c:var(--danger)" data-act="live-stop" data-val="${esc(current.token)}">Detener</button></div>`
-			: `<div class="item"><span class="grow">Durante</span><span class="chips" style="padding:0;overflow:visible">${[[15, '15 min'], [60, '1 hora'], [480, '8 horas']].map(([v, t]) => `<button class="chip ${S.locMin === v ? 'on' : ''}" data-act="loc-min" data-val="${v}">${t}</button>`).join('')}</span></div>
-				<button class="btn" id="loc-live" disabled>Compartir en tiempo real</button>`}</div>
-		<p class="hint">Se manda tu ubicación actual como en WhatsApp y, en tiempo real, además un enlace con un mapa que se actualiza mientras tengas esta app abierta (con la app cerrada, en el iPhone se pausa). WhatsApp no deja compartir la ubicación en tiempo real desde dispositivos vinculados, como esta app o WhatsApp Web; solo desde la app del teléfono.</p>`, el => {
+		<div class="group">
+			${current ? `<div class="item"><span class="grow">Enlace de ubicación activo en este chat · ${liveLeft(current.expiresAt)}</span><button class="chip" style="--c:var(--danger)" data-act="live-stop" data-val="${esc(current.token)}">Detener</button></div>` : ''}
+			<div class="item"><input type="text" id="loc-caption" maxlength="120" placeholder="Comentario (opcional)"></div>
+			<button class="btn" id="loc-bubble" disabled>Mandar ubicación en tiempo real</button>
+		</div>
+		<p class="hint">Llega como la burbuja de «Ubicación en tiempo real» de WhatsApp, con tu posición de este momento. <b>No se va actualizando</b>: WhatsApp solo deja mandar las actualizaciones desde la app del teléfono, no desde dispositivos vinculados como esta app. WhatsApp Web nunca manda este tipo de mensaje, así que mandarlo desde aquí puede hacer que WhatsApp quite el dispositivo.</p>`, el => {
 		let pos = null
 		const show = p => {
 			pos = p
@@ -3409,7 +3410,7 @@ function openLocation() {
 			box.innerHTML = mapTiles(p.coords.latitude, p.coords.longitude, box.clientWidth || 340, 210, 17)
 			$('#loc-acc', el).textContent = p.coords.accuracy ? `Precisión: ±${Math.round(p.coords.accuracy)} m` : ''
 			$('#loc-send', el).disabled = false
-			const lb = $('#loc-live', el); if (lb) lb.disabled = false
+			const bb = $('#loc-bubble', el); if (bb) bb.disabled = false
 		}
 		// Se va afinando la precisión mientras la ventana está abierta
 		const watch = navigator.geolocation.watchPosition(p => { if (!document.body.contains(el)) return navigator.geolocation.clearWatch(watch); if (!pos || p.coords.accuracy <= pos.coords.accuracy || Date.now() - pos.timestamp > 15000) show(p) },
@@ -3425,6 +3426,17 @@ function openLocation() {
 				stopWatch(); closeSheet()
 				if (S.active === key) { insertMsg(m); renderMessages(true) }
 			} catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Enviar mi ubicación actual' }
+		}
+		// Burbuja de ubicación en tiempo real de WhatsApp (sin actualizaciones)
+		const bb = $('#loc-bubble', el)
+		if (bb) bb.onclick = async () => {
+			if (!pos) return
+			bb.disabled = true; bb.textContent = 'Mandando…'
+			try {
+				const m = await api('POST', '/send-live-location', { ...body(pos), caption: $('#loc-caption', el).value.trim() })
+				stopWatch(); closeSheet()
+				if (S.active === key) { insertMsg(m); renderMessages(true) }
+			} catch (e) { toast(e.message, 6000); bb.disabled = false; bb.textContent = 'Mandar ubicación en tiempo real' }
 		}
 		const lb = $('#loc-live', el)
 		if (lb) lb.onclick = async () => {
