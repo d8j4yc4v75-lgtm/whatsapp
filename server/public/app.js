@@ -1157,7 +1157,7 @@ function msgContent(m) {
 			const g = parseLoc(m.text)
 			if (!g) return `<div class="text">${linkify(m.text || '')}</div>`
 			return `<a class="loc" href="https://www.google.com/maps/search/?api=1&query=${g.lat},${g.lng}" target="_blank" rel="noopener">${mapTiles(g.lat, g.lng, 250, 135)}
-				<div class="loc-info">${g.live ? `<b>Ubicación en tiempo real</b><small>${m.fromMe ? 'Tu posición al mandarla (desde aquí no se actualiza)' : 'Se ve la posición con la que empezó; lo demás solo en su teléfono'}</small>${g.name ? `<small>${esc(g.name)}</small>` : ''}` : `<b>${esc(g.name || 'Ubicación')}</b>${g.address ? `<small>${esc(g.address)}</small>` : ''}`}</div></a>`
+				<div class="loc-info">${g.live ? `<b>Ubicación en tiempo real</b><small>${m.fromMe ? 'La posición que mandaste (desde aquí no se actualiza)' : 'Se ve la posición con la que empezó; lo demás solo en su teléfono'}</small>${g.name ? `<small>${esc(g.name)}</small>` : ''}` : `<b>${esc(g.name || 'Ubicación')}</b>${g.address ? `<small>${esc(g.address)}</small>` : ''}`}</div></a>`
 		}
 		default:
 			return `<div class="text">${linkify(m.text || '')}</div>`
@@ -3500,8 +3500,8 @@ function renderLocPick(el, key, from) {
 			<div class="item"><input type="text" id="lp-name" maxlength="120" placeholder="Nombre del lugar (opcional)"></div>
 			<div class="item"><input type="text" id="lp-addr" maxlength="120" placeholder="Dirección (se llena sola)"></div>
 		</div>
-		<div class="pad"><button class="btn primary" id="lp-send">Enviar esta ubicación</button></div>
-		<p class="hint">Llega como una ubicación normal de WhatsApp: el pin en el mapa con el nombre y la dirección. En cada chat puedes mandar un punto distinto; los que ya mandaste se quedan como estaban.</p>`
+		<div class="pad lp-actions"><button class="btn primary" id="lp-send">Enviar esta ubicación</button><button class="btn" id="lp-live">Mandar como ubicación en tiempo real</button></div>
+		<p class="hint">«Enviar esta ubicación» llega como ubicación normal de WhatsApp: el pin con el nombre y la dirección. «En tiempo real» llega como la burbuja de «Ubicación en tiempo real» mostrando este punto, con el nombre (o la dirección) como comentario; <b>no se va actualizando</b> y, como WhatsApp Web nunca manda ese tipo de mensaje, puede hacer que WhatsApp quite el dispositivo. En cada chat puedes mandar un punto distinto; los que ya mandaste se quedan como estaban.</p>`
 	const box = $('#lp-map', body), layer = box.querySelector('.lp-tiles')
 	const nameIn = $('#lp-name', body), addrIn = $('#lp-addr', body)
 	let c = saved ? { lat: saved.lat, lng: saved.lng } : S.lastPick || { lat: 19.4326, lng: -99.1332 }
@@ -3617,23 +3617,29 @@ function renderLocPick(el, key, from) {
 	}
 	$('#lp-go', body).onclick = search
 	q.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); search() } }
-	// Enviar el punto elegido como ubicación normal de WhatsApp
-	$('#lp-send', body).onclick = async () => {
-		const b = $('#lp-send', body)
-		b.disabled = true; b.textContent = 'Enviando…'
+	// Enviar el punto elegido como ubicación normal de WhatsApp o como burbuja de «Ubicación en tiempo real»
+	const sendPick = async (live) => {
+		const b = $(live ? '#lp-live' : '#lp-send', body), label = b.textContent
+		const other = $(live ? '#lp-send' : '#lp-live', body)
+		b.disabled = true; other.disabled = true; b.textContent = live ? 'Mandando…' : 'Enviando…'
 		const point = { lat: Number(c.lat.toFixed(6)), lng: Number(c.lng.toFixed(6)) }
+		const name = nameIn.value.trim(), address = addrIn.value.trim()
 		try {
-			const m = await api('POST', '/send-location', { accountId: from, jid: jidOf(key), ...point, name: nameIn.value.trim(), address: addrIn.value.trim() })
+			const m = live
+				? await api('POST', '/send-live-location', { accountId: from, jid: jidOf(key), ...point, caption: name || address })
+				: await api('POST', '/send-location', { accountId: from, jid: jidOf(key), ...point, name, address })
 			const all = store.get('locPicks', {}) || {}
-			all[key] = { ...point, z, name: nameIn.value.trim(), address: addrIn.value.trim(), at: Date.now() }
+			all[key] = { ...point, z, name, address, at: Date.now() }
 			// Se guardan los últimos 50 chats
 			const keep = Object.entries(all).sort((x, y) => (y[1].at || 0) - (x[1].at || 0)).slice(0, 50)
 			store.set('locPicks', Object.fromEntries(keep))
 			S.lastPick = point
 			closeSheet()
 			if (S.active === key) { insertMsg(m); renderMessages(true) }
-		} catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Enviar esta ubicación' }
+		} catch (e) { toast(e.message, live ? 6000 : undefined); b.disabled = false; other.disabled = false; b.textContent = label }
 	}
+	$('#lp-send', body).onclick = () => sendPick(false)
+	$('#lp-live', body).onclick = () => sendPick(true)
 	requestAnimationFrame(draw)
 	if (!saved) idle()
 	// La primera vez empieza donde estás (si el teléfono lo permite), mientras no hayas movido el mapa
