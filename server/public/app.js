@@ -3504,6 +3504,7 @@ function renderLocPick(el, key, from) {
 			<div class="item"><input type="text" id="lp-addr" maxlength="120" placeholder="Dirección (se llena sola)"></div>
 		</div>
 		<div class="pad lp-actions"><button class="btn primary" id="lp-live">Mandar este punto en tiempo real</button><button class="btn" id="lp-send">Mandar como ubicación normal</button></div>
+		<p class="lp-err" id="lp-err" hidden></p>
 		<p class="hint">«En tiempo real» llega como la burbuja de «Ubicación en tiempo real» de WhatsApp en el punto del pin (no en donde estás), con el nombre o la dirección como comentario. <b>No se va actualizando</b>, y como WhatsApp Web nunca manda ese tipo de mensaje, puede hacer que WhatsApp quite el dispositivo. «Ubicación normal» llega con el pin, el nombre y la dirección. En cada chat puedes mandar un punto distinto; los que ya mandaste se quedan como estaban.</p>`
 	const box = $('#lp-map', body), layer = box.querySelector('.lp-tiles')
 	const nameIn = $('#lp-name', body), addrIn = $('#lp-addr', body)
@@ -3663,13 +3664,13 @@ function renderLocPick(el, key, from) {
 	const acc = account(from)
 	const liveBtn = $('#lp-live', body)
 	if (acc?.kind === 'cloud') { liveBtn.disabled = true; liveBtn.textContent = 'En tiempo real no disponible (API oficial)' }
+	const errBox = $('#lp-err', body)
 	let sending = false, lastReq = null
 	const sendPick = async (live) => {
 		if (sending) return
 		if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng) || (Math.abs(c.lat) < 1e-6 && Math.abs(c.lng) < 1e-6)) return toast('Mueve el mapa para poner el pin en un punto')
-		const st = account(from)?.status
-		if (st && !['connected', 'connecting', 'reconnecting'].includes(st)) return toast('Este número no está conectado. Revísalo en Cuentas.', 5000)
 		sending = true
+		errBox.hidden = true
 		const b = $(live ? '#lp-live' : '#lp-send', body), label = b.textContent
 		const other = $(live ? '#lp-send' : '#lp-live', body), otherOff = other.disabled
 		b.disabled = true; other.disabled = true; b.textContent = 'Preparando…'
@@ -3700,6 +3701,7 @@ function renderLocPick(el, key, from) {
 			if (m?.id && S.active === key) { insertMsg(m); renderMessages(true) }
 		} catch (e) {
 			toast(e.message, 6000)
+			errBox.textContent = `No se mandó: ${e.message}`; errBox.hidden = false
 			b.disabled = false; other.disabled = otherOff; b.textContent = label
 		} finally {
 			clearTimeout(slow); sending = false; box.classList.remove('busy')

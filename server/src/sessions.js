@@ -926,13 +926,20 @@ export class Session {
 	 * teléfono): el cliente ve ese punto fijo.
 	 */
 	async sendLiveLocation(jid, { lat, lng, accuracy, speed, heading, caption, jpegThumbnail }) {
-		const live = { degreesLatitude: lat, degreesLongitude: lng }
-		if (Number.isFinite(accuracy)) live.accuracyInMeters = Math.round(accuracy)
+		// Mismos campos que manda la app del teléfono (siempre trae la precisión)
+		const live = { degreesLatitude: lat, degreesLongitude: lng, accuracyInMeters: Number.isFinite(accuracy) && accuracy > 0 ? Math.round(accuracy) : 10 }
 		if (Number.isFinite(speed)) live.speedInMps = speed
 		if (Number.isFinite(heading)) live.degreesClockwiseFromMagneticNorth = Math.round(heading) % 360
 		if (caption) live.caption = caption
-		if (jpegThumbnail) live.jpegThumbnail = jpegThumbnail
-		return this.sendLocationMessage(jid, { liveLocationMessage: live }, 'liveLocationMessage')
+		if (!jpegThumbnail) return this.sendLocationMessage(jid, { liveLocationMessage: live }, 'liveLocationMessage')
+		try {
+			return await this.sendLocationMessage(jid, { liveLocationMessage: { ...live, jpegThumbnail } }, 'liveLocationMessage')
+		} catch (e) {
+			// Si WhatsApp no la acepta con la miniatura del mapa, se manda sin ella (como antes)
+			if (/no está conectada/.test(e.message)) throw e
+			note(this.accountId, 'send-error', `liveLocationMessage sin miniatura tras: ${e.message}`)
+			return this.sendLocationMessage(jid, { liveLocationMessage: live }, 'liveLocationMessage')
+		}
 	}
 
 	async markRead(jid) {
