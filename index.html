@@ -161,9 +161,11 @@ svg{display:block}
 .who .s:empty{display:none}
 .ibtn{color:var(--label)}
 #msgs{position:relative;padding:calc(76px + var(--st)) calc(16px + var(--sr)) 12px calc(16px + var(--sl))}
-.day.stuck span{min-width:0}
-.day{position:sticky;top:calc(66px + var(--st));z-index:2;text-align:center;margin:16px 0 10px}
-.day span{display:inline-block;box-sizing:border-box;min-width:135px;transition:min-width .28s var(--ease);font-size:15px;font-weight:600;letter-spacing:-.1px;color:var(--dayText);background:var(--dayBg);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);padding:5px 22px;border-radius:15px;line-height:20px}
+.day{text-align:center;margin:16px 0 10px}
+.day-label{display:inline-block;min-width:53px;max-width:100%;font-size:13px;font-weight:600;letter-spacing:-.1px;color:var(--dayText);background:var(--dayBg);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);padding:0 12px;border-radius:11px;line-height:21px;vertical-align:top}
+#floatingDay{position:absolute;top:calc(66px + var(--st));left:calc(16px + var(--sl));right:calc(16px + var(--sr));z-index:2;text-align:center;pointer-events:none;visibility:hidden}
+#floatingDay.on{visibility:visible}
+.day.is-floating>.day-label{opacity:0}
 .info{margin:2px 9px 6px;padding:30px 16px 15px;border-radius:32px;background:var(--card);text-align:center}
 .info .av{margin:0 auto 30px}
 .info h2{margin:0;font-size:19.5px;font-weight:600}
@@ -370,6 +372,7 @@ svg{display:block}
   <!-- CONVERSACIÓN -->
   <section id="chat" class="screen" aria-hidden="true">
     <div class="scroll" id="chatScroll"><div id="msgs"></div></div>
+    <div id="floatingDay" aria-hidden="true"><span class="day-label"></span></div>
     <header class="nav">
       <div class="navrow">
         <button class="back glass" id="backBtn" type="button" aria-label="Volver">
@@ -767,7 +770,7 @@ $('#photoInput').addEventListener('change', e => {
 });
 
 /* ---------- render lista ---------- */
-let rafList = 0, rafChat = 0, rafStuck = 0;
+let rafList = 0, rafChat = 0;
 const queueList = () => { if (!rafList) rafList = requestAnimationFrame(() => { rafList = 0; renderList(); }); };
 const queueChat = () => { if (!rafChat) rafChat = requestAnimationFrame(() => { rafChat = 0; renderChat(); }); };
 
@@ -812,15 +815,18 @@ function renderChat(keepScroll){
   if (!ms.length) html += '<div class="chatempty">🔒 Simulación local. Los mensajes no salen de este navegador.</div>';
   ms.forEach((m, i) => {
     const day = startOfDay(m.ts), p = ms[i-1], n = ms[i+1];
-    if (day !== prevDay){ html += `<div class="day"><span>${chatDay(m.ts)}</span></div>`; prevDay = day; }
+    if (day !== prevDay){ html += `<div class="day"><span class="day-label">${chatDay(m.ts)}</span></div>`; prevDay = day; }
     const sameP = p && p.mine === m.mine && startOfDay(p.ts) === day && m.ts - p.ts < 12e4;
     const sameN = n && n.mine === m.mine && startOfDay(n.ts) === day && n.ts - m.ts < 12e4;
     html += `<div class="m ${m.mine ? 'me' : 'them'}${sameN ? '' : ' tail'}${sameP ? '' : ' gap'}" data-id="${m.id}"><div class="b">${esc(m.text)}<span class="meta">${hhmm(m.ts)}${m.mine ? `<span class="st">${ICON[m.status] || ICON[1]}</span>` : ''}</span></div></div>`;
   });
   if (typing.has(c.id)) html += '<div class="m them tail gap typing-b"><div class="b"><i></i><i></i><i></i></div></div>';
   $('#msgs').innerHTML = html;
-  queueStuck();
   if (!keepScroll || atBottom) scrollBottom();
+  else {
+    lastChatScrollTop = sc.scrollTop;
+    if (floatingDaySource) updateFloatingDay();
+  }
 }
 function chatDay(t){
   const diff = Math.round((startOfDay(Date.now()) - startOfDay(t)) / 864e5);
@@ -836,7 +842,12 @@ function infoCard(c){
     <div class="ib"><button type="button" class="blk" data-soon="Bloquear"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M5.3 5.3l13.4 13.4"/></svg>Bloquear</button>
     <button type="button" data-soon="Añadir contacto"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="7" r="4"/><path d="M1.5 21a7.5 6.5 0 0 1 15 0z"/><circle cx="18" cy="17" r="5" stroke="var(--card)" stroke-width="1.5"/><path d="M18 14.5v5M15.5 17h5" stroke="var(--card)" stroke-width="1.6" stroke-linecap="round"/></svg>Añadir</button></div></div>`;
 }
-function scrollBottom(){ const sc = $('#chatScroll'); sc.scrollTop = sc.scrollHeight; }
+function scrollBottom(){
+  const sc = $('#chatScroll');
+  sc.scrollTop = sc.scrollHeight;
+  lastChatScrollTop = sc.scrollTop;
+  hideFloatingDay();
+}
 function updateStatus(c, m){
   if (c.id === current){ const el = document.querySelector(`.m[data-id="${m.id}"] .st`); if (el) el.innerHTML = ICON[m.status] || ICON[1]; }
   if (last(c) === m) queueList();
@@ -1024,6 +1035,7 @@ function openChat(id, push = true){
 function closeChat(){
   if (!current) return;
   current = null; $('#input').blur();
+  hideFloatingDay();
   chatEl.style.transition = listEl.style.transition = shade.style.transition = '';
   chatEl.style.transform = listEl.style.transform = shade.style.opacity = '';
   chatEl.classList.remove('open'); listEl.classList.remove('under'); shade.classList.remove('on');
@@ -1082,14 +1094,44 @@ $('#composer').addEventListener('submit', e => {
   renderChat(); renderList(); input.focus();
 });
 input.addEventListener('focus', () => setTimeout(scrollBottom, 300));
-$('#chatScroll').addEventListener('scroll', e => { const t = e.target; $('#downBtn').classList.toggle('on', t.scrollHeight - t.scrollTop - t.clientHeight > 200); queueStuck(); }, { passive: true });
-// la etiqueta del día que queda fija arriba se ve compacta; las que están entre mensajes, más anchas (como en WhatsApp)
-function markStuck(){
-  const days = document.querySelectorAll('#msgs .day'); if (!days.length) return;
-  const lim = parseFloat(getComputedStyle(days[0]).top) + $('#chatScroll').getBoundingClientRect().top + 1;
-  days.forEach(d => d.classList.toggle('stuck', d.getBoundingClientRect().top <= lim));
+const floatingDay = $('#floatingDay');
+const floatingDayLabel = floatingDay.querySelector('.day-label');
+let floatingDaySource = null, floatingDayTimer = 0, lastChatScrollTop = 0;
+
+function hideFloatingDay(){
+  clearTimeout(floatingDayTimer);
+  floatingDaySource?.classList.remove('is-floating');
+  floatingDaySource = null;
+  floatingDay.classList.remove('on');
 }
-function queueStuck(){ if (!rafStuck) rafStuck = requestAnimationFrame(() => { rafStuck = 0; markStuck(); }); }
+
+function updateFloatingDay(){
+  const limit = floatingDay.getBoundingClientRect().top;
+  const days = document.querySelectorAll('#msgs .day');
+  for (let i = days.length - 1; i >= 0; i--){
+    const day = days[i];
+    if (day.getBoundingClientRect().top > limit) continue;
+    if (day !== floatingDaySource){
+      floatingDaySource?.classList.remove('is-floating');
+      floatingDaySource = day;
+      day.classList.add('is-floating');
+      floatingDayLabel.textContent = day.textContent;
+      floatingDay.classList.add('on');
+    }
+    return;
+  }
+  hideFloatingDay();
+}
+
+$('#chatScroll').addEventListener('scroll', e => {
+  const sc = e.currentTarget;
+  $('#downBtn').classList.toggle('on', sc.scrollHeight - sc.scrollTop - sc.clientHeight > 200);
+  if (!current || sc.scrollTop === lastChatScrollTop) return;
+  lastChatScrollTop = sc.scrollTop;
+  updateFloatingDay();
+  clearTimeout(floatingDayTimer);
+  if (floatingDaySource) floatingDayTimer = setTimeout(hideFloatingDay, 2000);
+}, { passive: true });
 $('#downBtn').addEventListener('click', () => $('#chatScroll').scrollTo({ top: $('#chatScroll').scrollHeight, behavior: 'smooth' }));
 $('#chat').addEventListener('click', e => { if (e.target.closest('.info .av')) pickPhoto(); });
 $('#chat').addEventListener('click', e => { const b = e.target.closest('[data-soon]'); if (b) toast(b.dataset.soon + ': no disponible en el simulador'); });
