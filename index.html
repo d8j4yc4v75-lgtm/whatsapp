@@ -38,7 +38,7 @@
   --wall:#efeae2; --wallOp:.07; --chatBar:rgba(246,246,246,.94); --composerBg:#f6f6f6; --cardBtn:rgba(118,118,128,.14); --dayBg:rgba(255,255,255,.92); --dayText:#54656f; --inputBg:rgba(118,118,128,.12); --card:rgba(255,255,255,.95);
   --accent:#1daa61; --onaccent:#fff; --out:#d9fdd3; --outText:#000; --outMeta:rgba(0,0,0,.45); --tickRead:#53bdeb;
   --glass:rgba(255,255,255,.66); --glassBorder:rgba(0,0,0,.07); --glassShadow:0 6px 20px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.06); --glassHi:rgba(255,255,255,.95); --glassLo:rgba(0,0,0,.04); --sheen:rgba(255,255,255,.5);
-  --chipBorder:rgba(60,60,67,.18); --chipText:rgba(60,60,67,.75); --chipOnBg:#d9fdd3; --chipOnBorder:#b5e8b0; --chipOnText:#0a6e3a; --searchBg:rgba(118,118,128,.12); --tabOn:rgba(0,0,0,.07); --tbGlass:rgba(250,250,252,.72); --tbSheen:rgba(255,255,255,.6); --tbRim:rgba(255,255,255,.9); --tbRimSide:rgba(0,0,0,.06); --tbRimLo:rgba(0,0,0,.08); --tbBadgeText:#fff;
+  --groupBg:#fff; --segOn:#fff; --chipBorder:rgba(60,60,67,.18); --chipText:rgba(60,60,67,.75); --chipOnBg:#d9fdd3; --chipOnBorder:#b5e8b0; --chipOnText:#0a6e3a; --searchBg:rgba(118,118,128,.12); --tabOn:rgba(0,0,0,.07); --tbGlass:rgba(250,250,252,.72); --tbSheen:rgba(255,255,255,.6); --tbRim:rgba(255,255,255,.9); --tbRimSide:rgba(0,0,0,.06); --tbRimLo:rgba(0,0,0,.08); --tbBadgeText:#fff;
   --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px);
   --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px);
   --ease:cubic-bezier(.32,.72,0,1);
@@ -52,7 +52,7 @@
     --wall:#0a0a0a; --wallOp:.085; --dayBg:rgba(23,23,23,.92); --dayText:#fff; --inputBg:#292e2c; --card:#242625; --in:#242626; --chatBar:rgba(19,19,19,.94); --composerBg:#141917; --cardBtn:#3b3b3b;
     --accent:#21c063; --onaccent:#000; --out:#144d37; --outText:#fff; --outMeta:rgba(255,255,255,.6);
     --glass:rgba(38,38,40,.72); --glassBorder:rgba(255,255,255,.09); --glassShadow:0 8px 24px rgba(0,0,0,.6),0 1px 2px rgba(0,0,0,.5); --glassHi:rgba(255,255,255,.22); --glassLo:rgba(255,255,255,.05); --sheen:rgba(255,255,255,.07);
-    --chipBorder:rgba(255,255,255,.16); --chipText:rgba(235,235,245,.72); --chipOnBg:#103529; --chipOnBorder:#1b5a3a; --chipOnText:#d9fdd3; --searchBg:#1c1c1e; --tabOn:rgba(0,0,0,.55); --tbGlass:rgba(46,46,48,.62); --tbSheen:rgba(255,255,255,.06); --tbRim:rgba(255,255,255,.28); --tbRimSide:rgba(255,255,255,.10); --tbRimLo:rgba(255,255,255,.06); --tbBadgeText:#06301a;
+    --groupBg:#2c2c2e; --segOn:#636366; --chipBorder:rgba(255,255,255,.16); --chipText:rgba(235,235,245,.72); --chipOnBg:#103529; --chipOnBorder:#1b5a3a; --chipOnText:#d9fdd3; --searchBg:#1c1c1e; --tabOn:rgba(0,0,0,.55); --tbGlass:rgba(46,46,48,.62); --tbSheen:rgba(255,255,255,.06); --tbRim:rgba(255,255,255,.28); --tbRimSide:rgba(255,255,255,.10); --tbRimLo:rgba(255,255,255,.06); --tbBadgeText:#06301a;
   }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -209,7 +209,8 @@ svg{display:block}
 @media (min-width:600px){.sheet{left:50%;right:auto;width:560px;margin-left:-280px}}
 .sh-head{display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 8px;flex:none;position:relative}
 .sh-head .t{position:absolute;left:50%;transform:translateX(-50%);font-weight:600;font-size:17px}
-.sh-head .tbtn.b{font-weight:600}
+.sh-head .tbtn.b{font-weight:600;background:none;color:var(--blue);padding:8px;border-radius:0;max-width:none;font-size:17px;line-height:normal;-webkit-user-select:auto;user-select:auto}
+.sh-head .tbtn.b:disabled{opacity:.35}
 .tbtn:disabled{opacity:.35}
 .sh-body{overflow-y:auto;padding:0 16px 20px;overscroll-behavior:contain;flex:1 1 auto;min-height:0}
 .group textarea,.group input{-webkit-user-select:text;user-select:text;touch-action:manipulation}
@@ -289,6 +290,14 @@ svg{display:block}
 .wa-qr[hidden]{display:none}
 .wa-qr img{width:240px;height:240px;image-rendering:pixelated}
 .big-btn.red{background:var(--red)}
+.sheet .group{background:var(--groupBg)}
+.seg{display:flex;padding:2px;border-radius:10px;background:var(--fill)}
+.seg button{flex:1;height:34px;border-radius:8px;font-size:15px;font-weight:500;color:var(--label);transition:background .2s}
+.seg button.on{background:var(--segOn);box-shadow:0 1px 4px rgba(0,0,0,.18)}
+#msgTicksRow[hidden]{display:none}
+.b{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;transition:transform .18s var(--ease)}
+.m.press .b{transform:scale(.96)}
+.big-btn.ghost{background:var(--groupBg);color:var(--red);margin-top:12px}
 </style>
 </head>
 <body>
@@ -463,6 +472,47 @@ svg{display:block}
     </div>
   </div>
 
+  <!-- EDITAR MENSAJE -->
+  <div class="sheet" id="msgSheet" role="dialog" aria-label="Editar mensaje">
+    <div class="sh-head">
+      <button class="tbtn" type="button" data-close>Cancelar</button>
+      <div class="t">Editar mensaje</div>
+      <button class="tbtn b" type="button" id="msgSave">Guardar</button>
+    </div>
+    <div class="sh-body">
+      <div class="lbl">Mensaje</div>
+      <div class="group"><textarea id="msgText"></textarea></div>
+      <div class="lbl">Lo envía</div>
+      <div class="seg" id="msgWho"><button type="button" data-mine="1">Yo</button><button type="button" data-mine="0">Contacto</button></div>
+      <div class="lbl">Fecha y hora</div>
+      <div class="group">
+        <div class="trow"><span>Día</span><input type="date" id="msgDay"></div>
+        <div class="trow"><span>Hora</span><input type="time" id="msgTime"></div>
+        <div class="trow" id="msgTicksRow"><span>Palomitas</span><select id="msgTicks"><option value="1">Una</option><option value="2">Dos</option></select></div>
+      </div>
+      <div class="foot" id="msgInfo"></div>
+      <button class="big-btn ghost" id="msgDel" type="button">Eliminar mensaje</button>
+    </div>
+  </div>
+
+  <!-- CAMBIAR FECHA DE LA CONVERSACIÓN -->
+  <div class="sheet" id="shiftSheet" role="dialog" aria-label="Cambiar fecha de la conversación">
+    <div class="sh-head">
+      <button class="tbtn" type="button" data-close>Cancelar</button>
+      <div class="t">Fecha del chat</div>
+      <button class="tbtn b" type="button" id="shiftSave">Guardar</button>
+    </div>
+    <div class="sh-body">
+      <div class="lbl">Primer mensaje</div>
+      <div class="group">
+        <div class="trow"><span>Día</span><input type="date" id="shiftDay"></div>
+        <div class="trow"><span>Hora</span><input type="time" id="shiftTime"></div>
+      </div>
+      <div class="foot" id="shiftInfo"></div>
+      <div class="foot">Todos los mensajes se mueven juntos y se conserva el tiempo entre uno y otro. Para cambiar uno solo, mantén presionado ese mensaje en el chat.</div>
+    </div>
+  </div>
+
   <!-- WHATSAPP (Baileys) -->
   <div class="sheet" id="waSheet" role="dialog" aria-label="Conectar WhatsApp">
     <div class="sh-head">
@@ -502,6 +552,7 @@ svg{display:block}
     <div class="ag">
       <div class="msg" id="actMsg"></div>
       <button type="button" id="actPhoto">Cambiar foto</button>
+      <button type="button" id="actDate">Cambiar fecha de la conversación</button>
       <button type="button" class="d" id="actNoPhoto">Quitar foto</button>
       <button type="button" class="d" id="actClear">Vaciar chat</button>
       <button type="button" class="d" id="actDelete">Eliminar chat</button>
@@ -1329,13 +1380,98 @@ const actions = $('#actions');
 function hideActions(){ actions.classList.remove('on'); backdrop.classList.remove('on'); backdrop.onclick = null; }
 $('#menuBtn').addEventListener('click', () => {
   const c = getChat(current); if (!c) return;
-  $('#actMsg').textContent = `${title(c)} · Vaciar o eliminar no se puede deshacer.`;
+  $('#actMsg').textContent = `${title(c)} · Para editar un mensaje (texto, fecha u hora), mantenlo presionado. Vaciar o eliminar no se puede deshacer.`;
+  $('#actDate').disabled = !c.messages.length; $('#actDate').style.opacity = c.messages.length ? '' : '.35';
   $('#actNoPhoto').hidden = !c.photo;
   $('#actClear').disabled = !c.messages.length; $('#actClear').style.opacity = c.messages.length ? '' : '.35';
   backdrop.classList.add('on'); actions.classList.add('on');
   backdrop.onclick = e => { e.stopImmediatePropagation(); hideActions(); };
 });
 $('#actCancel').addEventListener('click', hideActions);
+$('#actDate').addEventListener('click', () => { hideActions(); setTimeout(openShift, 60); });
+
+/* ---------- editar mensajes y fechas ---------- */
+const hm = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+const subMin = t => t - new Date(t).setSeconds(0, 0); // segundos y ms (para no alterar el orden dentro del mismo minuto)
+const atDT = (day, time) => new Date(`${day}T${time}`).getTime();
+const msgWhen = t => `${chatDay(t)}, ${hhmm(t)}`;
+let editMsgId = null, editMine = true, delArmed = false;
+function setWho(mine){
+  editMine = mine;
+  document.querySelectorAll('#msgWho button').forEach(b => b.classList.toggle('on', (b.dataset.mine === '1') === mine));
+  $('#msgTicksRow').hidden = !mine;
+}
+function updateMsgInfo(){
+  const c = getChat(current), m = c && c.messages.find(x => x.id === editMsgId); if (!m) return;
+  const ts = atDT($('#msgDay').value, $('#msgTime').value);
+  const el = $('#msgInfo'); el.classList.remove('err');
+  if (isNaN(ts)){ el.textContent = 'Completa día y hora'; el.classList.add('err'); return; }
+  el.textContent = ts > Date.now() ? 'Ojo: esa hora todavía no llega.' : `Quedará como: ${msgWhen(ts + subMin(m.ts))}.`;
+}
+function openMsgEdit(id){
+  const c = getChat(current), m = c && c.messages.find(x => x.id === id); if (!m) return;
+  editMsgId = id; delArmed = false; $('#msgDel').textContent = 'Eliminar mensaje';
+  $('#msgText').value = m.text;
+  const d = new Date(m.ts); $('#msgDay').value = ymd(d); $('#msgTime').value = hm(d);
+  $('#msgTicks').value = String(Math.min(2, Math.max(1, m.final ?? m.status ?? 2)));
+  setWho(!!m.mine); updateMsgInfo(); showSheet($('#msgSheet'));
+}
+$('#msgWho').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setWho(b.dataset.mine === '1'); });
+[$('#msgDay'), $('#msgTime')].forEach(el => el.addEventListener('input', updateMsgInfo));
+$('#msgSave').addEventListener('click', () => {
+  const c = getChat(current), m = c && c.messages.find(x => x.id === editMsgId); if (!m) return hideSheet();
+  const text = $('#msgText').value.trim(), ts = atDT($('#msgDay').value, $('#msgTime').value);
+  if (!text){ toast('El mensaje no puede quedar vacío'); return; }
+  if (isNaN(ts)){ toast('Completa día y hora'); return; }
+  m.text = text; m.ts = ts + subMin(m.ts);
+  if (editMine){ m.mine = true; m.status = m.final = +$('#msgTicks').value; }
+  else { m.mine = false; m.status = null; delete m.final; }
+  c.messages.sort((a, b) => a.ts - b.ts);
+  save(); hideSheet(); renderChat(true); renderList(); toast('Mensaje actualizado');
+});
+$('#msgDel').addEventListener('click', () => {
+  if (!delArmed){ delArmed = true; $('#msgDel').textContent = '¿Eliminar? Toca otra vez'; return; }
+  const c = getChat(current); if (c){ c.messages = c.messages.filter(x => x.id !== editMsgId); save(); renderChat(true); renderList(); }
+  hideSheet(); toast('Mensaje eliminado');
+});
+// mantener presionado un mensaje para editarlo
+(() => {
+  const box = $('#msgs'); let t = null, x0 = 0, y0 = 0;
+  const cancel = () => { clearTimeout(t); t = null; };
+  box.addEventListener('pointerdown', e => {
+    const el = e.target.closest('.m'); if (!el || el.classList.contains('typing-b') || !e.target.closest('.b')) return;
+    x0 = e.clientX; y0 = e.clientY; cancel();
+    t = setTimeout(() => { t = null; el.classList.add('press'); try { navigator.vibrate && navigator.vibrate(10); } catch(_){}
+      setTimeout(() => { el.classList.remove('press'); openMsgEdit(el.dataset.id); }, 160); }, 450);
+  });
+  box.addEventListener('pointermove', e => { if (t && Math.hypot(e.clientX - x0, e.clientY - y0) > 8) cancel(); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(k => box.addEventListener(k, cancel));
+  box.addEventListener('contextmenu', e => { if (e.target.closest('.m .b')) e.preventDefault(); });
+})();
+// mover toda la conversación a otra fecha
+function shiftDelta(){
+  const c = getChat(current); if (!c || !c.messages.length) return null;
+  const first = c.messages[0].ts, ts = atDT($('#shiftDay').value, $('#shiftTime').value);
+  return isNaN(ts) ? null : ts + subMin(first) - first;
+}
+function updateShift(){
+  const c = getChat(current), d = shiftDelta(), el = $('#shiftInfo'); if (!c) return;
+  el.classList.toggle('err', d == null);
+  if (d == null){ el.textContent = 'Completa día y hora'; return; }
+  const a = c.messages[0].ts + d, b = c.messages[c.messages.length - 1].ts + d, n = c.messages.length;
+  el.textContent = `${n} mensaje${n === 1 ? '' : 's'}: ` + (startOfDay(a) === startOfDay(b) ? `${chatDay(a)}, de ${hhmm(a)} a ${hhmm(b)}.` : `de ${chatDay(a).toLowerCase()} ${hhmm(a)} a ${chatDay(b).toLowerCase()} ${hhmm(b)}.`) + (b > Date.now() ? ' Ojo: el último queda en el futuro.' : '');
+}
+function openShift(){
+  const c = getChat(current); if (!c || !c.messages.length) return;
+  const d = new Date(c.messages[0].ts); $('#shiftDay').value = ymd(d); $('#shiftTime').value = hm(d);
+  updateShift(); showSheet($('#shiftSheet'));
+}
+[$('#shiftDay'), $('#shiftTime')].forEach(el => el.addEventListener('input', updateShift));
+$('#shiftSave').addEventListener('click', () => {
+  const c = getChat(current), d = shiftDelta(); if (!c || d == null) return;
+  c.messages.forEach(m => { m.ts += d; });
+  save(); hideSheet(); renderChat(); renderList(); toast('Fecha de la conversación actualizada');
+});
 $('#actPhoto').addEventListener('click', () => { hideActions(); setTimeout(pickPhoto, 50); });
 $('#actNoPhoto').addEventListener('click', () => { const c = getChat(current); if (c){ delete c.photo; c.photoBy = 'none'; save(); renderChat(true); renderList(); } hideActions(); toast('Foto quitada'); });
 $('#actClear').addEventListener('click', () => { const c = getChat(current); if (c){ c.messages = []; save(); renderChat(); renderList(); } hideActions(); toast('Chat vaciado'); });
