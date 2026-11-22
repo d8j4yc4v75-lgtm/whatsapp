@@ -35,7 +35,7 @@
   --sep:rgba(60,60,67,.29); --blue:#007aff; --red:#ff3b30; --green:#34c759;
   --bar:rgba(249,249,249,.86); --fill:rgba(118,118,128,.12); --in:#e9e9eb; --inText:#000;
   --chatbg:#fff; --sheet:#f2f2f7; --dim:rgba(0,0,0,.35); --bgRGB:255,255,255;
-  --wall:#efeae2; --wallOp:.075; --chatBar:rgba(246,246,246,.94); --composerBg:#f6f6f6; --cardBtn:rgba(118,118,128,.14); --dayBg:rgba(255,255,255,.92); --dayText:#54656f; --inputBg:rgba(118,118,128,.12); --card:rgba(255,255,255,.95);
+  --wall:#efeae2; --wallOp:.075; --chatBar:rgba(246,246,246,.94); --composerBg:#f6f6f6; --inputRim:rgba(0,0,0,.06); --micBg:#25b660; --micFg:#fff; --cardBtn:rgba(118,118,128,.14); --dayBg:rgba(255,255,255,.92); --dayText:#54656f; --inputBg:rgba(118,118,128,.12); --card:rgba(255,255,255,.95);
   --accent:#1daa61; --onaccent:#fff; --out:#d9fdd3; --outText:#000; --outMeta:rgba(0,0,0,.45); --tickRead:#53bdeb;
   --glass:rgba(255,255,255,.66); --glassBorder:rgba(0,0,0,.07); --glassShadow:0 6px 20px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.06); --glassHi:rgba(255,255,255,.95); --glassLo:rgba(0,0,0,.04); --sheen:rgba(255,255,255,.5);
   --groupBg:#fff; --segOn:#fff; --chipBorder:rgba(60,60,67,.18); --chipText:rgba(60,60,67,.75); --chipOnBg:#d9fdd3; --chipOnBorder:#b5e8b0; --chipOnText:#0a6e3a; --searchBg:rgba(118,118,128,.12); --tabOn:rgba(0,0,0,.07); --tbGlass:rgba(250,250,252,.72); --tbSheen:rgba(255,255,255,.6); --tbRim:rgba(255,255,255,.9); --tbRimSide:rgba(0,0,0,.06); --tbRimLo:rgba(0,0,0,.08); --tbBadgeText:#fff;
@@ -49,7 +49,7 @@
     --sep:rgba(84,84,88,.6); --blue:#0a84ff; --red:#ff453a; --green:#30d158;
     --bar:rgba(22,22,24,.86); --fill:rgba(118,118,128,.24); --in:#262628; --inText:#fff;
     --chatbg:#0b0b0b; --sheet:#1c1c1e; --dim:rgba(0,0,0,.6); --bgRGB:11,11,11;
-    --wall:#0a0a0a; --wallOp:.1; --dayBg:rgba(23,23,23,.92); --dayText:#fff; --inputBg:#292e2c; --card:#242625; --in:#242626; --chatBar:rgba(19,19,19,.94); --composerBg:#141917; --cardBtn:#3b3b3b;
+    --wall:#0a0a0a; --wallOp:.1; --dayBg:rgba(23,23,23,.92); --dayText:#fff; --inputBg:#282828; --card:#242625; --in:#242626; --chatBar:rgba(19,19,19,.94); --composerBg:#101010; --inputRim:rgba(255,255,255,.07); --micBg:#4fbd6c; --micFg:#0b0b0b; --cardBtn:#3b3b3b;
     --accent:#21c063; --onaccent:#000; --out:#144d37; --outText:#fff; --outMeta:rgba(255,255,255,.6);
     --glass:rgba(38,38,40,.72); --glassBorder:rgba(255,255,255,.09); --glassShadow:0 8px 24px rgba(0,0,0,.6),0 1px 2px rgba(0,0,0,.5); --glassHi:rgba(255,255,255,.22); --glassLo:rgba(255,255,255,.05); --sheen:rgba(255,255,255,.07);
     --groupBg:#2c2c2e; --segOn:#636366; --chipBorder:rgba(255,255,255,.16); --chipText:rgba(235,235,245,.72); --chipOnBg:#103529; --chipOnBorder:#1b5a3a; --chipOnText:#d9fdd3; --searchBg:#1c1c1e; --tabOn:rgba(0,0,0,.55); --tbGlass:rgba(46,46,48,.62); --tbSheen:rgba(255,255,255,.06); --tbRim:rgba(255,255,255,.28); --tbRimSide:rgba(255,255,255,.10); --tbRimLo:rgba(255,255,255,.06); --tbBadgeText:#06301a;
@@ -194,13 +194,13 @@ svg{display:block}
 .tick{width:16px;height:11px;color:var(--outMeta)}
 .tick.read{color:var(--tickRead)}
 .tick.clock{width:11px;height:11px}
-.composer{position:absolute;left:0;right:0;bottom:0;z-index:5;padding:8px calc(10px + var(--sr)) calc(var(--sb) + 8px) calc(6px + var(--sl));background:var(--composerBg);display:flex;align-items:flex-end;gap:6px}
-.cbtn{flex:none;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:var(--label)}
+.composer{position:absolute;left:0;right:0;bottom:0;z-index:5;padding:8px calc(9px + var(--sr)) calc(var(--sb) + 8px) calc(5px + var(--sl));background:var(--composerBg);display:flex;align-items:flex-end;gap:5px}
+.cbtn{flex:none;width:36px;height:32px;display:flex;align-items:center;justify-content:center;color:var(--label)}
 .cbtn:active{opacity:.4}
-.field{flex:1;min-width:0;display:flex;align-items:flex-end;background:var(--inputBg);border-radius:18px;min-height:36px;margin:0 4px 0 2px}
-.field .cbtn{width:40px;height:36px}
-.composer textarea{flex:1;min-width:0;resize:none;border:0;border-radius:22px;background:transparent;padding:7px 4px 7px 14px;font-size:17px;line-height:22px;max-height:120px;outline:0;min-height:36px;height:36px}
-.send{flex:none;width:34px;height:34px;margin:1px 0 1px 2px;border-radius:50%;background:var(--accent);color:var(--onaccent);display:flex;align-items:center;justify-content:center;transition:opacity .15s,transform .15s}
+.field{flex:1;min-width:0;display:flex;align-items:flex-end;background:var(--inputBg);border-radius:16px;min-height:32px;margin:0 7px 0 1px;box-shadow:inset 0 0 0 .5px var(--inputRim),inset 0 .5px 0 var(--inputRim)}
+.field .cbtn{width:36px;height:32px;margin-right:3px}
+.composer textarea{flex:1;min-width:0;resize:none;border:0;border-radius:22px;background:transparent;padding:5px 2px 5px 14px;font-size:17px;line-height:22px;max-height:120px;outline:0;min-height:32px;height:32px}
+.send{flex:none;width:32px;height:32px;margin:0 0 0 1px;border-radius:50%;background:var(--micBg);color:var(--micFg);display:flex;align-items:center;justify-content:center;transition:opacity .15s,transform .15s}
 .send .ic-mic{display:none}
 .send.mic .ic-mic{display:block}
 .send.mic .ic-send{display:none}
@@ -388,15 +388,15 @@ svg{display:block}
     </header>
     <button class="down glass" id="downBtn" type="button" aria-label="Ir al final"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5L9 12l5.5-5.5"/></svg></button>
     <form class="composer" id="composer" autocomplete="off">
-      <button class="cbtn" type="button" id="addMsgBtn" aria-label="Agregar mensaje"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M3 12h18"/></svg></button>
+      <button class="cbtn" type="button" id="addMsgBtn" aria-label="Agregar mensaje"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v19M2.5 12h19"/></svg></button>
       <div class="field">
         <textarea id="input" rows="1" placeholder="" enterkeyhint="send"></textarea>
-        <button class="cbtn" type="button" data-soon="Stickers" aria-label="Stickers"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M21 12.5V8a5 5 0 0 0-5-5H8a5 5 0 0 0-5 5v8a5 5 0 0 0 5 5h4.5z"/><path d="M21 12.5h-4.5a4 4 0 0 0-4 4V21"/></svg></button>
+        <button class="cbtn" type="button" data-soon="Stickers" aria-label="Stickers"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M13.6 21H9a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6h6a6 6 0 0 1 6 6v4.6A7.4 7.4 0 0 1 13.6 21z"/><path d="M21 13.6c-4.1 0-7.4 3.3-7.4 7.4"/></svg></button>
       </div>
-      <button class="cbtn" type="button" data-soon="Cámara" aria-label="Cámara"><svg width="28" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4h6l1.6 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.4z"/><circle cx="12" cy="13" r="3.8"/></svg></button>
+      <button class="cbtn" type="button" data-soon="Cámara" aria-label="Cámara"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round"><path d="M4.5 6.5h2.6l1.3-2a2 2 0 0 1 1.7-1h3.8a2 2 0 0 1 1.7 1l1.3 2h2.6a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-15a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3z"/><circle cx="11.6" cy="13" r="4"/><circle cx="17.9" cy="9.6" r=".95" fill="currentColor" stroke="none"/></svg></button>
       <button class="send mic" id="sendBtn" type="submit" aria-label="Enviar">
         <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V2.5M3 7.5l5-5 5 5"/></svg>
-        <svg class="ic-mic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="8.5" y="2.5" width="7" height="12" rx="3.5" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5"/></svg>
+        <svg class="ic-mic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="9.1" y="3" width="5.8" height="10.6" rx="2.9" fill="currentColor" stroke="none"/><path d="M6.6 11.2a5.4 5.4 0 0 0 10.8 0M12 16.6v3.6"/></svg>
       </button>
     </form>
   </section>
@@ -1069,7 +1069,7 @@ $('#backBtn').addEventListener('click', goBack);
 
 /* ---------- composer ---------- */
 const input = $('#input');
-function autoGrow(){ input.style.height = '36px'; input.style.height = Math.min(input.scrollHeight + 1, 120) + 'px'; layoutChat(); }
+function autoGrow(){ input.style.height = '32px'; input.style.height = Math.min(input.scrollHeight + 1, 120) + 'px'; layoutChat(); }
 function updateSend(){ $('#sendBtn').classList.toggle('mic', !input.value.trim()); }
 input.addEventListener('input', () => { autoGrow(); updateSend(); });
 input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(pointer:coarse)').matches){ e.preventDefault(); $('#composer').requestSubmit(); } });
