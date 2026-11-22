@@ -1651,6 +1651,34 @@ async function loadStats() {
 			<div class="item" style="display:block"><div style="display:flex;gap:8px;align-items:center">${accountTag(a.accountId)}<span class="grow"></span><small style="display:inline">${a.sent} enviados · ${a.people} escribieron${a.campaignSent ? ` · ${a.campaignReplied}/${a.campaignSent} respondieron` : ''}${a.rejected ? ` · <span style="color:var(--danger)">${a.rejected} rechazados</span>` : ''}</small></div></div>`).join('') || '<p class="hint">Sin actividad en este periodo.</p>'}</div>`
 }
 
+// «Siguiente mensaje en 3 min 20 s» / «a las 9:00» / «mañana a las 9:00»
+function nextWhen(at, sending) {
+	const ms = at - Date.now()
+	if (sending) return 'saliendo ahora'
+	if (ms <= 5000) return 'en unos segundos'
+	if (ms < 60000) return `en ${Math.ceil(ms / 1000)} s`
+	if (ms < 3600000) { const m = Math.floor(ms / 60000), s = Math.floor(ms % 60000 / 1000); return `en ${m} min ${String(s).padStart(2, '0')} s` }
+	const d = new Date(at), today = new Date()
+	const time = d.toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })
+	const days = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5)
+	return days === 0 ? `a las ${time}` : days === 1 ? `mañana a las ${time}` : `el ${d.toLocaleDateString('es-MX', { weekday: 'long' })} a las ${time}`
+}
+// Cuenta regresiva en las tarjetas de envíos (y si ya pasó la hora, se piden los datos nuevos)
+setInterval(() => {
+	const els = document.querySelectorAll('.next-send[data-at]')
+	if (!els.length) return
+	let stale = false
+	for (const el of els) {
+		const at = Number(el.dataset.at)
+		const cd = el.querySelector('.cd'); if (cd) cd.textContent = nextWhen(at, el.dataset.sending === '1')
+		if (Date.now() - at > 45000) stale = true
+	}
+	if (stale && Date.now() - (S.campRefreshAt || 0) > 30000) {
+		S.campRefreshAt = Date.now()
+		api('GET', '/campaigns').then(list => { S.campaigns = list; renderCampaignList() }).catch(() => {})
+	}
+}, 1000)
+
 function renderCampaignList() {
 	const el = $('#camp-list')
 	if (!el) return
@@ -1682,6 +1710,7 @@ function renderCampaignList() {
 			<div class="bar-progress"><i style="width:${pct}%"></i></div>
 			<small>✅ ${n.sent} enviados · 👀 ${n.read} leídos · 💬 ${n.replied} respondieron · ⚠︎ ${n.failed} fallidos · ⏳ ${n.pending} pendientes${n.withChat ? ` · 💬 ${n.withChat} brincados (todos tus números ya tenían chat)` : ''}${n.skipped - (n.withChat || 0) > 0 ? ` · 🚫 ${n.skipped - (n.withChat || 0)} con BAJA` : ''}</small>
 			${why ? `<small style="color:${waiting ? 'var(--muted)' : 'var(--danger)'}">${esc(why)}</small>` : ''}
+			${c.next && c.status === 'running' ? `<div class="next-send" data-at="${c.next.at}"${c.next.sending ? ' data-sending="1"' : ''}>⏱️ <span>Siguiente mensaje <b class="cd">${esc(nextWhen(c.next.at, c.next.sending))}</b> desde</span> ${accountTag(c.next.accountId)}</div>` : ''}
 			<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
 				${c.status === 'running' ? `<button class="chip" data-act="camp" data-val="${c.id}:pause">Pausar</button>` : ''}
 				${c.status === 'paused' ? `<button class="chip" data-act="camp" data-val="${c.id}:resume">Reanudar</button>` : ''}

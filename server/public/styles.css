@@ -904,3 +904,7 @@ select option { background: var(--card); color: var(--text); }
 .lp-zoom button, .lp-me { width: 36px; height: 36px; border: 0; background: rgba(255, 255, 255, 0.95); color: #222; font-size: 20px; line-height: 1; cursor: pointer; }
 .lp-zoom button + button { border-top: 1px solid rgba(0, 0, 0, 0.1); }
 .lp-me { position: absolute; right: 10px; bottom: 22px; border-radius: 10px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); font-size: 18px; }
+
+/* Siguiente mensaje de un envío */
+.next-send { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; font-size: 13.5px; color: var(--text-2, var(--muted)); }
+.next-send b { font-variant-numeric: tabular-nums; color: var(--text); }

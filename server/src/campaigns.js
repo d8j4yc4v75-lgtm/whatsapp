@@ -15,6 +15,23 @@ const restDays = () => {
 }
 
 const hourNow = () => Number(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' }).format(new Date()))
+const WEEKDAYS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+const hourFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' })
+const dayFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' })
+
+/** Primer momento (desde t) en que el envío puede mandar según su horario y los días de descanso */
+function windowOpenAt(c, t) {
+	const rest = c.forced ? [] : restDays()
+	let x = t
+	for (let i = 0; i < 24 * 9; i++) {
+		const d = new Date(x)
+		const h = Number(hourFmt.format(d))
+		const inHours = c.start_hour <= c.end_hour ? h >= c.start_hour && h < c.end_hour : h >= c.start_hour || h < c.end_hour
+		if (inHours && !rest.includes(WEEKDAYS[dayFmt.format(d)])) return x
+		x = Math.floor(x / 3600000) * 3600000 + 3600000 // siguiente hora en punto (en México no hay medias horas)
+	}
+	return null
+}
 
 // Errores que significan que hay que detener la campaña completa (no solo ese número)
 const FATAL = new Set([190, 10, 200, 132001, 132015, 132016, 133010, 131048])
@@ -219,7 +236,9 @@ export class CampaignRunner {
 			status: c.status,
 			note: c.note,
 			createdAt: c.created_at,
-			counts: { pending: counts.pending || 0, sent: counts.sent || 0, failed: counts.failed || 0, skipped: counts.skipped || 0, withChat, read, replied }
+			counts: { pending: counts.pending || 0, sent: counts.sent || 0, failed: counts.failed || 0, skipped: counts.skipped || 0, withChat, read, replied },
+			// Cuándo sale el siguiente mensaje y desde qué número (modo seguro)
+			next: c.kind === 'safe' && c.status === 'running' ? this.nextSend(c) : null
 		}
 	}
 
@@ -310,6 +329,11 @@ export class CampaignRunner {
 				if (c.kind === 'safe') await this.tickSafe(c, inWindow)
 				else if (inWindow) await this.tickCloud(c)
 			}
+			// Cada minuto se manda la tarjeta de los envíos en marcha, para que «siguiente mensaje» esté al día
+			if (Date.now() - (this.nextEmitAt || 0) > 60000) {
+				this.nextEmitAt = Date.now()
+				for (const { id } of db.prepare("SELECT id FROM campaigns WHERE status = 'running' AND kind = 'safe'").all()) this.emit(id)
+			}
 		} finally {
 			this.busy = false
 		}
@@ -336,6 +360,65 @@ export class CampaignRunner {
 			if (FATAL.has(e.code)) this.setStatus(c.id, 'paused', e.message)
 		}
 		this.emit(c.id)
+	}
+
+	/** Tope diario de un número en este envío (el mismo cálculo para enviar y para la estimación) */
+	dailyLimitFor(c, acc, health) {
+		let base = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
+		// Freno: si casi nadie le contesta, baja a la mitad (con «subir poco a poco» ya lo hace la salud)
+		if (c.auto_ramp === 0) { const rr = replyStats(acc); if (rr.sent >= 30 && rr.rate < 0.05) base = Math.ceil(base / 2) }
+		return Math.max(1, Math.round(base * dailyJitter(acc)))
+	}
+
+	/** Cuándo vuelve a tener lugar un número: cuando su envío número k (del más viejo) sale de la ventana */
+	freeAt(acc, k, windowMs, withSending) {
+		const st = withSending ? "'sent', 'failed', 'sending'" : "'sent', 'failed'"
+		const rows = db.prepare(`SELECT sent_at FROM campaign_items WHERE sent_by = ? AND status IN (${st}) AND sent_at > ? ORDER BY sent_at ASC LIMIT ?`).all(acc, Date.now() - windowMs, k + 1)
+		return rows[k] ? rows[k].sent_at + windowMs : Date.now()
+	}
+
+	/**
+	 * Estimación de cuándo sale el siguiente mensaje de un envío en modo seguro y desde qué número.
+	 * Usa las mismas reglas del envío: pausa de cada número, respiro entre números, topes por día y por hora,
+	 * descanso, restricción y horario. Es aproximada: al momento de enviar también cuenta la hora local de cada cliente.
+	 */
+	nextSend(c) {
+		if (c.kind !== 'safe' || c.status !== 'running') return null
+		const now = Date.now()
+		const sending = db.prepare("SELECT sent_by FROM campaign_items WHERE campaign_id = ? AND status = 'sending' LIMIT 1").get(c.id)
+		const name = id => db.prepare('SELECT name FROM accounts WHERE id = ?').get(id)?.name || ''
+		if (sending) return { at: now, accountId: sending.sent_by, name: name(sending.sent_by), sending: true }
+		if (!db.prepare("SELECT 1 FROM campaign_items WHERE campaign_id = ? AND status = 'pending' LIMIT 1").get(c.id)) return null
+		const start = Math.max(now, c.start_at || 0, this.globalNextAt || 0)
+		const disabled = new Set(JSON.parse(c.disabled || '[]'))
+		let best = null
+		for (const acc of JSON.parse(c.accounts || '[]')) {
+			if (disabled.has(acc)) continue
+			const session = this.manager.sessions.get(acc)
+			if (!session || session instanceof CloudSession || session.status !== 'connected') continue
+			const health = accountHealth(acc, session.status)
+			let at = Math.max(start, this.nextAt.get(acc) || 0)
+			if (health?.restrictedUntil) {
+				at = Math.max(at, health.restrictedUntil)
+			} else if (health?.restUntil) {
+				const allow = db.prepare('SELECT rest_allow FROM accounts WHERE id = ?').get(acc)?.rest_allow || 0
+				const sent24 = this.safeSentLast24h(acc)
+				if (allow <= 0) at = Math.max(at, health.restUntil)
+				else if (sent24 >= allow) at = Math.max(at, Math.min(health.restUntil, this.freeAt(acc, sent24 - allow, 864e5)))
+			} else if (health?.level === 'red') {
+				continue // rechazos o mensajes sin entregar: no se sabe cuándo vuelve
+			} else if (!c.forced) {
+				const limit = this.dailyLimitFor(c, acc, health)
+				const sent24 = this.safeSentLast24h(acc)
+				if (sent24 >= limit) at = Math.max(at, this.freeAt(acc, sent24 - limit, 864e5))
+				const hourly = c.hourly_per_number || 8
+				const lastHour = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE sent_by = ? AND status IN ('sent', 'failed', 'sending') AND sent_at > ?").get(acc, now - 3600000).n
+				if (lastHour >= hourly) at = Math.max(at, this.freeAt(acc, lastHour - hourly, 3600000, true))
+			}
+			const open = windowOpenAt(c, at)
+			if (open != null && (!best || open < best.at)) best = { at: open, accountId: acc }
+		}
+		return best ? { ...best, name: name(best.accountId) } : null
 	}
 
 	async tickSafe(c, inWindow) {
@@ -411,10 +494,7 @@ export class CampaignRunner {
 				ready.set(acc, session)
 				continue
 			}
-			let base = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
-			// Freno: si casi nadie le contesta, baja a la mitad (con «subir poco a poco» ya lo hace la salud)
-			if (c.auto_ramp === 0) { const rr = replyStats(acc); if (rr.sent >= 30 && rr.rate < 0.05) base = Math.ceil(base / 2) }
-			const limit = Math.max(1, Math.round(base * dailyJitter(acc)))
+			const limit = this.dailyLimitFor(c, acc, health)
 			if (this.safeSentLast24h(acc) >= limit) continue
 			// Límite por hora para que no se junten muchos mensajes seguidos
 			const lastHour = db.prepare("SELECT COUNT(*) AS n FROM campaign_items WHERE sent_by = ? AND status IN ('sent', 'failed', 'sending') AND sent_at > ?").get(acc, Date.now() - 3600000).n
