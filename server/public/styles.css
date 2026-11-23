@@ -289,7 +289,7 @@ a { color: var(--accent); }
 }
 .compose-row { display: flex; gap: 4px; align-items: flex-end; }
 .compose-row textarea {
-	flex: 1; resize: none; border: var(--hair); border-radius: 18px; padding: 7px 13px; min-height: 36px; max-height: 140px;
+	flex: 1; min-width: 0; resize: none; border: var(--hair); border-radius: 18px; padding: 7px 13px; min-height: 36px; max-height: 140px;
 	background: var(--card); outline: none; font-size: 16.5px; line-height: 1.3;
 }
 .round {
@@ -518,6 +518,9 @@ details summary { cursor: pointer; }
 .ai-opt > span { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ai-opt b { font-size: 13px; color: var(--muted); font-weight: 600; }
 .ai-text { white-space: pre-wrap; word-break: break-word; }
+.item.assistant-editor { align-items: stretch; flex-direction: column; font-size: 15px; gap: 6px; }
+.item.assistant-editor textarea { padding: 8px; border: var(--hair); border-radius: 8px; resize: vertical; }
+.item.assistant-editor textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Info. del contacto */
 .sheet.full { max-height: 100dvh; height: 100dvh; border-radius: 0; }

@@ -343,7 +343,7 @@ export class CloudSession {
 		if (live) {
 			let intent = null
 			if (!row.from_me && row.text) {
-				try { intent = smartIncoming({ accountId: this.accountId, jid: row.jid, msgId: row.id, text: row.text }) } catch {}
+			try { intent = smartIncoming({ accountId: this.accountId, jid: row.jid, msgId: row.id, text: row.text, messageAt: row.ts }) } catch {}
 				if (intent) {
 					this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(stmt.getMessage.get(this.accountId, row.id)) })
 					this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, row.jid) })

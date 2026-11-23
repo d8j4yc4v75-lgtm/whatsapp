@@ -789,7 +789,7 @@ export class Session {
 			// Asistente: entiende la respuesta (pagó, promesa, queja, número equivocado…) y actúa solo
 			let intent = null
 			if (!isGroup && row.text) {
-				try { intent = smartIncoming({ accountId: this.accountId, jid, msgId: key.id, text: row.text }) } catch (e) { note(this.accountId, 'smart-error', e.message) }
+				try { intent = smartIncoming({ accountId: this.accountId, jid, msgId: key.id, text: row.text, messageAt: row.ts }) } catch (e) { note(this.accountId, 'smart-error', e.message) }
 				if (intent) {
 					this.manager.emit('event', { type: 'message', data: this.manager.formatMessage(stmt.getMessage.get(this.accountId, key.id)) })
 					this.manager.emit('event', { type: 'conversation.update', data: this.manager.conversation(this.accountId, jid) })

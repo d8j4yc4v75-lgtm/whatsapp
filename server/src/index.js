@@ -20,8 +20,10 @@ import { CampaignRunner } from './campaigns.js'
 import { WarmupManager, library as warmupLibrary } from './warmup.js'
 import { smartEnabled, setSmartEnabled } from './smart.js'
 import { correctorStatus, correctorSave, rewrite } from './corrector.js'
+import { assistChat } from './chat-assistant.js'
 import { setupExtras } from './extras.js'
 import { setupLocation } from './location.js'
+import { previewPaymentExcel } from './payment-excel.js'
 import { diskInfo, startMaintenance, mediaDays, setMediaDays, chatMonths, setChatMonths } from './maintenance.js'
 
 const STARTED_AT = new Date().toISOString()
@@ -500,6 +502,13 @@ app.put('/api/settings/smart', route(req => { setSmartEnabled(req.body.enabled !
 app.get('/api/settings/ai', route(() => correctorStatus()))
 app.put('/api/settings/ai', route(req => correctorSave(req.body || {})))
 app.post('/api/ai/rewrite', route(req => rewrite(req.body || {})))
+app.post('/api/ai/assist', route(req => {
+	const { accountId, jid } = convKey(req.body?.key)
+	const conv = manager.conversation(accountId, jid)
+	if (!conv) throw Object.assign(new Error('Conversación no encontrada'), { status: 404 })
+	if (conv.isGroup) throw new Error('El asistente está disponible en chats individuales')
+	return assistChat({ accountId, jid, action: req.body.action, text: req.body.text, tone: req.body.tone })
+}))
 
 // ---- Calentamiento (tus números se escriben entre sí) ----
 app.get('/api/warmup', route(() => warmup.status()))
@@ -728,6 +737,14 @@ app.get('/api/media/:id/:msgId', route(async (req, res) => {
 
 setupExtras({ app, route, manager })
 setupLocation({ app, route, manager, accountParam })
+
+const paymentExcelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 } }).single('file')
+app.post('/api/payment-excel', (req, res, next) => {
+	paymentExcelUpload(req, res, error => {
+		if (error) return res.status(400).json({ error: 'Selecciona un solo archivo .xlsx de hasta 5 MB' })
+		next()
+	})
+}, route(req => previewPaymentExcel(req.file?.buffer)))
 
 // ---- Etiquetas ----
 app.get('/api/labels', route(() => db.prepare('SELECT * FROM labels ORDER BY name').all()))

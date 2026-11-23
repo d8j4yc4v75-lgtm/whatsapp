@@ -1122,7 +1122,7 @@ function renderComposer() {
 		<button class="round ghost" data-act="attach" aria-label="Adjuntar">${IC.plus}</button>
 		${isCloud ? `<button class="round ghost" data-act="tpl-chat" aria-label="Plantilla">${IC.template}</button>` : ''}
 		<textarea id="text" rows="1" placeholder="Mensaje"></textarea>
-		<button class="round ghost ai-btn" id="ai-btn" data-act="ai-fix" aria-label="Corregir texto" hidden>${IC.sparkle}</button>
+		<button type="button" class="round ghost ai-btn" data-act="ai-assist" aria-label="Asistente del chat" aria-haspopup="dialog" title="Asistente del chat">${IC.sparkle}</button>
 		<button class="round mic" id="send-btn" data-act="send" aria-label="Enviar">${IC.mic}</button>`
 	const ta = $('#text')
 	ta.value = prev
@@ -1131,7 +1131,6 @@ function renderComposer() {
 		ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'
 		const btn = $('#send-btn')
 		const has = Boolean(ta.value.trim())
-		$('#ai-btn').hidden = !has
 		if (btn.classList.contains('mic') === has) { btn.classList.toggle('mic', !has); btn.innerHTML = has ? IC.sendFill : IC.mic }
 	}
 	ta.oninput = () => { sync(); renderQuickReplies(); saveDraft(S.active, ta.value) }
@@ -1224,6 +1223,7 @@ const INTENT_UI = {
 	equivocado: { tag: '❓ Número equivocado', note: 'Ya no recibirá masivos.', reply: /equivocad/i },
 	pagado: { tag: '💰 Dice que ya pagó', reply: /comprobante/i, replyIfProof: /gracias/i },
 	promesa: { tag: '🤝 Prometió pagar', note: 'Se creó un recordatorio para ese día.', reply: /promesa|compromiso/i },
+	seguimiento_pago: { tag: '📅 Seguimiento de pago', note: 'Se creó un recordatorio interno para el mes indicado.' },
 	datos_pago: { tag: '🏦 Pide datos de pago', reply: /datos|cuenta|pagar/i },
 	negociar: { tag: '💬 Quiere negociar', reply: /opciones|convenio|plan/i },
 	se_niega: { tag: '✋ Se niega a pagar', note: 'Explícale el adeudo con calma.' },
@@ -1611,6 +1611,7 @@ async function renderCampaigns(full) {
 			<div class="section">Resultados</div>
 			<div class="chips" style="padding:4px 16px 8px">${[[1, 'Hoy'], [7, '7 días'], [30, '30 días']].map(([d, t]) => `<button class="chip ${S.statsDays === d ? 'on' : ''}" data-act="stats-days" data-val="${d}">${t}</button>`).join('')}</div>
 			<div id="stats"><p class="hint">Cargando…</p></div>
+			<div class="group"><button class="btn" data-act="payment-excel">Revisar Excel de pagos</button></div>
 			<div id="camp-list"></div>
 			<p class="hint">Los envíos terminados o cancelados se borran solos, con su lista, un día después. Si quieres conservar el resultado, descarga el Excel antes.</p>
 			<p class="hint">Los envíos salen poco a poco y solo en el horario que elijas. En <b>modo seguro</b> cada número manda como máximo su límite diario, con pausas al azar entre mensajes, y deja de usarse si WhatsApp le rechaza mensajes. Quien responda «BAJA» no vuelve a recibir mensajes.</p></div>`
@@ -1618,6 +1619,84 @@ async function renderCampaigns(full) {
 		loadStats()
 	}
 	renderCampaignList()
+}
+
+function openPaymentExcel() {
+	sheet('Excel de pagos', `
+		<p class="hint">Vista previa de la primera hoja. Usa los encabezados NOMBRE, MONTO, TELEFONO y FECHA. En FECHA indica el vencimiento.</p>
+		<form id="payment-excel-form" class="pad">
+			<label for="payment-excel-file">Archivo de Excel (.xlsx)</label>
+			<input id="payment-excel-file" name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required style="display:block;max-width:100%;margin:8px 0 12px">
+			<button type="submit" class="btn primary">Revisar archivo</button>
+		</form>
+		<p id="payment-excel-status" class="hint" role="status"></p>
+		<div id="payment-excel-result"></div>`, el => {
+		const form = $('#payment-excel-form', el)
+		const input = $('#payment-excel-file', el)
+		const button = $('button[type="submit"]', form)
+		const status = $('#payment-excel-status', el)
+		const result = $('#payment-excel-result', el)
+		input.onchange = () => {
+			result.textContent = ''
+			status.textContent = ''
+		}
+		form.onsubmit = async event => {
+			event.preventDefault()
+			if (button.disabled || !input.files.length) return
+			const body = new FormData(form)
+			input.disabled = true
+			button.disabled = true
+			result.textContent = ''
+			status.textContent = 'Revisando el archivo…'
+			try {
+				const preview = await api('POST', '/payment-excel', body, true)
+				if (!el.isConnected) return
+				status.textContent = preview.rows.length
+					? `Mostrando ${preview.rows.length} de ${preview.total - preview.invalid} filas válidas.`
+					: 'El archivo no contiene filas válidas para mostrar.'
+				renderPaymentExcel(result, preview)
+			} catch (error) {
+				status.textContent = error.message
+			} finally {
+				input.disabled = false
+				button.disabled = false
+			}
+		}
+	})
+}
+
+function renderPaymentExcel(el, data) {
+	const card = (value, label) => `<div class="stat"><b>${esc(value)}</b><small>${label}</small></div>`
+	const formatDate = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeZone: 'UTC' })
+	const formatAmount = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 2 })
+	el.innerHTML = `
+		<div class="stats-grid">
+			${card(data.total, 'Filas del archivo')}
+			${card(data.matched, 'Con chat')}
+			${card(data.invalid, 'Filas inválidas')}
+			${card(data.replied, 'Con mensaje recibido')}
+			${card(data.followups, 'Con recordatorio')}
+		</div>
+		${data.dates ? `<div class="stats-grid">
+			${card(data.dates.past, 'Fecha pasada')}
+			${card(data.dates.today, 'Fecha de hoy')}
+			${card(data.dates.next7, 'Próximos 7 días')}
+		</div>` : ''}
+		${data.rows.length ? `<div class="group">${data.rows.map(row => {
+			const phone = fmtPhone(row.phone)
+			const details = [
+				row.name ? phone : '',
+				row.due ? formatDate.format(new Date(row.due)) : 'Sin fecha',
+				row.amount != null ? `Monto ${formatAmount.format(row.amount)}` : '',
+				row.followup ? 'Con recordatorio' : '',
+				row.replied ? 'Con mensaje recibido' : ''
+			].filter(Boolean)
+			if (!row.chatKey) details.push('Sin chat')
+			const item = `<span class="grow"><b>${esc(row.name || phone)}</b><small>${esc(details.join(' · '))}</small></span>`
+			return row.chatKey
+				? `<a class="item" href="#/chat/${enc(row.chatKey)}">${item}${IC.chevron}</a>`
+				: `<div class="item">${item}</div>`
+		}).join('')}</div>` : ''}`
 }
 
 async function loadStats() {
@@ -2859,32 +2938,177 @@ function sheet(title, html, bind) {
 function closeSheet() { $('#sheet')?.remove() }
 
 // ---------- Corrección de texto antes de enviar ----------
-async function aiReview(text) {
+function openChatAssistant(trigger) {
 	const key = S.active
+	const composer = $('#text')
+	if (!key || !composer) return
+	const draft = composer.value
+	const hasDraft = Boolean(draft.trim())
+	const provider = S.ai.assistantProvider
+	const notice = provider === 'openai'
+		? 'OpenAI procesa los mensajes de texto recientes de este chat y el borrador que elijas mejorar.'
+		: provider === 'local'
+			? 'MultiWA usa los mensajes de texto recientes de este chat.'
+			: 'El asistente usa los mensajes de texto recientes de este chat y los procesa con OpenAI si está configurado.'
+	sheet('Asistente del chat', `
+		<p class="hint">${notice}</p>
+		<div class="group">
+			<label class="item"><span class="grow">Tono de la respuesta</span>
+				<select id="assistant-tone">
+					<option value="profesional">Profesional</option>
+					<option value="cercano">Cercano</option>
+					<option value="breve">Breve</option>
+				</select>
+			</label>
+			<button type="button" class="btn" data-assist-action="suggest">Sugerir respuesta</button>
+			${hasDraft ? '<button type="button" class="btn" data-assist-action="improve">Mejorar borrador</button>' : ''}
+			${hasDraft ? '<button type="button" class="btn" id="assistant-correct">Corregir ortografía</button>' : ''}
+		</div>
+		<p id="assistant-status" class="hint" role="status"></p>
+		<div id="assistant-preview" hidden>
+			<div class="group" id="assistant-analysis" hidden></div>
+			<div class="group" id="assistant-options" role="radiogroup" aria-label="Opciones de respuesta" hidden></div>
+			<div class="group"><label class="item assistant-editor">
+				<span>Borrador sugerido</span>
+				<textarea id="assistant-text" rows="4" maxlength="2000"></textarea>
+			</label></div>
+			<div class="pad"><button type="button" class="btn primary" id="assistant-apply">${hasDraft ? 'Reemplazar borrador' : 'Usar como borrador'}</button></div>
+		</div>`, el => {
+		const dialog = $('.sheet', el)
+		const close = $('[data-act="close-sheet"]', el)
+		dialog.setAttribute('role', 'dialog')
+		dialog.setAttribute('aria-modal', 'true')
+		dialog.setAttribute('aria-label', 'Asistente del chat')
+		el.dispose = () => { if (trigger.isConnected) trigger.focus() }
+		dialog.onkeydown = event => {
+			if (event.key === 'Escape') closeSheet()
+			if (event.key !== 'Tab') return
+			const controls = [...dialog.querySelectorAll('button:not(:disabled), select:not(:disabled), input:not(:disabled), textarea:not(:disabled)')]
+				.filter(control => !control.closest('[hidden]'))
+			const boundary = event.shiftKey ? controls[0] : controls.at(-1)
+			if (document.activeElement !== boundary) return
+			event.preventDefault()
+			;(event.shiftKey ? controls.at(-1) : controls[0]).focus()
+		}
+		const status = $('#assistant-status', el)
+		const preview = $('#assistant-preview', el)
+		const analysis = $('#assistant-analysis', el)
+		const options = $('#assistant-options', el)
+		const output = $('#assistant-text', el)
+		const tone = $('#assistant-tone', el)
+		const apply = $('#assistant-apply', el)
+		const choices = [...el.querySelectorAll('[data-assist-action]')]
+		const correct = $('#assistant-correct', el)
+		choices[0].focus()
+		const current = () => el.isConnected && S.active === key && $('#text') === composer && composer.value === draft
+		const changed = () => { status.textContent = 'El borrador cambió. Vuelve a abrir el asistente para usar la versión actual.' }
+		if (correct) correct.onclick = () => current() ? aiReview(draft.trim(), { draftOnly: true }) : changed()
+		output.oninput = () => { apply.disabled = !output.value.trim() }
+		tone.onchange = () => {
+			preview.hidden = true
+			status.textContent = ''
+		}
+		apply.onclick = () => {
+			if (!current()) return changed()
+			if (preview.hidden || !output.value.trim()) return
+			composer.value = output.value.trim()
+			composer.dispatchEvent(new Event('input'))
+			closeSheet()
+			composer.focus()
+		}
+		for (const choice of choices) choice.onclick = async () => {
+			if (!current()) return changed()
+			preview.hidden = true
+			status.textContent = 'Preparando sugerencia…'
+			if (document.activeElement === choice) close.focus()
+			for (const button of choices) button.disabled = true
+			if (correct) correct.disabled = true
+			tone.disabled = true
+			try {
+				const action = choice.dataset.assistAction
+				const result = await api('POST', '/ai/assist', { key, text: action === 'improve' ? draft.trim() : '', action, tone: tone.value })
+				if (!el.isConnected || S.active !== key) return
+				if (!current()) return changed()
+				renderAssistantPreview(result, { analysis, options, output, apply })
+				preview.hidden = false
+				status.textContent = result.fallback
+					? 'OpenAI no respondió. El asistente local preparó esta sugerencia.'
+					: 'Sugerencia lista para revisar.'
+			} catch (error) {
+				status.textContent = error.message
+			} finally {
+				for (const button of choices) button.disabled = false
+				if (correct) correct.disabled = false
+				tone.disabled = false
+			}
+		}
+	})
+}
+
+function renderAssistantPreview(result, { analysis, options, output, apply }) {
+	const primary = result.text?.trim()
+	if (!primary) throw new Error('No hay sugerencia para mostrar.')
+	const variants = [{ label: 'Respuesta principal', text: primary }]
+	for (const alternative of result.alternatives || []) {
+		const text = alternative.text?.trim()
+		if (!text || variants.some(variant => variant.text === text)) continue
+		variants.push({ label: alternative.label || `Alternativa ${variants.length}`, text })
+		if (variants.length === 3) break
+	}
+	options.hidden = variants.length === 1
+	options.innerHTML = options.hidden ? '' : variants.map((variant, index) =>
+		`<label class="ai-opt"><input type="radio" name="assistant-option" value="${index}"${index === 0 ? ' checked' : ''}><span>${esc(variant.label)}</span></label>`).join('')
+	let selected = 0
+	options.onchange = event => {
+		const index = Number(event.target.value)
+		const variant = variants[index]
+		if (!variant) return
+		variants[selected].text = output.value
+		selected = index
+		output.value = variant.text
+		apply.disabled = !output.value.trim()
+	}
+	const context = result.analysis || {}
+	const details = [
+		['Resumen', context.summary],
+		['Pendiente', Array.isArray(context.pending) ? context.pending.join(' · ') : context.pending],
+		['Siguiente paso', context.nextStep]
+	].filter(([, value]) => value?.trim())
+	analysis.hidden = !details.length
+	analysis.innerHTML = details.map(([label, value]) => `<div class="item"><span class="grow"><b>${label}</b><small>${esc(value)}</small></span></div>`).join('')
+	output.value = primary
+	apply.disabled = false
+}
+
+async function aiReview(text, { draftOnly = false } = {}) {
+	const key = S.active
+	const composer = $('#text')
+	const draft = composer?.value
 	sheet('Revisar mensaje', `<div id="ai-box" class="ai-box"><div class="ai-loading">${IC.sparkle}<span>Revisando…</span></div></div>`)
+	const box = $('#ai-box')
+	const current = () => box.isConnected && S.active === key && $('#text') === composer && composer?.value === draft
 	let r
 	try {
 		r = await api('POST', '/ai/rewrite', { text, accountId: accOf(key), jid: jidOf(key) })
 	} catch (e) {
-		const box = $('#ai-box'); if (!box) return
+		if (!current()) return
 		box.innerHTML = `<p class="hint" style="color:var(--danger)">${esc(e.message)}</p>
-			<div class="group"><button class="btn primary" data-act="ai-pick" data-val="original">Enviar sin corregir</button></div>`
-		S.aiOpts = { original: text, key }
+			${draftOnly ? '' : '<div class="group"><button class="btn primary" data-act="ai-pick" data-val="original">Enviar sin corregir</button></div>'}`
+		S.aiOpts = { original: text, current }
 		return
 	}
-	const box = $('#ai-box')
-	if (!box || S.active !== key) return
-	S.aiOpts = { ...r, key }
+	if (!current()) return
+	S.aiOpts = { ...r, current }
 	const opt = (id, title, body, checked) => `<label class="ai-opt"><input type="radio" name="ai-opt" value="${id}"${checked ? ' checked' : ''}><span><b>${title}</b><span class="ai-text">${esc(body)}</span></span></label>`
 	const same = r.corregido === r.original
 	box.innerHTML = `
 		${same ? '<p class="hint">✅ No se encontraron errores de ortografía.</p>' : ''}
 		<div class="group">
 			${opt('corregido', 'Ortografía corregida', r.corregido, true)}
-			${r.mejorado !== r.corregido ? opt('mejorado', 'Respuesta mejorada', r.mejorado) : ''}
+			${!draftOnly && r.mejorado !== r.corregido ? opt('mejorado', 'Respuesta mejorada', r.mejorado) : ''}
 			${same ? '' : opt('original', 'Original', r.original)}
 		</div>
-		<div class="group"><button class="btn primary" data-act="ai-send">Enviar</button><button class="btn" data-act="ai-edit">Editar antes de enviar</button></div>`
+		<div class="group">${draftOnly ? '<button class="btn primary" data-act="ai-edit">Usar como borrador</button>' : '<button class="btn primary" data-act="ai-send">Enviar</button><button class="btn" data-act="ai-edit">Editar antes de enviar</button>'}</div>`
 }
 
 // Menú de acciones que sube desde abajo (como el de iOS)
@@ -3131,13 +3355,12 @@ document.addEventListener('click', async e => {
 			ta.focus()
 			return
 		}
-		case 'ai-fix': { const v = $('#text')?.value.trim(); if (v) aiReview(v); return }
+		case 'ai-assist': return openChatAssistant(el)
 		case 'ai-send': case 'ai-edit': case 'ai-pick': {
-			const o = S.aiOpts; if (!o) return
+			const o = S.aiOpts; if (!o?.current()) return
 			const choice = act === 'ai-pick' ? val : ($('input[name="ai-opt"]:checked')?.value || 'corregido')
 			const text = o[choice] || o.original
 			closeSheet()
-			if (o.key !== S.active) return
 			if (act === 'ai-edit') { const ta = $('#text'); ta.value = text; ta.dispatchEvent(new Event('input')); ta.focus(); return }
 			return sendText(text, true)
 		}
@@ -3230,6 +3453,7 @@ document.addEventListener('click', async e => {
 			document.querySelectorAll('[data-act=stats-days]').forEach(b => b.classList.toggle('on', Number(b.dataset.val) === S.statsDays))
 			return loadStats()
 		}
+		case 'payment-excel': return openPaymentExcel()
 		case 'cl-save': case 'tpl-refresh': case 'tpl-create':
 			e.preventDefault()
 			return accountAction(act)

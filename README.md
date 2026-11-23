@@ -47,6 +47,7 @@ Repite el proceso con cada número.
 - **＋** adjunta fotos, videos o documentos; **🎤** graba una nota de voz.
 - **✏️** abre un chat nuevo con cualquier número.
 - **🏷️** etiqueta un chat; las etiquetas se crean en Ajustes.
+- **✨ Asistente del chat** ofrece corrección ortográfica, análisis de los mensajes recientes y opciones de respuesta con tono profesional, cercano o breve. Elige una opción y edítala antes de colocarla en el cuadro de mensaje.
 
 ## Si algo falla
 
@@ -63,5 +64,6 @@ Repite el proceso con cada número.
 - `server/public/`: la web app (PWA) sin paso de compilación.
 - `Dockerfile` + `railway.json`: despliegue. Los datos se guardan en `DATA_DIR` (`/data` en Docker).
 - Para correrlo en local: `cd server && npm install && npm start` (requiere Node 20+ y ffmpeg).
+- El asistente usa reglas locales por defecto. Para habilitar respuestas con OpenAI, agrega `OPENAI_API_KEY` a las variables del servidor y, opcionalmente, `OPENAI_ASSISTANT_MODEL` para elegir el modelo. Al pedir una sugerencia o una mejora en ese modo, MultiWA envía al proveedor hasta 12 mensajes de texto recientes del chat y el borrador que elegiste mejorar. La corrección ortográfica sigue siendo local.
 
 </details>

@@ -15,6 +15,11 @@ export const norm = t => String(t || '').toLowerCase().normalize('NFD').replace(
 
 const PAY_VERB = '(pago|deposito|transfiero|abono|liquido|cubro|pagare|depositare|transferire|abonare|hago el (pago|deposito)|mando el (pago|deposito)|voy a (pagar|depositar|abonar|transferir|liquidar))'
 const WHEN = '(hoy|manana|pasado manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|(la )?(proxima|siguiente) semana|quincena|fin de mes|el \\d{1,2}|dia \\d{1,2}|en la tarde|en la noche|al rato|mas tarde|en (\\d+|un|una|dos|tres|cuatro|cinco) dias?)'
+const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+const MONTH_FOLLOWUP = new RegExp(
+	`\\b(?:(?:no (?:puedo|podre) pagar hasta)|(?<!no )(?:puedo|podria|podre|voy a) pagar (?:en|hasta)) (${MONTHS.join('|')})(?: (?:de )?(20\\d{2}))?\\b`
+)
+const FOLLOWUP_PREFIX = '🤖 Seguimiento de pago'
 
 // El orden importa: lo más delicado primero
 const RULES = [
@@ -23,6 +28,7 @@ const RULES = [
 	['equivocado', /\b(numero equivocado|esta equivocad\w*|se equivoc\w*|equivocacion|no soy (yo|esa persona|el|ella|quien busca\w*)|no conozco a|no lo conozco|no la conozco|no se quien es|aqui no vive|no vive aqui|no es mi (deuda|cuenta)|no tengo ninguna deuda|yo no tengo deuda|yo no saque)\b/],
 	['se_niega', /\b(no (voy|pienso|vamos) a pagar\w*|no (le|les|te) (debo|voy a pagar)|no (les|le|te) pienso (dar|pagar)|no reconozco (esa|la|ninguna) deuda|no pagare|no voy a dar (ni|nada))\b/],
 	['pagado', /\b(ya (le |te |les )?(pague|deposite|transferi|liquide|abone|cubri|salde|realice el pago|hice el (pago|deposito)|quedo pagado|esta pagado|quedo liquidado)|pago realizado|(ya )?(te|le) (mande|envie) el comprobante|(aqui|ahi) (esta|va|le va|te va) el comprobante|adjunto (el )?comprobante)\b/],
+	['seguimiento_pago', MONTH_FOLLOWUP],
 	['promesa', new RegExp(`\\b(${PAY_VERB}\\b.*\\b${WHEN}\\b|\\b${WHEN}\\b.*\\b${PAY_VERB}\\b|cuando me paguen|en cuanto me paguen)`)],
 	['sin_dinero', /\b(no tengo (dinero|lana|trabajo|con que|para pagar)|(me )?(quede|estoy) sin (trabajo|chamba|dinero|lana)|me (corrieron|despidieron)|estoy (desempleado|enfermo|enferma|hospitalizad\w*)|ando (corto|corta|sin lana|bajo de dinero)|no me alcanza|ahorita no (puedo|tengo)|situacion (dificil|complicada)|no he podido pagar)\b/],
 	['datos_pago', /\b(a que cuenta|numero de cuenta|clabe|donde (le |te )?(deposito|pago)|datos (para (pagar|depositar)|de pago|bancarios|de la cuenta)|como (le |te )?(pago|deposito)|referencia de pago|en que banco|me (pasa|pasas|da|das) (la cuenta|los datos))\b/],
@@ -66,6 +72,7 @@ export const INTENTS = {
 	equivocado: { label: 'Número equivocado', color: '#FF2D55', tag: '❓ Número equivocado' },
 	pagado: { label: 'Pagó', color: '#25D366', tag: '💰 Dice que ya pagó' },
 	promesa: { label: 'Promesa de pago', color: '#FF9500', tag: '🤝 Promete pagar' },
+	seguimiento_pago: { label: 'Seguimiento de pago', color: '#FF9500', tag: '📅 Pide seguimiento de pago' },
 	datos_pago: { label: 'Pide datos de pago', color: '#0A84FF', tag: '🏦 Pide datos de pago' },
 	negociar: { label: 'Quiere negociar', color: '#AF52DE', tag: '💬 Quiere negociar' },
 	se_niega: { label: 'Se niega a pagar', color: '#C0392B', tag: '✋ Se niega a pagar' },
@@ -77,7 +84,7 @@ export const INTENTS = {
 
 // Al detectar una intención se quitan las etiquetas que ya no aplican
 const CLEARS = {
-	pagado: ['promesa', 'incumplida', 'datos_pago', 'saldo', 'negociar', 'sin_dinero', 'se_niega'],
+	pagado: ['promesa', 'seguimiento_pago', 'incumplida', 'datos_pago', 'saldo', 'negociar', 'sin_dinero', 'se_niega'],
 	promesa: ['se_niega', 'sin_dinero', 'saldo', 'negociar'],
 	negociar: ['se_niega'],
 	datos_pago: ['se_niega', 'saldo']
@@ -95,6 +102,17 @@ function mxToday(now = Date.now()) {
 // Hora local de México → marca de tiempo
 const mxTime = (y, m, d, h) => Date.UTC(y, m, d, h) - TZ_OFFSET_H * 3600e3
 const lastDayOf = (y, m) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+
+function paymentFollowup(text, messageAt, now) {
+	const match = norm(text).match(MONTH_FOLLOWUP)
+	if (!match) return null
+	const today = mxToday(messageAt)
+	const month = MONTHS.indexOf(match[1])
+	const year = match[2] ? Number(match[2]) : today.y + Number(month < today.m)
+	if (year < today.y || (year === today.y && month < today.m)) return null
+	const day = year === today.y && month === today.m ? today.d : 1
+	return { at: Math.max(mxTime(year, month, day, 10), now), period: `${match[1]} de ${year}` }
+}
 
 /** Devuelve { at, text } con el día que el cliente dijo que paga (a las 10 am; si es hoy, a las 6 pm) */
 export function promisedDate(text, now = Date.now()) {
@@ -195,6 +213,7 @@ function suggestionFor(intent, text, { date, amount, hist } = {}) {
 			const again = hist?.broken ? ' Le pido de favor que esta vez se pueda cumplir para mantener su cuenta en orden.' : ''
 			return `Perfecto, queda registrado su compromiso de pago${what ? ' ' + what : ''}.${again} Al realizarlo, por favor compártame su comprobante. ¡Gracias!`
 		}
+		case 'seguimiento_pago': return 'Gracias por avisarme. ¿Qué día le vendría bien que retomemos el tema del pago?'
 		case 'sin_dinero': return 'Entiendo su situación. Podemos buscar una opción que se ajuste a sus posibilidades, como pagos en partes. ¿Cuánto podría abonar y en qué fecha?'
 		case 'datos_pago': return 'Con gusto, en un momento le comparto los datos para realizar su pago.'
 		case 'negociar': return 'Claro, podemos revisar opciones. ¿Qué monto podría cubrir y en qué fecha? Con eso le propongo un plan.'
@@ -211,15 +230,17 @@ function optOut(phone) {
  * Se llama con cada mensaje que escribe un cliente (no grupos). Devuelve la intención detectada.
  * key = "cuenta:jid" de la conversación.
  */
-export function smartIncoming({ accountId, jid, msgId, text }) {
+export function smartIncoming({ accountId, jid, msgId, text, messageAt }) {
 	if (!smartEnabled() || !text) return null
-	let intent = classify(text)
+	const intent = classify(text)
 	if (!intent) return null
 	const key = `${accountId}:${jid}`
 	// «No les debo nada» después de pagar no es negarse a pagar
 	if (intent === 'se_niega' && db.prepare('SELECT 1 FROM conversation_labels c JOIN labels l ON l.id = c.label_id WHERE c.jid = ? AND lower(l.name) = lower(?)').get(key, INTENTS.pagado.label)) return null
 	const phone = jid.split('@')[0]
 	const now = Date.now()
+	const followup = intent === 'seguimiento_pago' ? paymentFollowup(text, messageAt || now, now) : null
+	if (intent === 'seguimiento_pago' && !followup) return null
 	addLabel(key, intent)
 	for (const old of CLEARS[intent] || []) removeLabel(key, old)
 	if (intent !== 'molesto' && isAngry(text)) addLabel(key, 'molesto')
@@ -244,12 +265,18 @@ export function smartIncoming({ accountId, jid, msgId, text }) {
 			const n = h.total - (db.prepare("SELECT COUNT(*) n FROM promises WHERE conv_key = ? AND status = 'replaced'").get(key).n)
 			const what = `${amount ? money(amount) + ' ' : ''}${p.text}`
 			const reminderText = `🤖 ${n > 1 ? ord(n) + ' promesa: ' : 'Prometió '}pagar ${what}${h.broken ? ` (${h.broken} incumplida${h.broken > 1 ? 's' : ''})` : ''}: «${String(text).slice(0, 120)}»`
-			const existing = db.prepare("SELECT id FROM reminders WHERE conv_key = ? AND done = 0 AND text LIKE '🤖%'").get(key)
+			const existing = db.prepare("SELECT id FROM reminders WHERE conv_key = ? AND done = 0 AND text LIKE '🤖%' AND text NOT LIKE ?").get(key, `${FOLLOWUP_PREFIX}%`)
 			if (existing) db.prepare('UPDATE reminders SET at = ?, text = ? WHERE id = ?').run(p.at, reminderText, existing.id)
 			else db.prepare('INSERT INTO reminders (conv_key, at, text, created_at) VALUES (?, ?, ?, ?)').run(key, p.at, reminderText, now)
 			setBotNote(key, `🤖 ${n > 1 ? ord(n) + ' promesa' : 'Promesa'}: pagar ${what}${h.broken ? ` · ${h.broken} incumplida${h.broken > 1 ? 's' : ''} antes` : ''}`)
 			extra = { date: p.text, amount, hist: h }
 		} else extra = { amount }
+	}
+	if (followup) {
+		const reminderText = `${FOLLOWUP_PREFIX} para ${followup.period} (sin día confirmado): «${String(text).slice(0, 120)}»`
+		const existing = db.prepare('SELECT id FROM reminders WHERE conv_key = ? AND done = 0 AND text LIKE ?').get(key, `${FOLLOWUP_PREFIX}%`)
+		if (existing) db.prepare('UPDATE reminders SET at = ?, text = ? WHERE id = ?').run(followup.at, reminderText, existing.id)
+		else db.prepare('INSERT INTO reminders (conv_key, at, text, created_at) VALUES (?, ?, ?, ?)').run(key, followup.at, reminderText, now)
 	}
 	if (intent === 'negociar' || intent === 'sin_dinero') {
 		if (amount) setBotNote(key, `🤖 Ofrece ${money(amount)}${intent === 'sin_dinero' ? ' (dice que no tiene dinero)' : ''}`)

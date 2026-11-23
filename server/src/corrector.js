@@ -6,7 +6,10 @@ import { db } from './db.js'
 const setting = key => db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key)?.value
 const TZ_OFFSET_H = Number(process.env.TZ_OFFSET_HOURS || -6)
 
-export const correctorStatus = () => ({ review: setting('ai_review') !== '0' })
+export const correctorStatus = () => ({
+	review: setting('ai_review') !== '0',
+	assistantProvider: process.env.OPENAI_API_KEY?.trim() ? 'openai' : 'local'
+})
 export function correctorSave({ review }) {
 	if (typeof review === 'boolean') db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('ai_review', ?)").run(review ? '1' : '0')
 	return correctorStatus()
@@ -21,31 +24,32 @@ const WORDS = {
 	ola: 'hola', aki: 'aquí', aqui: 'aquí', alla: 'allá', aya: 'allá', ahi: 'ahí', ai: 'ahí', asi: 'así', aver: 'a ver', osea: 'o sea',
 	nose: 'no sé', enserio: 'en serio', atravez: 'a través', apesar: 'a pesar', nomas: 'nomás', dnd: 'donde', tqm: 'te quiero mucho',
 	dia: 'día', dias: 'días', despues: 'después', ademas: 'además', todavia: 'todavía', quizas: 'quizás', segun: 'según',
-	algun: 'algún', ningun: 'ningún', estan: 'están', estas: 'estás', rapido: 'rápido', rapida: 'rápida', facil: 'fácil', dificil: 'difícil',
+	algun: 'algún', ningun: 'ningún', estan: 'están', rapido: 'rápido', rapida: 'rápida', facil: 'fácil', dificil: 'difícil',
 	numero: 'número', numeros: 'números', telefono: 'teléfono', credito: 'crédito', creditos: 'créditos', ultimo: 'último', ultima: 'última',
 	minimo: 'mínimo', maximo: 'máximo', unico: 'único', unica: 'única', pagina: 'página', util: 'útil', sabado: 'sábado', miercoles: 'miércoles',
 	informacion: 'información', atencion: 'atención', situacion: 'situación', solucion: 'solución', opcion: 'opción', aclaracion: 'aclaración',
 	cancelacion: 'cancelación', comunicacion: 'comunicación', direccion: 'dirección', razon: 'razón', ubicacion: 'ubicación', confirmacion: 'confirmación',
 	podria: 'podría', podrias: 'podrías', podrian: 'podrían', tendria: 'tendría', habia: 'había', tenia: 'tenía', queria: 'quería',
 	gustaria: 'gustaría', haria: 'haría', deberia: 'debería', manana: 'mañana', proxima: 'próxima', proximo: 'próximo',
-	cuidate: 'cuídate', disculpa: 'disculpa', perdon: 'perdón', jamas: 'jamás', ahorita: 'ahorita'
+	cuidate: 'cuídate', disculpa: 'disculpa', perdon: 'perdón', jamas: 'jamás', ahorita: 'ahorita',
+	devolucion: 'devolución', revision: 'revisión', habil: 'hábil', habiles: 'hábiles',
+	resivi: 'recibí', resivido: 'recibido', resivir: 'recibir', recivi: 'recibí', dispoible: 'disponible',
+	transaccion: 'transacción', transaciones: 'transacciones', notificacion: 'notificación', explicacion: 'explicación',
+	tansferencia: 'transferencia', tranferencia: 'transferencia', comprovante: 'comprobante', satisfacion: 'satisfacción'
 }
 // Interrogativos: llevan acento al iniciar una pregunta
-const ASK = { que: 'qué', como: 'cómo', cuando: 'cuándo', donde: 'dónde', cuanto: 'cuánto', cuanta: 'cuánta', cuantos: 'cuántos', cuantas: 'cuántas', quien: 'quién', quienes: 'quiénes', cual: 'cuál', cuales: 'cuáles' }
+const ASK = { __proto__: null, que: 'qué', como: 'cómo', cuando: 'cuándo', donde: 'dónde', cuanto: 'cuánto', cuanta: 'cuánta', cuantos: 'cuántos', cuantas: 'cuántas', quien: 'quién', quienes: 'quiénes', cual: 'cuál', cuales: 'cuáles' }
 const GREETING = /^(hola|buen[oa]s?|saludos|estimad[oa]|que tal|qué tal|hey|disculp\w*|perdon\w*|perdón)\b/i
 const CLOSING = /(gracias|saludos|bonito d[ií]a|buen d[ií]a|excelente d[ií]a|quedo (al pendiente|atent[oa])|cu[ií]date|bendiciones)[.!]*\s*$/i
 
-const isUrl = w => /^(https?:\/\/|www\.)|@|\.\w{2,}\//i.test(w)
 const keepCase = (src, out) => src === src.toUpperCase() && src.length > 1 ? out.toUpperCase() : /^[A-ZÁÉÍÓÚÑ]/.test(src) ? out[0].toUpperCase() + out.slice(1) : out
+const PROTECTED = /`[^`\n]+`|(?:https?:\/\/|www\.)[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b[\p{L}\d_-]*\d[\p{L}\d_-]*\b/giu
 
 function fixWords(line) {
-	return line.split(/(\s+)/).map(tok => {
-		if (!tok.trim() || isUrl(tok)) return tok
-		return tok.replace(/[\p{L}]+/gu, w => {
-			const r = WORDS[w.toLowerCase()]
-			return r ? keepCase(w, r) : w.replace(/(\p{L})\1{2,}/gu, '$1') // holaaaa → hola
-		})
-	}).join('')
+	return line.replace(/\p{L}+/gu, w => {
+		const r = Object.hasOwn(WORDS, w.toLowerCase()) ? WORDS[w.toLowerCase()] : null
+		return r ? keepCase(w, r) : w
+	})
 }
 
 // Divide en oraciones conservando su signo final
@@ -60,10 +64,10 @@ function fixSentence(s) {
 	const end = body.match(/[?!]+\s*$/)?.[0]?.trim()
 	if (end?.startsWith('?') && !body.includes('¿')) {
 		// La pregunta empieza en el primer interrogativo al inicio de la oración o después de una coma
-		const re = /(^|,\s*)(por que|porque|que tal|\p{L}+)\b/giu
+		const re = /(^|,\s*)(por que|porque|que tal|\p{L}+)(?!\p{L})/giu
 		let at = -1, m
 		while ((m = re.exec(body))) {
-			const w = m[2].toLowerCase()
+			const w = m[2].toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
 			if (ASK[w] || w === 'por que' || w === 'porque' || w === 'que tal') { at = m.index + m[1].length; break }
 		}
 		if (at < 0) at = 0
@@ -72,17 +76,23 @@ function fixSentence(s) {
 			.replace(/^(\p{L}+)/u, w => ASK[w.toLowerCase()] ? keepCase(w, ASK[w.toLowerCase()]) : w)
 			.replace(/,\s*(por que|porque)\b/gi, (m, w) => ', ' + keepCase(w, 'por qué'))
 		body = body.slice(0, at) + '¿' + q
-	} else if (end?.startsWith('!') && !body.startsWith('¡')) body = '¡' + body
+	} else if (end?.startsWith('!') && !body.includes('¡')) body = '¡' + body
+	body = body.replace(/¿(por que|porque|\p{L}+)/giu, (_, word) => {
+		const plain = word.toLowerCase()
+		if (plain === 'por que' || plain === 'porque') return '¿' + keepCase(word, 'por qué')
+		return '¿' + (ASK[plain] ? keepCase(word, ASK[plain]) : word)
+	})
 	body = body.replace(/^([¿¡]?)(\p{Ll})/u, (m, p, c) => p + c.toUpperCase())
 	return lead + body
 }
 
 function fixLine(line) {
 	if (!line.trim()) return line
-	const urls = []
-	let t = fixWords(line.replace(/\S*(https?:\/\/|www\.)\S+|\S+@\S+\.\S+/gi, u => `\u0000${urls.push(u) - 1}\u0000`))
+	const literals = []
+	let t = fixWords(line.replace(PROTECTED, value => `\u0000${literals.push(value) - 1}\u0000`))
 		.replace(/[ \t]{2,}/g, ' ')
 		.replace(/\besta bien\b/gi, m => keepCase(m, 'está bien'))
+		.replace(/\bcomo estas\b/gi, m => keepCase(m, 'cómo estás'))
 		.replace(/\bya quedo\b/gi, m => keepCase(m, 'ya quedó'))
 		.replace(/!{2,}/g, '!').replace(/\?{2,}/g, '?').replace(/([?!]){2,}/g, '$1').replace(/\.{4,}/g, '...').replace(/,{2,}/g, ',')
 		.replace(/\s+([,.;:?!])/g, '$1')
@@ -90,13 +100,13 @@ function fixLine(line) {
 		.replace(/([.?!])(?=[\p{Lu}¿¡])/gu, '$1 ')
 		.replace(/\bi\b(?=\s)/g, 'y')
 	t = t.replace(/(\p{L}) (gracias)\b/giu, (m, a, g, i, all) => /(muchas|mil|las|de|dar|doy|y)$/i.test(all.slice(0, i + 1).split(/\s/).pop() + '') ? m : `${a}, ${g}`)
-	return sentences(t).map(fixSentence).join('').trim().replace(/\u0000(\d+)\u0000/g, (m, i) => urls[i])
+	return sentences(t).map(fixSentence).join('').trim().replace(/\u0000(\d+)\u0000/g, (m, i) => literals[i])
 }
 
 export function correct(text) {
 	const lines = String(text).replace(/\r/g, '').split('\n').map(fixLine)
 	let out = lines.join('\n').trim()
-	if (/[\p{L}\p{N})]$/u.test(out) && (out.split(/\s+/).length > 3 || /\n/.test(out))) out += '.'
+	if (!/(?:https?:\/\/|www\.)\S+$|[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i.test(out) && /[\p{L}\p{N})]$/u.test(out) && (out.split(/\s+/).length > 3 || /\n/.test(out))) out += '.'
 	return out
 }
 
