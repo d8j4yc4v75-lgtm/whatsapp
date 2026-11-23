@@ -161,9 +161,10 @@ svg{display:block}
 .who .s:empty{display:none}
 .ibtn{color:var(--label)}
 #msgs{position:relative;padding:calc(76px + var(--st)) calc(16px + var(--sr)) 12px calc(16px + var(--sl))}
-.day{text-align:center;margin:16px 0 10px}
-.day-label{display:inline-block;min-width:53px;max-width:100%;font-size:13px;font-weight:600;letter-spacing:-.1px;color:var(--dayText);background:var(--dayBg);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);padding:0 12px;border-radius:11px;line-height:21px;vertical-align:top}
-#floatingDay{position:absolute;top:calc(66px + var(--st));left:calc(16px + var(--sl));right:calc(16px + var(--sr));z-index:2;text-align:center;pointer-events:none;visibility:hidden}
+.day{text-align:center;margin:20px 0 8px}
+.day-label{display:inline-block;box-sizing:border-box;min-width:53px;max-width:100%;font-size:15px;font-weight:600;letter-spacing:-.1px;color:var(--dayText);background:var(--dayBg);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);padding:1px 11px;border-radius:7px;line-height:19px;vertical-align:top}
+.day>.day-label{min-width:99px} /* entre mensajes es más ancha; la flotante, compacta (medido en capturas) */
+#floatingDay{position:absolute;top:calc(75px + var(--st));left:calc(16px + var(--sl));right:calc(16px + var(--sr));z-index:2;text-align:center;pointer-events:none;visibility:hidden}
 #floatingDay.on{visibility:visible}
 .day.is-floating>.day-label{opacity:0}
 .info{margin:2px 9px 6px;padding:30px 16px 15px;border-radius:32px;background:var(--card);text-align:center}
