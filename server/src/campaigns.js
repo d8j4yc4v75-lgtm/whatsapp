@@ -15,6 +15,7 @@ const restDays = () => {
 }
 
 const hourNow = () => Number(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' }).format(new Date()))
+const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date())
 const WEEKDAYS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
 const hourFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' })
 const dayFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' })
@@ -57,7 +58,10 @@ for (const sql of [
 	// Intentos de un contacto que falló por un problema temporal (conexión)
 	'ALTER TABLE campaign_items ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0',
 	// Envío programado: no empieza antes de esta fecha
-	'ALTER TABLE campaigns ADD COLUMN start_at INTEGER'
+	'ALTER TABLE campaigns ADD COLUMN start_at INTEGER',
+	// «Más hoy»: mensajes extra por número solo por hoy, respetando pausas, tope por hora y horario
+	'ALTER TABLE campaigns ADD COLUMN extra_today INTEGER NOT NULL DEFAULT 0',
+	'ALTER TABLE campaigns ADD COLUMN extra_day TEXT'
 ]) {
 	try { db.exec(sql) } catch {}
 }
@@ -228,6 +232,7 @@ export class CampaignRunner {
 			forced: Boolean(c.forced),
 			skipChats: Boolean(c.skip_chats),
 			startAt: c.start_at && c.start_at > Date.now() ? c.start_at : null,
+			extraToday: this.extraToday(c),
 			hourlyPerNumber: c.hourly_per_number,
 			minDelay: c.min_delay,
 			maxDelay: c.max_delay,
@@ -367,7 +372,19 @@ export class CampaignRunner {
 		let base = c.auto_ramp !== 0 && health ? Math.min(c.daily_per_number, health.suggestedDaily) : c.daily_per_number
 		// Freno: si casi nadie le contesta, baja a la mitad (con «subir poco a poco» ya lo hace la salud)
 		if (c.auto_ramp === 0) { const rr = replyStats(acc); if (rr.sent >= 30 && rr.rate < 0.05) base = Math.ceil(base / 2) }
-		return Math.max(1, Math.round(base * dailyJitter(acc)))
+		return Math.max(1, Math.round(base * dailyJitter(acc))) + this.extraToday(c)
+	}
+
+	/** Extra por número que diste para hoy (se borra solo al cambiar el día) */
+	extraToday(c) { return c.extra_day === todayKey() ? (c.extra_today || 0) : 0 }
+
+	/** «Más hoy»: suma mensajes por número solo por hoy. No quita pausas, tope por hora, horario ni salud. */
+	addExtraToday(id, add) {
+		const c = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id)
+		const now = Math.min(30, this.extraToday(c) + Math.max(1, Math.min(20, Number(add) || 5)))
+		db.prepare('UPDATE campaigns SET extra_today = ?, extra_day = ?, note = NULL WHERE id = ?').run(now, todayKey(), id)
+		this.emit(id)
+		return this.get(id)
 	}
 
 	/** Cuándo vuelve a tener lugar un número: cuando su envío número k (del más viejo) sale de la ventana */

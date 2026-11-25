@@ -625,6 +625,14 @@ app.post('/api/campaigns/:cid/retry', route(req => {
 	return { retried, campaign: campaigns.get(id) }
 }))
 
+app.post('/api/campaigns/:cid/extra', route(req => {
+	const id = Number(req.params.cid)
+	const c = campaigns.get(id)
+	if (!c) throw Object.assign(new Error('Envío no encontrado'), { status: 404 })
+	if (c.kind !== 'safe') throw new Error('Solo aplica al modo seguro')
+	return campaigns.addExtraToday(id, req.body.add)
+}))
+
 app.post('/api/campaigns/:cid/force', route(req => {
 	const id = Number(req.params.cid)
 	const c = campaigns.get(id)

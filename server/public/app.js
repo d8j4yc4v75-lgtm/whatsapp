@@ -1774,7 +1774,7 @@ function renderCampaignList() {
 		const safe = c.kind === 'safe'
 		const waiting = c.note === 'limit' || c.note === 'limit-safe' || /^Esperando/.test(c.note || '')
 		let why = c.note === 'limit' ? 'Esperando: se alcanzó el límite diario de Meta'
-			: c.note === 'limit-safe' ? (c.forced ? 'Esperando a que algún número pueda enviar (conectado y sin rechazos).' : 'Esperando: los números ya enviaron su máximo de hoy. Sigue mañana sola. Si es urgente, toca «⚡ Enviar ya».')
+			: c.note === 'limit-safe' ? (c.forced ? 'Esperando a que algún número pueda enviar (conectado y sin rechazos).' : 'Esperando: los números ya enviaron su máximo de hoy. Sigue mañana sola. Para mandar unos más hoy sin quitar las pausas, toca «➕ Más hoy»; si es urgente, «⚡ Enviar ya».')
 			: c.note || ''
 		const tags = safe
 			? c.accountIds.map(id => c.disabledIds.includes(id) ? `<span style="opacity:.4;text-decoration:line-through">${accountTag(id)}</span>` : accountTag(id)).join('')
@@ -1793,6 +1793,7 @@ function renderCampaignList() {
 			<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
 				${c.status === 'running' ? `<button class="chip" data-act="camp" data-val="${c.id}:pause">Pausar</button>` : ''}
 				${c.status === 'paused' ? `<button class="chip" data-act="camp" data-val="${c.id}:resume">Reanudar</button>` : ''}
+				${safe && !c.forced && (c.status === 'running' || c.status === 'paused') && n.pending ? `<button class="chip" style="--c:#25D366" data-act="camp-extra" data-val="${c.id}">➕ Más hoy (con pausas)${c.extraToday ? ` · +${c.extraToday}` : ''}</button>` : ''}
 				${safe && (c.status === 'running' || c.status === 'paused') && n.pending ? `<button class="chip" style="--c:#C77700" data-act="camp-force" data-val="${c.id}">${c.forced ? 'Quitar urgente' : '⚡ Enviar ya (ignorar límites)'}</button>` : ''}
 				${c.status === 'running' || c.status === 'paused' ? `<button class="chip" style="--c:var(--danger)" data-act="camp" data-val="${c.id}:cancel">Cancelar</button>` : ''}
 				${n.failed ? `<button class="chip" style="--c:#8E8E93" data-act="camp-failed" data-val="${c.id}">Ver fallidos</button>` : ''}
@@ -3411,6 +3412,18 @@ document.addEventListener('click', async e => {
 				S.campaigns = S.campaigns.map(x => x.id === campaign.id ? campaign : x)
 				renderCampaignList()
 				toast(retried ? `Reintentando ${retried} mensaje(s)` : 'No hay fallidos que se puedan reintentar')
+			} catch (err) { toast(err.message) }
+			return
+		}
+		case 'camp-extra': return actionSheet('Más mensajes hoy, por número. Sigue con pausas, tope por hora, horario y sin usar números restringidos o en descanso.', [5, 10, 20].map(n => ({ act: 'camp-extra-go', val: `${val}:${n}`, text: `+${n} por número solo hoy` })))
+		case 'camp-extra-go': {
+			const [id, add] = val.split(':').map(Number)
+			try {
+				let upd = await api('POST', `/campaigns/${id}/extra`, { add })
+				if (upd.status === 'paused') upd = await api('POST', `/campaigns/${id}/resume`)
+				S.campaigns = S.campaigns.map(x => x.id === upd.id ? upd : x)
+				renderCampaignList()
+				toast(`Hoy cada número puede mandar ${upd.extraToday} más, con las mismas pausas`)
 			} catch (err) { toast(err.message) }
 			return
 		}
