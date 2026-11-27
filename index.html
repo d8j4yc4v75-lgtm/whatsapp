@@ -312,6 +312,65 @@ svg{display:block}
 #msgTicksRow[hidden]{display:none}
 .b{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;transition:transform .18s var(--ease)}
 .m.press .b{transform:scale(.96)}
+.ms-only{display:none!important}
+/* ======== estilo Messenger (Simular 2) ======== */
+:root{--msBg:#fff; --msBar:#fff; --msIn:#f0f0f0; --msInText:#050505; --msOut:#0a7cff; --msBlue:#0a7cff; --msPill:#f0f2f5; --msBtn:#e4e6eb; --msName:#050505; --msSub:#050505; --msE2ee:#65676b; --msLink:#0a7cff; --msTime:#65676b}
+@media (prefers-color-scheme: dark){:root{--msBg:#000; --msBar:#000; --msIn:#303030; --msInText:#e4e6eb; --msOut:#126dff; --msBlue:#126dff; --msPill:#333334; --msBtn:#191919; --msName:#fff; --msSub:#e2e5e9; --msE2ee:#b0b3b8; --msLink:#5271ff; --msTime:#b0b3b8}}
+#chat.ms{background:var(--msBg)}
+#chat.ms::before,#chat.ms #floatingDay{display:none}
+#chat.ms .ms-only{display:flex!important}
+#chat.ms .wa-only{display:none!important}
+#chat.ms .nav{background:var(--msBar);-webkit-backdrop-filter:none;backdrop-filter:none;padding-left:calc(8px + var(--sl));padding-right:calc(12px + var(--sr))}
+#chat.ms .navrow{gap:8px}
+#chat.ms .back{background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;color:var(--msBlue);padding:0 2px;min-width:0;gap:2px;height:44px}
+#chat.ms #backCount:not(:empty){display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 6px;border-radius:12px;background:var(--msBlue);color:#fff;font-size:15px;font-weight:600}
+#chat.ms #cAv{width:36px;height:36px}
+#chat.ms .who .n{font-size:17px;font-weight:700;color:var(--msName)}
+#chat.ms .who .s{display:none}
+#chat.ms .calls{background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;padding:0;gap:4px;height:44px}
+#chat.ms .calls button{width:44px;color:var(--msBlue)}
+#chat.ms #msgs{padding-left:calc(12px + var(--sl));padding-right:calc(12px + var(--sr))}
+#chat.ms .info{background:none;border-radius:0;margin:4px 0 6px;padding:22px 4px 6px;text-align:center}
+#chat.ms .info .av{width:100px;height:100px;margin:0 auto 24px}
+#chat.ms .info h2{font-size:26px;line-height:31px;font-weight:700;letter-spacing:-.3px;color:var(--msName);margin:0}
+#chat.ms .info .ms-sub{margin:5px 0 0;font-size:17px;line-height:21px;color:var(--msSub)}
+#chat.ms .info .ms-prof{display:inline-flex;align-items:center;height:29px;margin-top:11px;padding:0 13px;border-radius:15px;background:var(--msBtn);color:var(--msName);font-size:16px;font-weight:600}
+#chat.ms .info .ms-e2ee{margin:20px 2px 0;font-size:15.5px;line-height:19px;color:var(--msE2ee)}
+#chat.ms .info .ms-e2ee svg{display:inline-block;vertical-align:-1px;margin-right:4px}
+#chat.ms .info .ms-e2ee b{display:block;color:var(--msLink);font-weight:600;cursor:pointer}
+#chat.ms .chatempty{display:none}
+.ms-time{text-align:center;color:var(--msTime);font-size:12.5px;font-weight:600;margin:20px 0 10px}
+#chat.ms .m{margin-top:2px;align-items:flex-end}
+#chat.ms .m.gap{margin-top:8px}
+#chat.ms .b{max-width:min(72%,520px);padding:8px 12px;border-radius:18px;font-size:17px;line-height:22px;background:var(--msIn);color:var(--msInText)}
+#chat.ms .me .b{background:var(--msOut);color:#fff}
+#chat.ms .them.gn .b{border-bottom-left-radius:4px}
+#chat.ms .them.gp .b{border-top-left-radius:4px}
+#chat.ms .me.gn .b{border-bottom-right-radius:4px}
+#chat.ms .me.gp .b{border-top-right-radius:4px}
+#chat.ms .m.big .b{background:none;padding:0 2px;font-size:46px;line-height:54px}
+#chat.ms .m .b::after{display:none}
+#chat.ms .m.like .b{background:none;padding:2px;color:var(--msBlue);line-height:0}
+.ms-av{flex:none;width:28px;margin-right:8px}
+.av.xs{width:28px;height:28px}
+.ms-st{display:flex;justify-content:flex-end;margin:3px 1px 0;color:var(--msTime)}
+#chat.ms .typing-b .b{height:36px;padding:0 13px}
+/* barra de escribir estilo Messenger */
+#chat.ms .composer{background:var(--msBg);padding:8px calc(10px + var(--sr)) calc(var(--sb) + 6px) calc(12px + var(--sl));gap:8px}
+#chat.ms #addMsgBtn{position:absolute;left:calc(28px + var(--sl));bottom:calc(var(--sb) + 18px);width:32px;height:32px;color:var(--msBlue);z-index:1}
+#chat.ms .field{background:var(--msPill);border-radius:28px;min-height:56px;margin:0;padding:0 10px 0 56px;box-shadow:none}
+#chat.ms .composer textarea{font-size:19px;line-height:24px;padding:16px 4px;min-height:56px;color:var(--msName)}
+#chat.ms .composer textarea::placeholder{color:var(--msE2ee)}
+#chat.ms .field .cbtn{height:56px;width:42px;margin:0;color:var(--msBlue)}
+#chat.ms .composer.has .ms-mic{display:none!important}
+#chat.ms .send{width:48px;height:48px;margin:0 0 4px;background:var(--msPill);color:var(--msBlue)}
+#chat.ms .send:not(.mic){background:none}
+#chat.ms .send .ic-mic,#chat.ms .send .ic-send{display:none}
+.send .ic-like,.send .ic-plane{display:none}
+#chat.ms .send.mic .ic-like{display:block}
+#chat.ms .send:not(.mic) .ic-plane{display:block}
+.group input[hidden]{display:none}
+.group input[hidden]+input{border-top:0}
 .phpick{display:flex;flex-direction:column;align-items:center;gap:6px;margin:4px 0 2px}
 .av.xl{width:84px;height:84px;cursor:pointer}
 .phbtns{display:flex;gap:14px}
@@ -385,8 +444,10 @@ svg{display:block}
           <div class="t"><div class="n" id="cName"></div><div class="s" id="cStatus">en línea</div></div>
         </div>
         <div class="calls glass">
-          <button type="button" data-soon="Videollamadas" aria-label="Videollamada"><svg width="30" height="24" viewBox="0 0 30 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="1.5" y="4" width="19" height="16" rx="4"/><path d="M20.5 10l7-4.5v13l-7-4.5z"/></svg></button>
-          <button type="button" data-soon="Llamadas" aria-label="Llamada"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4.2-2.1 1.5a12 12 0 0 0 7.1 7.1l1.5-2.1 4.2 1.6V19a2 2 0 0 1-2 2A17 17 0 0 1 3 5.5a2 2 0 0 1 2-2z"/></svg></button>
+          <button type="button" class="ms-only" data-soon="Llamadas" aria-label="Llamada"><svg width="25" height="25" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 2.3c.6-.2 1.3 0 1.6.6l1.9 3.6c.3.6.2 1.3-.3 1.7L8.3 9.6c-.3.3-.4.7-.2 1.1a14 14 0 0 0 5.2 5.2c.4.2.8.1 1.1-.2l1.4-1.5c.4-.5 1.1-.6 1.7-.3l3.6 1.9c.6.3.9 1 .6 1.6l-.7 2.1c-.4 1.3-1.7 2.1-3 1.9C10.6 20.4 3.6 13.4 2.6 6c-.2-1.3.6-2.6 1.9-3z"/></svg></button>
+          <button type="button" class="ms-only" data-soon="Videollamadas" aria-label="Videollamada"><svg width="31" height="20" viewBox="0 0 31 20" fill="currentColor"><rect x="0" y="0.5" width="21" height="19" rx="5"/><path d="M23 7.2l6.4-4.3c.7-.5 1.6 0 1.6.8v12.6c0 .8-.9 1.3-1.6.8L23 12.8z"/></svg></button>
+          <button type="button" class="wa-only" data-soon="Videollamadas" aria-label="Videollamada"><svg width="30" height="24" viewBox="0 0 30 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="1.5" y="4" width="19" height="16" rx="4"/><path d="M20.5 10l7-4.5v13l-7-4.5z"/></svg></button>
+          <button type="button" class="wa-only" data-soon="Llamadas" aria-label="Llamada"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4.2-2.1 1.5a12 12 0 0 0 7.1 7.1l1.5-2.1 4.2 1.6V19a2 2 0 0 1-2 2A17 17 0 0 1 3 5.5a2 2 0 0 1 2-2z"/></svg></button>
         </div>
       </div>
     </header>
@@ -395,11 +456,15 @@ svg{display:block}
       <button class="cbtn" type="button" id="addMsgBtn" aria-label="Agregar mensaje"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v19M2.5 12h19"/></svg></button>
       <div class="field">
         <textarea id="input" rows="1" placeholder="" enterkeyhint="send"></textarea>
-        <button class="cbtn" type="button" data-soon="Stickers" aria-label="Stickers"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M13.6 21H9a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6h6a6 6 0 0 1 6 6v4.6A7.4 7.4 0 0 1 13.6 21z"/><path d="M21 13.6c-4.1 0-7.4 3.3-7.4 7.4"/></svg></button>
+        <button class="cbtn ms-only" type="button" data-soon="Emojis" aria-label="Emojis"><svg width="27" height="27" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor"/><circle cx="8.3" cy="9.6" r="1.6" fill="var(--msPill)"/><circle cx="15.7" cy="9.6" r="1.6" fill="var(--msPill)"/><path d="M6.8 13.8a5.6 5.6 0 0 0 10.4 0" fill="none" stroke="var(--msPill)" stroke-width="1.9" stroke-linecap="round"/></svg></button>
+        <button class="cbtn ms-only ms-mic" type="button" data-soon="Notas de voz" aria-label="Nota de voz"><svg width="20" height="27" viewBox="0 0 17 24" fill="currentColor"><rect x="4.2" y="0.5" width="8.6" height="14.5" rx="4.3"/><path d="M1.6 11.4a6.9 6.9 0 0 0 13.8 0" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="M8.5 18.4v3.6M5 22.5h7" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg></button>
+        <button class="cbtn wa-only" type="button" data-soon="Stickers" aria-label="Stickers"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M13.6 21H9a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6h6a6 6 0 0 1 6 6v4.6A7.4 7.4 0 0 1 13.6 21z"/><path d="M21 13.6c-4.1 0-7.4 3.3-7.4 7.4"/></svg></button>
       </div>
-      <button class="cbtn" type="button" data-soon="Cámara" aria-label="Cámara"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round"><path d="M4.5 6.5h2.6l1.3-2a2 2 0 0 1 1.7-1h3.8a2 2 0 0 1 1.7 1l1.3 2h2.6a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-15a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3z"/><circle cx="11.6" cy="13" r="4"/><circle cx="17.9" cy="9.6" r=".95" fill="currentColor" stroke="none"/></svg></button>
+      <button class="cbtn wa-only" type="button" data-soon="Cámara" aria-label="Cámara"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round"><path d="M4.5 6.5h2.6l1.3-2a2 2 0 0 1 1.7-1h3.8a2 2 0 0 1 1.7 1l1.3 2h2.6a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-15a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3z"/><circle cx="11.6" cy="13" r="4"/><circle cx="17.9" cy="9.6" r=".95" fill="currentColor" stroke="none"/></svg></button>
       <button class="send mic" id="sendBtn" type="submit" aria-label="Enviar">
         <svg class="ic-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V2.5M3 7.5l5-5 5 5"/></svg>
+        <svg class="ic-like" width="27" height="27" viewBox="0 0 24 24" fill="currentColor"><path d="M2 10.4c0-.8.7-1.4 1.4-1.4h2.4c.8 0 1.4.6 1.4 1.4v9.8c0 .8-.6 1.4-1.4 1.4H3.4c-.7 0-1.4-.6-1.4-1.4z"/><path d="M8.6 10.2 12.4 3c.4-.8 1.4-1.2 2.2-.8 1 .4 1.5 1.5 1.2 2.5l-1.1 3.9h4.8c1.6 0 2.8 1.5 2.4 3.1l-1.7 7.1c-.3 1.4-1.6 2.4-3 2.4h-6.9c-.9 0-1.7-.8-1.7-1.7z"/></svg>
+        <svg class="ic-plane" width="25" height="25" viewBox="0 0 24 24" fill="currentColor"><path d="M2.6 3.3c-.3-.9.6-1.7 1.5-1.3l17.6 8.7c.9.4.9 1.7 0 2.1L4.1 21.6c-.9.4-1.8-.4-1.5-1.3L5 13.2l8.2-1.2L5 10.8z"/></svg>
         <svg class="ic-mic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="9.1" y="3" width="5.8" height="10.6" rx="2.9" fill="currentColor" stroke="none"/><path d="M6.6 11.2a5.4 5.4 0 0 0 10.8 0M12 16.6v3.6"/></svg>
       </button>
     </form>
@@ -479,6 +544,7 @@ svg{display:block}
       <div class="group">
         <input id="convNum" type="tel" inputmode="tel" placeholder="Número (ej. +52 55 1234 5678)" autocomplete="off">
         <input id="convName" type="text" placeholder="Nombre (opcional)" autocapitalize="words" autocomplete="off">
+        <input id="convSub" type="text" placeholder="Texto bajo el nombre" autocomplete="off" hidden>
       </div>
       <div class="foot" id="convWho"></div>
       <div class="lbl">Guion</div>
@@ -606,6 +672,7 @@ svg{display:block}
   <div class="pop-veil" id="popVeil"></div>
   <div class="pop glass" id="moreMenu" role="menu" aria-label="Más opciones">
     <button type="button" role="menuitem" id="mBulk"><span>Difusión</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><path d="M3.5 10v4a1 1 0 0 0 1 1H7l7 4.5v-15L7 9H4.5a1 1 0 0 0-1 1z"/><path d="M7 15l1.3 4.6a1 1 0 0 0 1 .7h1.2M17.5 9.2a4 4 0 0 1 0 5.6M19.8 6.8a7.4 7.4 0 0 1 0 10.4"/></svg></button>
+    <button type="button" role="menuitem" id="mConv2"><span>Simular 2</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 2.8c-5.2 0-9.2 3.8-9.2 8.9 0 2.7 1.1 5 2.9 6.6v3l2.8-1.5c1.1.3 2.3.5 3.5.5 5.2 0 9.2-3.8 9.2-8.6S17.2 2.8 12 2.8z"/><path d="M7 14.2l3.3-3.5 2.4 2.2 4.3-3.6-3.3 3.6-2.4-2.2z" fill="currentColor"/></svg></button>
     <button type="button" role="menuitem" id="mConv"><span>Simular conversación</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h8A2.5 2.5 0 0 1 16 5.5v5a2.5 2.5 0 0 1-2.5 2.5H8l-3.5 3v-3h0A2.5 2.5 0 0 1 3 10.5z"/><path d="M19 8.5a2.5 2.5 0 0 1 2 2.45v5A2.5 2.5 0 0 1 18.5 18.5V21L15.5 18.5H11A2.5 2.5 0 0 1 8.6 16.6"/></svg></button>
   </div>
   <div class="toast" id="toast"></div>
@@ -743,7 +810,7 @@ function photoPicker(pre, getNum, onChange){
   let photo = null;
   const av = $('#' + pre + 'PhAv'), btn = $('#' + pre + 'PhBtn'), del = $('#' + pre + 'PhDel'), inp = $('#' + pre + 'PhInput');
   function render(){
-    const num = getNum(), ex = validNum(num) && findByNum(num), ph = photo || (ex && ex.photo) || null;
+    const num = getNum(), ex = pre === 'conv' && convMode === 'ms' ? state.chats.find(x => x.style === 'ms' && convName.value.trim() && normW(x.name || '') === normW(convName.value)) : validNum(num) && findByNum(num), ph = photo || (ex && ex.photo) || null;
     av.className = 'av xl' + (ph ? ' photo' : ''); av.style.cssText = avStyle({ number: num, name: '', photo: ph }); av.innerHTML = PERSON;
     btn.textContent = ph ? 'Cambiar foto' : 'Agregar foto'; del.hidden = !photo;
   }
@@ -810,6 +877,13 @@ function renderChat(keepScroll){
   $('#cAv').className = avCls(c) + ' sm'; $('#cAv').style.cssText = avStyle(c); $('#cAv').innerHTML = PERSON;
   $('#cName').textContent = title(c);
   $('#cStatus').textContent = typing.has(c.id) ? 'escribiendo…' : (c.name || '');
+  const isMs = c.style === 'ms';
+  chatEl.classList.toggle('ms', isMs); input.placeholder = isMs ? 'Aa' : '';
+  if (isMs){
+    $('#msgs').innerHTML = msBody(c);
+    if (!keepScroll || atBottom) scrollBottom(); else lastChatScrollTop = sc.scrollTop;
+    return;
+  }
   let html = '', prevDay = null;
   const ms = c.messages;
   html = infoCard(c);
@@ -828,6 +902,52 @@ function renderChat(keepScroll){
     lastChatScrollTop = sc.scrollTop;
     if (floatingDaySource) updateFloatingDay();
   }
+}
+/* ---------- Messenger (Simular 2) ---------- */
+const MS_SUB = 'Son amigos en Facebook';
+const MS_LIKE = '<svg width="42" height="42" viewBox="0 0 24 24" fill="currentColor"><path d="M2 10.4c0-.8.7-1.4 1.4-1.4h2.4c.8 0 1.4.6 1.4 1.4v9.8c0 .8-.6 1.4-1.4 1.4H3.4c-.7 0-1.4-.6-1.4-1.4z"/><path d="M8.6 10.2 12.4 3c.4-.8 1.4-1.2 2.2-.8 1 .4 1.5 1.5 1.2 2.5l-1.1 3.9h4.8c1.6 0 2.8 1.5 2.4 3.1l-1.7 7.1c-.3 1.4-1.6 2.4-3 2.4h-6.9c-.9 0-1.7-.8-1.7-1.7z"/></svg>';
+const MS_ST = {
+  0: '<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.1" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
+  1: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"><circle cx="7" cy="7" r="6.1" stroke-width="1.2"/><path d="M4.2 7.2l1.9 1.9 3.8-4.1" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  2: '<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.8" fill="currentColor"/><path d="M4.2 7.2l1.9 1.9 3.8-4.1" fill="none" stroke="var(--msBg)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+};
+const isEmojiOnly = t => t.length <= 16 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|‍|️|\s){1,8}$/u.test(t) && /\p{Extended_Pictographic}/u.test(t);
+function msTime(t){
+  const diff = Math.round((startOfDay(Date.now()) - startOfDay(t)) / 864e5), h = hhmm(t);
+  if (diff === 0) return h;
+  if (diff === 1) return `Ayer ${h}`;
+  if (diff > 1 && diff < 7){ const w = new Date(t).toLocaleDateString('es', { weekday: 'short' }).replace('.', ''); return `${w.charAt(0).toUpperCase() + w.slice(1)} ${h}`; }
+  const o = { day: 'numeric', month: 'short' }; if (new Date(t).getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+  return `${new Date(t).toLocaleDateString('es', o).replace('.', '')}, ${h}`;
+}
+function msBody(c){
+  const ms = c.messages, sub = c.msSub == null ? MS_SUB : c.msSub;
+  let html = `<div class="info ms-info"><div class="${avCls(c)}" style="${avStyle(c)}">${PERSON}</div><h2>${esc(c.name || title(c))}</h2>${sub ? `<p class="ms-sub">${esc(sub)}</p>` : ''}
+    <button type="button" class="ms-prof" data-soon="Ver perfil">Ver perfil</button>
+    <p class="ms-e2ee"><svg width="12" height="13" viewBox="0 0 12 13" fill="currentColor"><path d="M3 5.3V3.9a3 3 0 0 1 6 0v1.4h.3c.9 0 1.6.7 1.6 1.6v4.4c0 .9-.7 1.6-1.6 1.6H2.7c-.9 0-1.6-.7-1.6-1.6V6.9c0-.9.7-1.6 1.6-1.6zm1.5 0h3V3.9a1.5 1.5 0 0 0-3 0z"/></svg>Los mensajes y las llamadas están protegidos con cifrado de extremo a extremo. Solo las personas de este chat pueden leerlos, escucharlos o compartirlos. <b data-soon="Más información">Más información</b></p></div>`;
+  const sepAt = (a, b) => !a || b.ts - a.ts > 30 * 6e4 || startOfDay(a.ts) !== startOfDay(b.ts);
+  const av = () => `<div class="${avCls(c)} xs" style="${avStyle(c)}">${PERSON}</div>`;
+  ms.forEach((m, i) => {
+    const p = ms[i - 1], n = ms[i + 1], sep = sepAt(p, m), nSep = n ? sepAt(m, n) : true;
+    if (sep) html += `<div class="ms-time">${msTime(m.ts)}</div>`;
+    const big = isEmojiOnly(m.text), like = m.text.trim() === '👍';
+    const gp = !sep && p && p.mine === m.mine && !big && !isEmojiOnly(p.text);
+    const gn = !nSep && n && n.mine === m.mine && !big && !isEmojiOnly(n.text);
+    const lastOfGroup = !(n && !nSep && n.mine === m.mine);
+    html += `<div class="m ${m.mine ? 'me' : 'them'}${gp ? ' gp' : ' gap'}${gn ? ' gn' : ''}${big ? ' big' : ''}${like ? ' like' : ''}" data-id="${m.id}">` +
+      (m.mine ? '' : `<div class="ms-av">${lastOfGroup && !typing.has(c.id) || lastOfGroup && i < ms.length - 1 ? av() : ''}</div>`) +
+      `<div class="b">${like ? MS_LIKE : esc(m.text)}</div></div>`;
+    if (m.mine && i === ms.length - 1) html += `<div class="ms-st">${MS_ST[Math.min(2, m.status ?? 2)] || MS_ST[1]}</div>`;
+  });
+  if (typing.has(c.id)) html += `<div class="m them gap typing-b"><div class="ms-av">${av()}</div><div class="b"><i></i><i></i><i></i></div></div>`;
+  return html;
+}
+function getOrCreateMs(name, sub){
+  const k = normW(name);
+  let c = state.chats.find(x => x.style === 'ms' && normW(x.name || '') === k);
+  if (c){ if (sub != null) c.msSub = sub; return c; }
+  c = { id: uid(), style: 'ms', number: '', name: name.trim(), msSub: sub ?? MS_SUB, color: colorFor(name), unread: 0, messages: [], created: Date.now() };
+  state.chats.push(c); return c;
 }
 function chatDay(t){
   const diff = Math.round((startOfDay(Date.now()) - startOfDay(t)) / 864e5);
@@ -850,7 +970,8 @@ function scrollBottom(){
   hideFloatingDay();
 }
 function updateStatus(c, m){
-  if (c.id === current){ const el = document.querySelector(`.m[data-id="${m.id}"] .st`); if (el) el.innerHTML = ICON[m.status] || ICON[1]; }
+  if (c.id === current && c.style === 'ms'){ if (last(c) === m) queueChat(); }
+  else if (c.id === current){ const el = document.querySelector(`.m[data-id="${m.id}"] .st`); if (el) el.innerHTML = ICON[m.status] || ICON[1]; }
   if (last(c) === m) queueList();
 }
 
@@ -875,6 +996,7 @@ function advance(chatId, msgId){
 // Estado final al azar: casi siempre dos palomitas; leído y una palomita, poco frecuentes
 function randomFinal(){ return Math.random() < .12 ? 1 : 2; } // sin palomitas azules
 function sendTo(c, text, ts = Date.now()){
+  if (c.style === 'ms'){ doSend(c, text, ts); queueList(); if (c.id === current) queueChat(); return; }
   // con WhatsApp conectado se verifica antes: los números sin WhatsApp se omiten
   WA.check(c).then(ok => { const ch = getChat(c.id); if (!ch) return;
     if (ok === false){
@@ -1083,13 +1205,16 @@ $('#backBtn').addEventListener('click', goBack);
 /* ---------- composer ---------- */
 const input = $('#input');
 function autoGrow(){ input.style.height = '32px'; input.style.height = Math.min(input.scrollHeight + 1, 120) + 'px'; layoutChat(); }
-function updateSend(){ $('#sendBtn').classList.toggle('mic', !input.value.trim()); }
+function updateSend(){ const has = !!input.value.trim(); $('#sendBtn').classList.toggle('mic', !has); $('#composer').classList.toggle('has', has); }
 input.addEventListener('input', () => { autoGrow(); updateSend(); });
 input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(pointer:coarse)').matches){ e.preventDefault(); $('#composer').requestSubmit(); } });
 $('#composer').addEventListener('submit', e => {
   e.preventDefault();
   const text = input.value.trim(); const c = getChat(current);
-  if (!text){ if (e.submitter === $('#sendBtn')) toast('Notas de voz no disponibles en el simulador'); return; }
+  if (!text){
+    if (e.submitter === $('#sendBtn')){ if (c && c.style === 'ms'){ sendTo(c, '👍'); renderChat(); renderList(); } else toast('Notas de voz no disponibles en el simulador'); }
+    return;
+  }
   if (!c) return;
   sendTo(c, text); input.value = ''; autoGrow(); updateSend();
   renderChat(); renderList(); input.focus();
@@ -1328,10 +1453,12 @@ function hideMenu(){ moreMenu.classList.remove('on'); popVeil.classList.remove('
 $('#bulkBtn').addEventListener('click', () => { const on = !moreMenu.classList.contains('on'); moreMenu.classList.toggle('on', on); popVeil.classList.toggle('on', on); });
 popVeil.addEventListener('click', hideMenu);
 $('#mBulk').addEventListener('click', () => { hideMenu(); setTimeout(openBulk, 120); });
-$('#mConv').addEventListener('click', () => { hideMenu(); setTimeout(() => openConv(), 120); });
+$('#mConv').addEventListener('click', () => { hideMenu(); setTimeout(() => openConv(null, 'wa'), 120); });
+$('#mConv2').addEventListener('click', () => { hideMenu(); setTimeout(() => openConv(null, 'ms'), 120); });
 
 /* ---------- simular conversación ---------- */
-const convEnd = $('#convEnd');
+const convEnd = $('#convEnd'), convSub = $('#convSub');
+let convMode = 'wa'; // 'wa' = WhatsApp, 'ms' = Messenger (Simular 2)
 const convNum = $('#convNum'), convName = $('#convName'), convScript = $('#convScript'), convLive = $('#convLive'), convDay = $('#convDay'), convStart = $('#convStart'), convPace = $('#convPace');
 const CONV_KEY = KEY + '.conv';
 const normW = s => String(s).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
@@ -1340,7 +1467,7 @@ const THEM_W = ['contacto', 'c', 'el', 'ella', 'ellos', 'ellas', 'cliente', 'otr
 const PACE = { fast: [20, 60], normal: [60, 240], slow: [300, 1200] };          // segundos entre mensajes (historial)
 const PACE_LIVE = { fast: [700, 1500], normal: [1400, 3200], slow: [2800, 6000] }; // milisegundos (en vivo)
 const convPh = photoPicker('conv', () => convNum.value, () => updateConv());
-try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convStart.value = d.start || ''; convEnd.value = d.end || ''; convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
+try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convSub.value = d.sub ?? MS_SUB; convStart.value = d.start || ''; convEnd.value = d.end || ''; convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
 function parseScript(){
   const them = new Set(THEM_W), nm = normW(convName.value);
   if (nm){ them.add(nm); them.add(nm.split(' ')[0]); }
@@ -1381,7 +1508,8 @@ function planTimes(list){
 }
 function convPlan(){
   const list = parseScript(), num = convNum.value.trim(), live = convLive.checked;
-  if (!validNum(num)) return { list, err: num ? 'Número no válido' : 'Escribe el número del contacto' };
+  if (convMode === 'ms'){ if (!convName.value.trim()) return { list, err: 'Escribe el nombre del contacto' }; }
+  else if (!validNum(num)) return { list, err: num ? 'Número no válido' : 'Escribe el número del contacto' };
   if (!list.length) return { list, err: 'Escribe al menos un mensaje' };
   if (live) return { list, num, live };
   if (!convDay.value || !convStart.value || (list.length > 1 && !convEnd.value)) return { list, err: 'Completa día, hora de inicio y de fin' };
@@ -1392,7 +1520,7 @@ function convPlan(){
 }
 function updateConv(){
   const p = convPlan(), list = p.list;
-  const ex = validNum(convNum.value) && findByNum(convNum.value);
+  const ex = convMode === 'ms' ? (convName.value.trim() && state.chats.find(x => x.style === 'ms' && normW(x.name || '') === normW(convName.value))) : validNum(convNum.value) && findByNum(convNum.value);
   $('#convWho').textContent = ex ? `Se agregará al chat que ya existe con ${title(ex)}.` : '';
   const mineN = list.filter(m => m.mine).length;
   $('#convCount').textContent = list.length ? `${list.length} mensaje${list.length === 1 ? '' : 's'}: ${mineN} tuyo${mineN === 1 ? '' : 's'} y ${list.length - mineN} del contacto` : '';
@@ -1407,13 +1535,22 @@ function updateConv(){
   const times = p.times || list.map(() => Date.now());
   $('#convPrev').innerHTML = list.length ? list.slice(0, 8).map((m, i) => `<div class="m ${m.mine ? 'me' : 'them'} tail gap"><div class="b">${esc(m.text)}<span class="meta">${hhmm(times[i])}</span></div></div>`).join('') + (list.length > 8 ? `<div class="chatempty" style="margin:8px 4px 0">+ ${list.length - 8} más</div>` : '')
     : '<div class="chatempty" style="margin:4px">Escribe el guion</div>';
-  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ start: convStart.value, end: convEnd.value, photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
+  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ sub: convSub.value, start: convStart.value, end: convEnd.value, photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
 }
 // sin chat: hoja en blanco (con el último horario usado). Con chat: para seguir esa conversación en el mismo chat
-function openConv(c){
+function setConvMode(mode){
+  convMode = mode; const ms = mode === 'ms';
+  $('#convSheet .sh-head .t').textContent = ms ? 'Simular 2' : 'Conversación';
+  convNum.hidden = ms; convSub.hidden = !ms;
+  convName.placeholder = ms ? 'Nombre del contacto' : 'Nombre (opcional)';
+  if (ms && !convSub.value && convSub.dataset.touched !== '1') convSub.value = MS_SUB;
+}
+function openConv(c, mode){
   const now = Date.now();
+  setConvMode(c ? (c.style === 'ms' ? 'ms' : 'wa') : (mode || 'wa'));
   if (c){
     convNum.value = c.number; convName.value = c.name || ''; convScript.value = ''; convPh.set(null);
+    if (c.style === 'ms') convSub.value = c.msSub ?? MS_SUB;
     const lm = last(c), a = lm ? lm.ts + 2 * 6e4 : now - 60 * 6e4;
     if (now - a < 5 * 6e4){ convLive.checked = true; convDay.value = ymd(new Date(now)); }
     else { convLive.checked = false; convDay.value = ymd(new Date(a)); convStart.value = hm(new Date(a)); convEnd.value = hm(new Date(Math.min(a + 60 * 6e4, now - 6e4))); }
@@ -1424,7 +1561,8 @@ function openConv(c){
   updateConv(); showSheet($('#convSheet'));
   if (c) setTimeout(() => convScript.focus(), 380);
 }
-[convNum, convName, convScript, convDay, convStart, convEnd].forEach(el => el.addEventListener('input', updateConv));
+[convNum, convName, convSub, convScript, convDay, convStart, convEnd].forEach(el => el.addEventListener('input', updateConv));
+convSub.addEventListener('input', () => { convSub.dataset.touched = '1'; });
 [convLive, convPace].forEach(el => el.addEventListener('change', updateConv));
 $('#convChips').addEventListener('pointerdown', e => { if (e.target.closest('[data-who]')) e.preventDefault(); });
 $('#convChips').addEventListener('click', e => {
@@ -1472,10 +1610,10 @@ function playLive(id, list){
 $('#convGo').addEventListener('click', () => {
   const p = convPlan(); if (p.err) return;
   hideSheet();
-  const c = getOrCreate(p.num, convName.value.trim()), ph = convPh.get();
+  const c = convMode === 'ms' ? getOrCreateMs(convName.value, convSub.value.trim()) : getOrCreate(p.num, convName.value.trim()), ph = convPh.get();
   if (ph){ c.photo = ph; c.photoBy = 'user'; convPh.set(null); updateConv(); }
   save(); renderList();
-  WA.check(c).then(ok => {
+  (c.style === 'ms' ? Promise.resolve(true) : WA.check(c)).then(ok => {
     const ch = getChat(c.id); if (!ch) return;
     if (ok === false){
       if (!ch.messages.length) state.chats = state.chats.filter(x => x !== ch);
