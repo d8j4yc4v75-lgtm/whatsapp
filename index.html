@@ -49,7 +49,7 @@
   --wall:#efeae2; --wallOp:.075; --chatBar:rgba(246,246,246,.94); --composerBg:#f6f6f6; --inputRim:rgba(0,0,0,.06); --micBg:#25b660; --micFg:#fff; --cardBtn:rgba(118,118,128,.14); --dayBg:rgba(255,255,255,.92); --dayText:#54656f; --inputBg:rgba(118,118,128,.12); --card:rgba(255,255,255,.95);
   --accent:#1daa61; --onaccent:#fff; --out:#d9fdd3; --outText:#000; --outMeta:rgba(0,0,0,.45); --tickRead:#53bdeb;
   --glass:rgba(255,255,255,.66); --glassBorder:rgba(0,0,0,.07); --glassShadow:0 6px 20px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.06); --glassHi:rgba(255,255,255,.95); --glassLo:rgba(0,0,0,.04); --sheen:rgba(255,255,255,.5);
-  --groupBg:#fff; --segOn:#fff; --chipBorder:rgba(60,60,67,.18); --chipText:rgba(60,60,67,.75); --chipOnBg:#d9fdd3; --chipOnBorder:#b5e8b0; --chipOnText:#0a6e3a; --searchBg:rgba(118,118,128,.12); --tabOn:rgba(0,0,0,.07); --tbGlass:rgba(250,250,252,.72); --tbSheen:rgba(255,255,255,.6); --tbRim:rgba(255,255,255,.9); --tbRimSide:rgba(0,0,0,.06); --tbRimLo:rgba(0,0,0,.08); --tbBadgeText:#fff;
+  --groupBg:#fff; --segOn:#fff; --chipBorder:rgba(60,60,67,.18); --chipText:rgba(60,60,67,.75); --chipOnBg:#d9fdd3; --chipOnBorder:#b5e8b0; --chipOnText:#0a6e3a; --searchBg:rgba(118,118,128,.12); --tabOn:rgba(0,0,0,.07); --tbGlass:rgba(250,250,252,.72); --tbSheen:rgba(255,255,255,.6); --tbRim:rgba(255,255,255,.9); --tbRimSide:rgba(0,0,0,.06); --tbRimLo:rgba(0,0,0,.08); --tbBadgeText:#fff; --tbShadow:0 4px 16px rgba(0,0,0,.07),0 1px 3px rgba(0,0,0,.05);
   --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px);
   --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px);
   --ease:cubic-bezier(.32,.72,0,1);
@@ -63,7 +63,7 @@
     --wall:#0a0a0a; --wallOp:.1; --dayBg:rgba(23,23,23,.92); --dayText:#fff; --inputBg:#282828; --card:#242625; --in:#242626; --chatBar:rgba(19,19,19,.94); --composerBg:#101010; --inputRim:rgba(255,255,255,.07); --micBg:#4fbd6c; --micFg:#0b0b0b; --cardBtn:#3b3b3b;
     --accent:#21c063; --onaccent:#000; --out:#144d37; --outText:#fff; --outMeta:rgba(255,255,255,.6);
     --glass:rgba(38,38,40,.72); --glassBorder:rgba(255,255,255,.09); --glassShadow:0 8px 24px rgba(0,0,0,.6),0 1px 2px rgba(0,0,0,.5); --glassHi:rgba(255,255,255,.22); --glassLo:rgba(255,255,255,.05); --sheen:rgba(255,255,255,.07);
-    --groupBg:#2c2c2e; --segOn:#636366; --chipBorder:rgba(255,255,255,.16); --chipText:rgba(235,235,245,.72); --chipOnBg:#103529; --chipOnBorder:#1b5a3a; --chipOnText:#d9fdd3; --searchBg:#1c1c1e; --tabOn:rgba(0,0,0,.55); --tbGlass:rgba(46,46,48,.62); --tbSheen:rgba(255,255,255,.06); --tbRim:rgba(255,255,255,.28); --tbRimSide:rgba(255,255,255,.10); --tbRimLo:rgba(255,255,255,.06); --tbBadgeText:#06301a;
+    --groupBg:#2c2c2e; --segOn:#636366; --chipBorder:rgba(255,255,255,.16); --chipText:rgba(235,235,245,.72); --chipOnBg:#103529; --chipOnBorder:#1b5a3a; --chipOnText:#d9fdd3; --searchBg:#1c1c1e; --tabOn:rgba(0,0,0,.55); --tbGlass:rgba(46,46,48,.62); --tbSheen:rgba(255,255,255,.06); --tbRim:rgba(255,255,255,.28); --tbRimSide:rgba(255,255,255,.10); --tbRimLo:rgba(255,255,255,.06); --tbBadgeText:#06301a; --tbShadow:0 10px 30px rgba(0,0,0,.35);
   }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -136,7 +136,7 @@ svg{display:block}
 .empty{color:var(--label2);text-align:center;padding:60px 32px;font-size:15px;line-height:1.4}
 .tabbar{position:absolute;z-index:5;left:calc(21px + var(--sl));right:calc(21px + var(--sr));bottom:max(10px,calc(var(--sb) - 12px));max-width:520px;margin:0 auto;height:62px;border-radius:31px;display:flex;align-items:center;justify-content:space-between;padding:0 4px;
   background:linear-gradient(180deg,var(--tbSheen),transparent 60%),var(--tbGlass);-webkit-backdrop-filter:blur(14px) saturate(170%);backdrop-filter:blur(14px) saturate(170%);
-  box-shadow:inset 0 .5px 0 var(--tbRim),inset .5px 0 0 var(--tbRimSide),inset -.5px 0 0 var(--tbRimSide),inset 0 -.5px 0 var(--tbRimLo),0 10px 30px rgba(0,0,0,.35)}
+  box-shadow:inset 0 .5px 0 var(--tbRim),inset .5px 0 0 var(--tbRimSide),inset -.5px 0 0 var(--tbRimSide),inset 0 -.5px 0 var(--tbRimLo),var(--tbShadow)}
 .tab{position:relative;flex:0 1 auto;min-width:0;height:54px;padding:0 9px;border-radius:27px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:7px;gap:3px;font-size:11px;letter-spacing:.05px;font-weight:500;color:var(--label);pointer-events:none;white-space:nowrap}
 .tab svg{height:27px;width:auto;flex:none}
 .tab .tb{position:absolute;top:0;left:calc(50% + 5px);font-style:normal;min-width:21px;height:21px;z-index:1;padding:0 6px;border-radius:11px;background:var(--accent);color:var(--tbBadgeText);font-size:14px;font-weight:500;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
@@ -325,8 +325,8 @@ svg{display:block}
 .m.press .b{transform:scale(.96)}
 .ms-only{display:none!important}
 /* ======== estilo Messenger (Simular 2) ======== */
-:root{--msBg:#fff; --msBar:rgba(255,255,255,.7); --msBarB:rgba(255,255,255,.88); --msIn:#f0f0f0; --msInText:#050505; --msOut:#0a7cff; --msBlue:#0a7cff; --msIcon:#0a7cff; --msPill:#f0f2f5; --msBtn:#e4e6eb; --msName:#050505; --msSub:#050505; --msSub2:#65676b; --msE2ee:#65676b; --msLink:#0a7cff; --msTime:#65676b; --msDown:#e4e6eb}
-@media (prefers-color-scheme: dark){:root{--msBg:#000; --msBar:rgba(0,0,0,.5); --msBarB:rgba(0,0,0,.8); --msIn:#333334; --msInText:#fff; --msOut:#116dff; --msBlue:#326bf6; --msIcon:#4560f5; --msPill:#333334; --msBtn:#191919; --msName:#fff; --msSub:#e2e5e9; --msSub2:#b0b3b8; --msE2ee:#b0b3b8; --msLink:#5271ff; --msTime:#b0b3b8; --msDown:#333334}}
+:root{--msBg:#fff; --msBar:rgba(255,255,255,.7); --msBarB:#fff; --msIn:#f0f0f0; --msInText:#050505; --msOut:#0a7cff; --msBlue:#0a7cff; --msIcon:#0a7cff; --msPill:#f0f2f5; --msBtn:#e4e6eb; --msName:#050505; --msSub:#050505; --msSub2:#65676b; --msE2ee:#65676b; --msLink:#0a7cff; --msTime:#65676b; --msDown:#e4e6eb}
+@media (prefers-color-scheme: dark){:root{--msBg:#000; --msBar:rgba(0,0,0,.5); --msBarB:rgba(0,0,0,.95); --msIn:#333334; --msInText:#fff; --msOut:#116dff; --msBlue:#326bf6; --msIcon:#4560f5; --msPill:#333334; --msBtn:#191919; --msName:#fff; --msSub:#e2e5e9; --msSub2:#b0b3b8; --msE2ee:#b0b3b8; --msLink:#5271ff; --msTime:#b0b3b8; --msDown:#333334}}
 #chat.ms{background:var(--msBg)}
 #chat.ms::before,#chat.ms #floatingDay{display:none}
 #chat.ms .ms-only{display:flex!important}
