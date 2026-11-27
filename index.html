@@ -6,15 +6,21 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" id="sbStyle">
-<script>
-// En modo oscuro la app se dibuja también detrás de la hora y la batería (así el encabezado difuminado llega hasta arriba).
-// En modo claro se deja la barra normal, porque con «black-translucent» la hora sale siempre en blanco.
-try { if (!matchMedia('(prefers-color-scheme: dark)').matches) document.getElementById('sbStyle').content = 'default'; } catch(e){}
-</script>
 <meta name="apple-mobile-web-app-title" content="Chats">
 <meta name="theme-color" content="#f9f9f9" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0b0b0b" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
+<script>
+// Franja de la hora y la batería según el modo, fijada al abrir (iOS toma el último theme-color sin fijarse en «media»):
+// · oscuro: la app se dibuja también detrás de la hora (el encabezado difuminado llega hasta arriba).
+// · claro: barra normal con hora oscura sobre blanco (con «black-translucent» la hora saldría en blanco).
+(function(){ try {
+  var dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  if (!dark) document.getElementById('sbStyle').content = 'default';
+  var metas = document.querySelectorAll('meta[name="theme-color"]');
+  for (var i = 0; i < metas.length; i++){ metas[i].removeAttribute('media'); metas[i].content = dark ? '#0b0b0b' : '#ffffff'; }
+} catch(e){} })();
+</script>
 <title>Simulador de Chats</title>
 <script>
 // Diagnóstico: si algo falla al abrir, muestra el error y permite reiniciar los datos
