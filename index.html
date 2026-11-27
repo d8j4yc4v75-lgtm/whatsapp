@@ -314,63 +314,71 @@ svg{display:block}
 .m.press .b{transform:scale(.96)}
 .ms-only{display:none!important}
 /* ======== estilo Messenger (Simular 2) ======== */
-:root{--msBg:#fff; --msBar:#fff; --msIn:#f0f0f0; --msInText:#050505; --msOut:#0a7cff; --msBlue:#0a7cff; --msPill:#f0f2f5; --msBtn:#e4e6eb; --msName:#050505; --msSub:#050505; --msE2ee:#65676b; --msLink:#0a7cff; --msTime:#65676b}
-@media (prefers-color-scheme: dark){:root{--msBg:#000; --msBar:#000; --msIn:#303030; --msInText:#e4e6eb; --msOut:#126dff; --msBlue:#126dff; --msPill:#333334; --msBtn:#191919; --msName:#fff; --msSub:#e2e5e9; --msE2ee:#b0b3b8; --msLink:#5271ff; --msTime:#b0b3b8}}
+:root{--msBg:#fff; --msBar:rgba(255,255,255,.82); --msIn:#f0f0f0; --msInText:#050505; --msOut:#0a7cff; --msBlue:#0a7cff; --msIcon:#0a7cff; --msPill:#f0f2f5; --msBtn:#e4e6eb; --msName:#050505; --msSub:#050505; --msSub2:#65676b; --msE2ee:#65676b; --msLink:#0a7cff; --msTime:#65676b; --msDown:#e4e6eb}
+@media (prefers-color-scheme: dark){:root{--msBg:#000; --msBar:rgba(0,0,0,.72); --msIn:#333334; --msInText:#fff; --msOut:#116dff; --msBlue:#326bf6; --msIcon:#4560f5; --msPill:#333334; --msBtn:#191919; --msName:#fff; --msSub:#e2e5e9; --msSub2:#b0b3b8; --msE2ee:#b0b3b8; --msLink:#5271ff; --msTime:#b0b3b8; --msDown:#333334}}
 #chat.ms{background:var(--msBg)}
 #chat.ms::before,#chat.ms #floatingDay{display:none}
 #chat.ms .ms-only{display:flex!important}
 #chat.ms .wa-only{display:none!important}
-#chat.ms .nav{background:var(--msBar);-webkit-backdrop-filter:none;backdrop-filter:none;padding-left:calc(8px + var(--sl));padding-right:calc(12px + var(--sr))}
+#chat.ms .nav{background:var(--msBar);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);padding-left:calc(8px + var(--sl));padding-right:calc(12px + var(--sr))}
 #chat.ms .navrow{gap:8px}
 #chat.ms .back{background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;color:var(--msBlue);padding:0 2px;min-width:0;gap:2px;height:44px}
 #chat.ms #backCount:not(:empty){display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 6px;border-radius:12px;background:var(--msBlue);color:#fff;font-size:15px;font-weight:600}
 #chat.ms #cAv{width:36px;height:36px}
-#chat.ms .who .n{font-size:17px;font-weight:700;color:var(--msName)}
-#chat.ms .who .s{display:none}
+#chat.ms .who .n{font-size:17px;line-height:20px;font-weight:700;color:var(--msName)}
+#chat.ms .who .s{font-size:13px;line-height:16px;color:var(--msTime)}
 #chat.ms .calls{background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;padding:0;gap:4px;height:44px}
 #chat.ms .calls button{width:44px;color:var(--msBlue)}
-#chat.ms #msgs{padding-left:calc(12px + var(--sl));padding-right:calc(12px + var(--sr))}
+#chat.ms #msgs{padding-left:calc(12px + var(--sl));padding-right:calc(8px + var(--sr))}
 #chat.ms .info{background:none;border-radius:0;margin:4px 0 6px;padding:22px 4px 6px;text-align:center}
 #chat.ms .info .av{width:100px;height:100px;margin:0 auto 24px}
 #chat.ms .info h2{font-size:26px;line-height:31px;font-weight:700;letter-spacing:-.3px;color:var(--msName);margin:0}
-#chat.ms .info .ms-sub{margin:5px 0 0;font-size:17px;line-height:21px;color:var(--msSub)}
+#chat.ms .info .ms-sub{margin:0;font-size:16.5px;line-height:22.5px;color:var(--msSub2)}
+#chat.ms .info .ms-sub.first{margin-top:4px;color:var(--msSub)}
 #chat.ms .info .ms-prof{display:inline-flex;align-items:center;height:29px;margin-top:11px;padding:0 13px;border-radius:15px;background:var(--msBtn);color:var(--msName);font-size:16px;font-weight:600}
 #chat.ms .info .ms-e2ee{margin:20px 2px 0;font-size:15.5px;line-height:19px;color:var(--msE2ee)}
 #chat.ms .info .ms-e2ee svg{display:inline-block;vertical-align:-1px;margin-right:4px}
 #chat.ms .info .ms-e2ee b{display:block;color:var(--msLink);font-weight:600;cursor:pointer}
 #chat.ms .chatempty{display:none}
-.ms-time{text-align:center;color:var(--msTime);font-size:12.5px;font-weight:600;margin:20px 0 10px}
+.ms-time{text-align:center;color:var(--msTime);font-size:15px;font-weight:500;letter-spacing:.1px;margin:26px 0 16px}
+#chat.ms .ms-time+.m{margin-top:0}
 #chat.ms .m{margin-top:2px;align-items:flex-end}
-#chat.ms .m.gap{margin-top:8px}
-#chat.ms .b{max-width:min(72%,520px);padding:8px 12px;border-radius:18px;font-size:17px;line-height:22px;background:var(--msIn);color:var(--msInText)}
+#chat.ms .m.gap{margin-top:18px}
+#chat.ms .b{max-width:min(74%,520px);padding:8px 13px;border-radius:19px;font-size:19px;line-height:21.5px;background:var(--msIn);color:var(--msInText)}
 #chat.ms .me .b{background:var(--msOut);color:#fff}
-#chat.ms .them.gn .b{border-bottom-left-radius:4px}
-#chat.ms .them.gp .b{border-top-left-radius:4px}
-#chat.ms .me.gn .b{border-bottom-right-radius:4px}
-#chat.ms .me.gp .b{border-top-right-radius:4px}
+#chat.ms .them.gn .b{border-bottom-left-radius:5px}
+#chat.ms .them.gp .b{border-top-left-radius:5px}
+#chat.ms .me.gn .b{border-bottom-right-radius:5px}
+#chat.ms .me.gp .b{border-top-right-radius:5px}
 #chat.ms .m.big .b{background:none;padding:0 2px;font-size:46px;line-height:54px}
 #chat.ms .m .b::after{display:none}
 #chat.ms .m.like .b{background:none;padding:2px;color:var(--msBlue);line-height:0}
-.ms-av{flex:none;width:28px;margin-right:8px}
+.ms-av{flex:none;width:28px;margin-right:12px}
 .av.xs{width:28px;height:28px}
 .ms-st{display:flex;justify-content:flex-end;margin:3px 1px 0;color:var(--msTime)}
-#chat.ms .typing-b .b{height:36px;padding:0 13px}
+#chat.ms .typing-b .b{height:37px;padding:0 14px}
 /* barra de escribir estilo Messenger */
-#chat.ms .composer{background:var(--msBg);padding:8px calc(10px + var(--sr)) calc(var(--sb) + 6px) calc(12px + var(--sl));gap:8px}
-#chat.ms #addMsgBtn{position:absolute;left:calc(28px + var(--sl));bottom:calc(var(--sb) + 18px);width:32px;height:32px;color:var(--msBlue);z-index:1}
-#chat.ms .field{background:var(--msPill);border-radius:28px;min-height:56px;margin:0;padding:0 10px 0 56px;box-shadow:none}
-#chat.ms .composer textarea{font-size:19px;line-height:24px;padding:16px 4px;min-height:56px;color:var(--msName)}
+#chat.ms .composer{background:var(--msBar);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);padding:8px calc(4px + var(--sr)) calc(var(--sb) + 8px) calc(4px + var(--sl));gap:0;align-items:flex-end}
+#chat.ms .composer .cbtn{width:44px;height:40px;color:var(--msIcon)}
+#chat.ms .composer.has .ms-tool{display:none!important}
+#chat.ms .composer:not(.has) .ms-chev{display:none!important}
+#chat.ms .field{background:var(--msPill);border-radius:20px;min-height:40px;margin:0 8px;padding:0 0 0 18px;box-shadow:none}
+#chat.ms .composer textarea{font-size:19px;line-height:22px;padding:9px 2px;min-height:40px;color:var(--msName)}
 #chat.ms .composer textarea::placeholder{color:var(--msE2ee)}
-#chat.ms .field .cbtn{height:56px;width:42px;margin:0;color:var(--msBlue)}
-#chat.ms .composer.has .ms-mic{display:none!important}
-#chat.ms .send{width:48px;height:48px;margin:0 0 4px;background:var(--msPill);color:var(--msBlue)}
-#chat.ms .send:not(.mic){background:none}
+#chat.ms .field .cbtn{height:40px;width:40px;margin:0}
+#chat.ms .ic-wa{display:none}
+.ic-ms{display:none}
+#chat.ms .ic-ms{display:block}
+#chat.ms .down{left:50%;right:auto;margin-left:-20px;width:40px;height:40px;background:var(--msDown);box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;color:var(--msName)}
+#chat.ms .send{width:44px;height:40px;margin:0;background:none;color:var(--msIcon)}
 #chat.ms .send .ic-mic,#chat.ms .send .ic-send{display:none}
 .send .ic-like,.send .ic-plane{display:none}
 #chat.ms .send.mic .ic-like{display:block}
 #chat.ms .send:not(.mic) .ic-plane{display:block}
 .group input[hidden]{display:none}
 .group input[hidden]+input{border-top:0}
+#msFields[hidden]{display:none}
+#msFields .group input+textarea,#msFields .group textarea+.trow{border-top:.5px solid var(--sep)}
 .phpick{display:flex;flex-direction:column;align-items:center;gap:6px;margin:4px 0 2px}
 .av.xl{width:84px;height:84px;cursor:pointer}
 .phbtns{display:flex;gap:14px}
@@ -451,13 +459,15 @@ svg{display:block}
         </div>
       </div>
     </header>
-    <button class="down glass" id="downBtn" type="button" aria-label="Ir al final"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5L9 12l5.5-5.5"/></svg></button>
+    <button class="down glass" id="downBtn" type="button" aria-label="Ir al final"><svg class="ic-wa" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5L9 12l5.5-5.5"/></svg><svg class="ic-ms" width="20" height="22" viewBox="0 0 20 22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5v16M3.5 12.5l6.5 6.5 6.5-6.5"/></svg></button>
     <form class="composer" id="composer" autocomplete="off">
-      <button class="cbtn" type="button" id="addMsgBtn" aria-label="Agregar mensaje"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v19M2.5 12h19"/></svg></button>
+      <button class="cbtn" type="button" id="addMsgBtn" aria-label="Agregar mensaje"><svg class="ic-wa" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v19M2.5 12h19"/></svg><svg class="ic-ms ms-tool" width="25" height="25" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11.5" fill="currentColor"/><path d="M12 6.6v10.8M6.6 12h10.8" stroke="var(--msBg)" stroke-width="2.3" stroke-linecap="round"/></svg><svg class="ic-ms ms-chev" width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l8 8-8 8"/></svg></button>
+      <button class="cbtn ms-only ms-tool" type="button" data-soon="Cámara" aria-label="Cámara"><svg width="27" height="23" viewBox="0 0 26 22" fill="currentColor"><path d="M9.2 1.3h7.6c.8 0 1.5.4 1.9 1.1l1 1.8h2.6A3.2 3.2 0 0 1 25.5 7.4v10.8a3.2 3.2 0 0 1-3.2 3.2H3.7A3.2 3.2 0 0 1 .5 18.2V7.4a3.2 3.2 0 0 1 3.2-3.2h2.6l1-1.8c.4-.7 1.1-1.1 1.9-1.1zM13 7.2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zm0 2.6a2.9 2.9 0 1 1 0 5.8 2.9 2.9 0 0 1 0-5.8z" fill-rule="evenodd"/></svg></button>
+      <button class="cbtn ms-only ms-tool" type="button" data-soon="Fotos" aria-label="Fotos"><svg width="25" height="23" viewBox="0 0 24 22" fill="currentColor"><path d="M3.6 .8h16.8A3.1 3.1 0 0 1 23.5 3.9v14.2a3.1 3.1 0 0 1-3.1 3.1H3.6A3.1 3.1 0 0 1 .5 18.1V3.9A3.1 3.1 0 0 1 3.6 .8zm0 2.6a.6.6 0 0 0-.6.6v11.3l4.6-4.7a1.6 1.6 0 0 1 2.3 0l3.2 3.3 1.4-1.4a1.6 1.6 0 0 1 2.3 0l4.2 4.3V4a.6.6 0 0 0-.6-.6zm12.6 2.4a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4z" fill-rule="evenodd"/></svg></button>
+      <button class="cbtn ms-only ms-tool" type="button" data-soon="Notas de voz" aria-label="Nota de voz"><svg width="18" height="25" viewBox="0 0 17 24" fill="currentColor"><rect x="4.2" y="0.5" width="8.6" height="14.5" rx="4.3"/><path d="M1.6 11.4a6.9 6.9 0 0 0 13.8 0" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="M8.5 18.4v4" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg></button>
       <div class="field">
         <textarea id="input" rows="1" placeholder="" enterkeyhint="send"></textarea>
         <button class="cbtn ms-only" type="button" data-soon="Emojis" aria-label="Emojis"><svg width="27" height="27" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor"/><circle cx="8.3" cy="9.6" r="1.6" fill="var(--msPill)"/><circle cx="15.7" cy="9.6" r="1.6" fill="var(--msPill)"/><path d="M6.8 13.8a5.6 5.6 0 0 0 10.4 0" fill="none" stroke="var(--msPill)" stroke-width="1.9" stroke-linecap="round"/></svg></button>
-        <button class="cbtn ms-only ms-mic" type="button" data-soon="Notas de voz" aria-label="Nota de voz"><svg width="20" height="27" viewBox="0 0 17 24" fill="currentColor"><rect x="4.2" y="0.5" width="8.6" height="14.5" rx="4.3"/><path d="M1.6 11.4a6.9 6.9 0 0 0 13.8 0" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="M8.5 18.4v3.6M5 22.5h7" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg></button>
         <button class="cbtn wa-only" type="button" data-soon="Stickers" aria-label="Stickers"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M13.6 21H9a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6h6a6 6 0 0 1 6 6v4.6A7.4 7.4 0 0 1 13.6 21z"/><path d="M21 13.6c-4.1 0-7.4 3.3-7.4 7.4"/></svg></button>
       </div>
       <button class="cbtn wa-only" type="button" data-soon="Cámara" aria-label="Cámara"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round"><path d="M4.5 6.5h2.6l1.3-2a2 2 0 0 1 1.7-1h3.8a2 2 0 0 1 1.7 1l1.3 2h2.6a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-15a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3z"/><circle cx="11.6" cy="13" r="4"/><circle cx="17.9" cy="9.6" r=".95" fill="currentColor" stroke="none"/></svg></button>
@@ -544,9 +554,17 @@ svg{display:block}
       <div class="group">
         <input id="convNum" type="tel" inputmode="tel" placeholder="Número (ej. +52 55 1234 5678)" autocomplete="off">
         <input id="convName" type="text" placeholder="Nombre (opcional)" autocapitalize="words" autocomplete="off">
-        <input id="convSub" type="text" placeholder="Texto bajo el nombre" autocomplete="off" hidden>
       </div>
       <div class="foot" id="convWho"></div>
+      <div id="msFields" hidden>
+        <div class="lbl">Perfil (Messenger)</div>
+        <div class="group">
+          <input id="convStatus" type="text" placeholder="Estado en el encabezado (ej. Activo hace 2 h)" autocomplete="off">
+          <textarea id="convSub" rows="3" placeholder="Líneas bajo el nombre (una por renglón)" style="min-height:96px"></textarea>
+          <div class="trow"><span>Aviso de cifrado</span><label class="sw"><input type="checkbox" id="convE2ee" checked><span></span></label></div>
+        </div>
+        <div class="foot">Ejemplo de líneas: <b>@usuario.123</b>, <b>Son amigos en Facebook</b>, <b>Vive en Houston</b>. La primera se ve más clara, como en Messenger.</div>
+      </div>
       <div class="lbl">Guion</div>
       <div class="group"><textarea id="convScript" placeholder="Yo: Hola, buen día&#10;Contacto: Hola, ¿quién habla?&#10;Yo: Le escribo para darle seguimiento&#10;¿Tiene un minuto?&#10;Contacto: Sí, dígame"></textarea></div>
       <div class="chips" id="convChips">
@@ -880,7 +898,8 @@ function renderChat(keepScroll){
   const isMs = c.style === 'ms';
   chatEl.classList.toggle('ms', isMs); input.placeholder = isMs ? 'Aa' : '';
   if (isMs){
-    $('#msgs').innerHTML = msBody(c);
+    $('#cStatus').textContent = c.msStatus || '';
+    $('#msgs').innerHTML = msBody(c); queueTint();
     if (!keepScroll || atBottom) scrollBottom(); else lastChatScrollTop = sc.scrollTop;
     return;
   }
@@ -912,20 +931,22 @@ const MS_ST = {
   2: '<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.8" fill="currentColor"/><path d="M4.2 7.2l1.9 1.9 3.8-4.1" fill="none" stroke="var(--msBg)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 };
 const isEmojiOnly = t => t.length <= 16 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|‍|️|\s){1,8}$/u.test(t) && /\p{Extended_Pictographic}/u.test(t);
+const MS_MON = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'], MS_DOW = ['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'];
 function msTime(t){
-  const diff = Math.round((startOfDay(Date.now()) - startOfDay(t)) / 864e5), h = hhmm(t);
+  const d = new Date(t), diff = Math.round((startOfDay(Date.now()) - startOfDay(t)) / 864e5), h = hhmm(t);
   if (diff === 0) return h;
-  if (diff === 1) return `Ayer ${h}`;
-  if (diff > 1 && diff < 7){ const w = new Date(t).toLocaleDateString('es', { weekday: 'short' }).replace('.', ''); return `${w.charAt(0).toUpperCase() + w.slice(1)} ${h}`; }
-  const o = { day: 'numeric', month: 'short' }; if (new Date(t).getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
-  return `${new Date(t).toLocaleDateString('es', o).replace('.', '')}, ${h}`;
+  if (diff === 1) return `AYER, ${h}`;
+  if (diff > 1 && diff < 7) return `${MS_DOW[d.getDay()]}, ${h}`;
+  return `${d.getDate()} ${MS_MON[d.getMonth()]}${d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : ''}, ${h}`;
 }
 function msBody(c){
   const ms = c.messages, sub = c.msSub == null ? MS_SUB : c.msSub;
-  let html = `<div class="info ms-info"><div class="${avCls(c)}" style="${avStyle(c)}">${PERSON}</div><h2>${esc(c.name || title(c))}</h2>${sub ? `<p class="ms-sub">${esc(sub)}</p>` : ''}
+  const lines = String(sub).split('\n').map(x => x.trim()).filter(Boolean);
+  let html = `<div class="info ms-info"><div class="${avCls(c)}" style="${avStyle(c)}">${PERSON}</div><h2>${esc(c.name || title(c))}</h2>${lines.map((l, i) => `<p class="ms-sub${i ? '' : ' first'}">${esc(l)}</p>`).join('')}
     <button type="button" class="ms-prof" data-soon="Ver perfil">Ver perfil</button>
-    <p class="ms-e2ee"><svg width="12" height="13" viewBox="0 0 12 13" fill="currentColor"><path d="M3 5.3V3.9a3 3 0 0 1 6 0v1.4h.3c.9 0 1.6.7 1.6 1.6v4.4c0 .9-.7 1.6-1.6 1.6H2.7c-.9 0-1.6-.7-1.6-1.6V6.9c0-.9.7-1.6 1.6-1.6zm1.5 0h3V3.9a1.5 1.5 0 0 0-3 0z"/></svg>Los mensajes y las llamadas están protegidos con cifrado de extremo a extremo. Solo las personas de este chat pueden leerlos, escucharlos o compartirlos. <b data-soon="Más información">Más información</b></p></div>`;
-  const sepAt = (a, b) => !a || b.ts - a.ts > 30 * 6e4 || startOfDay(a.ts) !== startOfDay(b.ts);
+    ${c.msE2ee === false ? '' : '<p class="ms-e2ee">'}<svg width="12" height="13" viewBox="0 0 12 13" fill="currentColor"><path d="M3 5.3V3.9a3 3 0 0 1 6 0v1.4h.3c.9 0 1.6.7 1.6 1.6v4.4c0 .9-.7 1.6-1.6 1.6H2.7c-.9 0-1.6-.7-1.6-1.6V6.9c0-.9.7-1.6 1.6-1.6zm1.5 0h3V3.9a1.5 1.5 0 0 0-3 0z"/></svg>Los mensajes y las llamadas están protegidos con cifrado de extremo a extremo. Solo las personas de este chat pueden leerlos, escucharlos o compartirlos. <b data-soon="Más información">Más información</b></p></div>`;
+  if (c.msE2ee === false) html = html.replace(/<svg width="12" height="13"[\s\S]*?<\/b><\/p>/, '');
+  const sepAt = (a, b) => !a || b.ts - a.ts > 60 * 6e4 || startOfDay(a.ts) !== startOfDay(b.ts);
   const av = () => `<div class="${avCls(c)} xs" style="${avStyle(c)}">${PERSON}</div>`;
   ms.forEach((m, i) => {
     const p = ms[i - 1], n = ms[i + 1], sep = sepAt(p, m), nSep = n ? sepAt(m, n) : true;
@@ -942,11 +963,23 @@ function msBody(c){
   if (typing.has(c.id)) html += `<div class="m them gap typing-b"><div class="ms-av">${av()}</div><div class="b"><i></i><i></i><i></i></div></div>`;
   return html;
 }
+let rafTint = 0;
+function msTint(){
+  if (!chatEl.classList.contains('ms')) return;
+  const H = window.innerHeight || 800, c0 = [17, 109, 255], c1 = [61, 97, 255];
+  document.querySelectorAll('#msgs .me:not(.like):not(.big) .b').forEach(b => {
+    const r = b.getBoundingClientRect(); if (r.bottom < -50 || r.top > H + 50) return;
+    const t = Math.max(0, Math.min(1, ((r.top + r.height / 2) / H - .3) / .57));
+    b.style.background = `rgb(${c0.map((v, i) => Math.round(v + (c1[i] - v) * t)).join(',')})`;
+  });
+}
+function queueTint(){ if (!rafTint) rafTint = requestAnimationFrame(() => { rafTint = 0; msTint(); }); }
 function getOrCreateMs(name, sub){
   const k = normW(name);
+  const extra = { msStatus: $('#convStatus').value.trim(), msE2ee: $('#convE2ee').checked };
   let c = state.chats.find(x => x.style === 'ms' && normW(x.name || '') === k);
-  if (c){ if (sub != null) c.msSub = sub; return c; }
-  c = { id: uid(), style: 'ms', number: '', name: name.trim(), msSub: sub ?? MS_SUB, color: colorFor(name), unread: 0, messages: [], created: Date.now() };
+  if (c){ if (sub != null) c.msSub = sub; Object.assign(c, extra); return c; }
+  c = { id: uid(), style: 'ms', number: '', name: name.trim(), msSub: sub ?? MS_SUB, ...extra, color: colorFor(name), unread: 0, messages: [], created: Date.now() };
   state.chats.push(c); return c;
 }
 function chatDay(t){
@@ -1252,6 +1285,7 @@ function updateFloatingDay(){
 $('#chatScroll').addEventListener('scroll', e => {
   const sc = e.currentTarget;
   $('#downBtn').classList.toggle('on', sc.scrollHeight - sc.scrollTop - sc.clientHeight > 200);
+  queueTint();
   if (!current || sc.scrollTop === lastChatScrollTop) return;
   lastChatScrollTop = sc.scrollTop;
   updateFloatingDay();
@@ -1467,7 +1501,7 @@ const THEM_W = ['contacto', 'c', 'el', 'ella', 'ellos', 'ellas', 'cliente', 'otr
 const PACE = { fast: [20, 60], normal: [60, 240], slow: [300, 1200] };          // segundos entre mensajes (historial)
 const PACE_LIVE = { fast: [700, 1500], normal: [1400, 3200], slow: [2800, 6000] }; // milisegundos (en vivo)
 const convPh = photoPicker('conv', () => convNum.value, () => updateConv());
-try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convSub.value = d.sub ?? MS_SUB; convStart.value = d.start || ''; convEnd.value = d.end || ''; convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
+try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convSub.value = d.sub ?? MS_SUB; $('#convStatus').value = d.status ?? 'Activo hace 2 h'; $('#convE2ee').checked = d.e2ee !== false; convStart.value = d.start || ''; convEnd.value = d.end || ''; convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
 function parseScript(){
   const them = new Set(THEM_W), nm = normW(convName.value);
   if (nm){ them.add(nm); them.add(nm.split(' ')[0]); }
@@ -1535,13 +1569,13 @@ function updateConv(){
   const times = p.times || list.map(() => Date.now());
   $('#convPrev').innerHTML = list.length ? list.slice(0, 8).map((m, i) => `<div class="m ${m.mine ? 'me' : 'them'} tail gap"><div class="b">${esc(m.text)}<span class="meta">${hhmm(times[i])}</span></div></div>`).join('') + (list.length > 8 ? `<div class="chatempty" style="margin:8px 4px 0">+ ${list.length - 8} más</div>` : '')
     : '<div class="chatempty" style="margin:4px">Escribe el guion</div>';
-  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ sub: convSub.value, start: convStart.value, end: convEnd.value, photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
+  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ status: $('#convStatus').value, e2ee: $('#convE2ee').checked, sub: convSub.value, start: convStart.value, end: convEnd.value, photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
 }
 // sin chat: hoja en blanco (con el último horario usado). Con chat: para seguir esa conversación en el mismo chat
 function setConvMode(mode){
   convMode = mode; const ms = mode === 'ms';
   $('#convSheet .sh-head .t').textContent = ms ? 'Simular 2' : 'Conversación';
-  convNum.hidden = ms; convSub.hidden = !ms;
+  convNum.hidden = ms; $('#msFields').hidden = !ms;
   convName.placeholder = ms ? 'Nombre del contacto' : 'Nombre (opcional)';
   if (ms && !convSub.value && convSub.dataset.touched !== '1') convSub.value = MS_SUB;
 }
@@ -1550,7 +1584,7 @@ function openConv(c, mode){
   setConvMode(c ? (c.style === 'ms' ? 'ms' : 'wa') : (mode || 'wa'));
   if (c){
     convNum.value = c.number; convName.value = c.name || ''; convScript.value = ''; convPh.set(null);
-    if (c.style === 'ms') convSub.value = c.msSub ?? MS_SUB;
+    if (c.style === 'ms'){ convSub.value = c.msSub ?? MS_SUB; $('#convStatus').value = c.msStatus || ''; $('#convE2ee').checked = c.msE2ee !== false; }
     const lm = last(c), a = lm ? lm.ts + 2 * 6e4 : now - 60 * 6e4;
     if (now - a < 5 * 6e4){ convLive.checked = true; convDay.value = ymd(new Date(now)); }
     else { convLive.checked = false; convDay.value = ymd(new Date(a)); convStart.value = hm(new Date(a)); convEnd.value = hm(new Date(Math.min(a + 60 * 6e4, now - 6e4))); }
@@ -1563,6 +1597,7 @@ function openConv(c, mode){
 }
 [convNum, convName, convSub, convScript, convDay, convStart, convEnd].forEach(el => el.addEventListener('input', updateConv));
 convSub.addEventListener('input', () => { convSub.dataset.touched = '1'; });
+$('#convStatus').addEventListener('input', updateConv); $('#convE2ee').addEventListener('change', updateConv);
 [convLive, convPace].forEach(el => el.addEventListener('change', updateConv));
 $('#convChips').addEventListener('pointerdown', e => { if (e.target.closest('[data-who]')) e.preventDefault(); });
 $('#convChips').addEventListener('click', e => {
@@ -1610,7 +1645,7 @@ function playLive(id, list){
 $('#convGo').addEventListener('click', () => {
   const p = convPlan(); if (p.err) return;
   hideSheet();
-  const c = convMode === 'ms' ? getOrCreateMs(convName.value, convSub.value.trim()) : getOrCreate(p.num, convName.value.trim()), ph = convPh.get();
+  const c = convMode === 'ms' ? getOrCreateMs(convName.value, convSub.value.split('\n').map(x => x.trim()).filter(Boolean).join('\n')) : getOrCreate(p.num, convName.value.trim()), ph = convPh.get();
   if (ph){ c.photo = ph; c.photoBy = 'user'; convPh.set(null); updateConv(); }
   save(); renderList();
   (c.style === 'ms' ? Promise.resolve(true) : WA.check(c)).then(ok => {
