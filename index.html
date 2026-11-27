@@ -335,7 +335,7 @@ svg{display:block}
 #chat.ms .info h2{font-size:26px;line-height:31px;font-weight:700;letter-spacing:-.3px;color:var(--msName);margin:0}
 #chat.ms .info .ms-sub{margin:0;font-size:16.5px;line-height:22.5px;color:var(--msSub2)}
 #chat.ms .info .ms-sub.first{margin-top:4px;color:var(--msSub)}
-#chat.ms .info .ms-prof{display:inline-flex;align-items:center;height:29px;margin-top:11px;padding:0 13px;border-radius:15px;background:var(--msBtn);color:var(--msName);font-size:16px;font-weight:600}
+#chat.ms .info .ms-prof{text-decoration:none;-webkit-tap-highlight-color:transparent;display:inline-flex;align-items:center;height:29px;margin-top:11px;padding:0 13px;border-radius:15px;background:var(--msBtn);color:var(--msName);font-size:16px;font-weight:600}
 #chat.ms .info .ms-e2ee{margin:20px 2px 0;font-size:15.5px;line-height:19px;color:var(--msE2ee)}
 #chat.ms .info .ms-e2ee svg{display:inline-block;vertical-align:-1px;margin-right:4px}
 #chat.ms .info .ms-e2ee b{display:block;color:var(--msLink);font-weight:600;cursor:pointer}
@@ -560,6 +560,7 @@ svg{display:block}
         <div class="lbl">Perfil (Messenger)</div>
         <div class="group">
           <input id="convStatus" type="text" placeholder="Estado en el encabezado (ej. Activo hace 2 h)" autocomplete="off">
+          <input id="convLink" type="url" inputmode="url" placeholder="Link de «Ver perfil» (ej. facebook.com/usuario)" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
           <textarea id="convSub" rows="3" placeholder="Líneas bajo el nombre (una por renglón)" style="min-height:96px"></textarea>
           <div class="trow"><span>Aviso de cifrado</span><label class="sw"><input type="checkbox" id="convE2ee" checked><span></span></label></div>
         </div>
@@ -943,7 +944,7 @@ function msBody(c){
   const ms = c.messages, sub = c.msSub == null ? MS_SUB : c.msSub;
   const lines = String(sub).split('\n').map(x => x.trim()).filter(Boolean);
   let html = `<div class="info ms-info"><div class="${avCls(c)}" style="${avStyle(c)}">${PERSON}</div><h2>${esc(c.name || title(c))}</h2>${lines.map((l, i) => `<p class="ms-sub${i ? '' : ' first'}">${esc(l)}</p>`).join('')}
-    <button type="button" class="ms-prof" data-soon="Ver perfil">Ver perfil</button>
+    ${c.msLink ? `<a class="ms-prof" href="${esc(c.msLink)}" target="_blank" rel="noopener noreferrer">Ver perfil</a>` : '<button type="button" class="ms-prof" data-soon="Ver perfil">Ver perfil</button>'}
     ${c.msE2ee === false ? '' : '<p class="ms-e2ee">'}<svg width="12" height="13" viewBox="0 0 12 13" fill="currentColor"><path d="M3 5.3V3.9a3 3 0 0 1 6 0v1.4h.3c.9 0 1.6.7 1.6 1.6v4.4c0 .9-.7 1.6-1.6 1.6H2.7c-.9 0-1.6-.7-1.6-1.6V6.9c0-.9.7-1.6 1.6-1.6zm1.5 0h3V3.9a1.5 1.5 0 0 0-3 0z"/></svg>Los mensajes y las llamadas están protegidos con cifrado de extremo a extremo. Solo las personas de este chat pueden leerlos, escucharlos o compartirlos. <b data-soon="Más información">Más información</b></p></div>`;
   if (c.msE2ee === false) html = html.replace(/<svg width="12" height="13"[\s\S]*?<\/b><\/p>/, '');
   const sepAt = (a, b) => !a || b.ts - a.ts > 60 * 6e4 || startOfDay(a.ts) !== startOfDay(b.ts);
@@ -974,9 +975,15 @@ function msTint(){
   });
 }
 function queueTint(){ if (!rafTint) rafTint = requestAnimationFrame(() => { rafTint = 0; msTint(); }); }
+// link de «Ver perfil»: se agrega https:// si falta y solo se aceptan direcciones web (http/https)
+function normLink(v){
+  v = String(v || '').trim(); if (!v) return '';
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) v = 'https://' + v.replace(/^\/+/, '');
+  try { const u = new URL(v); return /^https?:$/.test(u.protocol) && u.hostname.includes('.') ? u.href : ''; } catch(e){ return ''; }
+}
 function getOrCreateMs(name, sub){
   const k = normW(name);
-  const extra = { msStatus: $('#convStatus').value.trim(), msE2ee: $('#convE2ee').checked };
+  const extra = { msStatus: $('#convStatus').value.trim(), msLink: normLink($('#convLink').value), msE2ee: $('#convE2ee').checked };
   let c = state.chats.find(x => x.style === 'ms' && normW(x.name || '') === k);
   if (c){ if (sub != null) c.msSub = sub; Object.assign(c, extra); return c; }
   c = { id: uid(), style: 'ms', number: '', name: name.trim(), msSub: sub ?? MS_SUB, ...extra, color: colorFor(name), unread: 0, messages: [], created: Date.now() };
@@ -1501,7 +1508,7 @@ const THEM_W = ['contacto', 'c', 'el', 'ella', 'ellos', 'ellas', 'cliente', 'otr
 const PACE = { fast: [20, 60], normal: [60, 240], slow: [300, 1200] };          // segundos entre mensajes (historial)
 const PACE_LIVE = { fast: [700, 1500], normal: [1400, 3200], slow: [2800, 6000] }; // milisegundos (en vivo)
 const convPh = photoPicker('conv', () => convNum.value, () => updateConv());
-try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convSub.value = d.sub ?? MS_SUB; $('#convStatus').value = d.status ?? 'Activo hace 2 h'; $('#convE2ee').checked = d.e2ee !== false; convStart.value = d.start || ''; convEnd.value = d.end || ''; convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
+try { const d = JSON.parse(localStorage.getItem(CONV_KEY) || 'null'); if (d){ convPh.set(d.photo); convSub.value = d.sub ?? MS_SUB; $('#convStatus').value = d.status ?? 'Activo hace 2 h'; $('#convLink').value = d.link || ''; $('#convE2ee').checked = d.e2ee !== false; convStart.value = d.start || ''; convEnd.value = d.end || ''; convNum.value = d.num || ''; convName.value = d.name || ''; convScript.value = d.script || ''; convLive.checked = !!d.live; if (PACE[d.pace]) convPace.value = d.pace; } } catch(e){}
 function parseScript(){
   const them = new Set(THEM_W), nm = normW(convName.value);
   if (nm){ them.add(nm); them.add(nm.split(' ')[0]); }
@@ -1544,7 +1551,8 @@ function convPlan(){
   const list = parseScript(), num = convNum.value.trim(), live = convLive.checked;
   if (convMode === 'ms'){ if (!convName.value.trim()) return { list, err: 'Escribe el nombre del contacto' }; }
   else if (!validNum(num)) return { list, err: num ? 'Número no válido' : 'Escribe el número del contacto' };
-  if (!list.length) return { list, err: 'Escribe al menos un mensaje' };
+  if ($('#convLink').value.trim() && convMode === 'ms' && !normLink($('#convLink').value)) return { list, err: 'El link de «Ver perfil» no es válido (ej. facebook.com/usuario)' };
+  if (!list.length) return convMode === 'ms' ? { list, profileOnly: true } : { list, err: 'Escribe al menos un mensaje' };
   if (live) return { list, num, live };
   if (!convDay.value || !convStart.value || (list.length > 1 && !convEnd.value)) return { list, err: 'Completa día, hora de inicio y de fin' };
   if (list.length > 1 && convStart.value === convEnd.value) return { list, err: '“Termina” debe ser distinta de “Empieza”' };
@@ -1561,15 +1569,16 @@ function updateConv(){
   $('#convTimeRows').classList.toggle('off', convLive.checked); $('#convPaceRow').hidden = !convLive.checked;
   const info = $('#convInfo'); info.classList.toggle('err', !!p.err);
   if (p.err) info.textContent = p.err;
+  else if (p.profileOnly) info.textContent = 'Sin guion: solo se guardan los datos del perfil (foto, estado, líneas, link de «Ver perfil»).';
   else if (p.live) info.textContent = 'Los mensajes aparecen uno por uno, con “escribiendo…” antes de cada respuesta. Se abre el chat para que lo veas.';
   else { const t0 = p.times[0], t1 = p.times[p.times.length - 1], r = rangeTxt(t0, t1);
     info.textContent = (list.length > 1 ? `${list.length} mensajes repartidos ` : 'Un mensaje: ') + r.charAt(0).toLowerCase() + r.slice(1) + '.'; }
   $('#convGo').disabled = !!p.err;
-  $('#convGo').textContent = list.length ? (convLive.checked ? `Reproducir ${list.length} mensajes` : `Simular ${list.length} mensajes`) : 'Simular conversación';
+  $('#convGo').textContent = list.length ? (convLive.checked ? `Reproducir ${list.length} mensajes` : `Simular ${list.length} mensajes`) : p.profileOnly ? 'Guardar perfil' : 'Simular conversación';
   const times = p.times || list.map(() => Date.now());
   $('#convPrev').innerHTML = list.length ? list.slice(0, 8).map((m, i) => `<div class="m ${m.mine ? 'me' : 'them'} tail gap"><div class="b">${esc(m.text)}<span class="meta">${hhmm(times[i])}</span></div></div>`).join('') + (list.length > 8 ? `<div class="chatempty" style="margin:8px 4px 0">+ ${list.length - 8} más</div>` : '')
     : '<div class="chatempty" style="margin:4px">Escribe el guion</div>';
-  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ status: $('#convStatus').value, e2ee: $('#convE2ee').checked, sub: convSub.value, start: convStart.value, end: convEnd.value, photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
+  try { convPh.render(); localStorage.setItem(CONV_KEY, JSON.stringify({ link: $('#convLink').value, status: $('#convStatus').value, e2ee: $('#convE2ee').checked, sub: convSub.value, start: convStart.value, end: convEnd.value, photo: convPh.get(), num: convNum.value, name: convName.value, script: convScript.value, live: convLive.checked, pace: convPace.value })); } catch(e){}
 }
 // sin chat: hoja en blanco (con el último horario usado). Con chat: para seguir esa conversación en el mismo chat
 function setConvMode(mode){
@@ -1584,7 +1593,7 @@ function openConv(c, mode){
   setConvMode(c ? (c.style === 'ms' ? 'ms' : 'wa') : (mode || 'wa'));
   if (c){
     convNum.value = c.number; convName.value = c.name || ''; convScript.value = ''; convPh.set(null);
-    if (c.style === 'ms'){ convSub.value = c.msSub ?? MS_SUB; $('#convStatus').value = c.msStatus || ''; $('#convE2ee').checked = c.msE2ee !== false; }
+    if (c.style === 'ms'){ convSub.value = c.msSub ?? MS_SUB; $('#convStatus').value = c.msStatus || ''; $('#convLink').value = c.msLink || ''; $('#convE2ee').checked = c.msE2ee !== false; }
     const lm = last(c), a = lm ? lm.ts + 2 * 6e4 : now - 60 * 6e4;
     if (now - a < 5 * 6e4){ convLive.checked = true; convDay.value = ymd(new Date(now)); }
     else { convLive.checked = false; convDay.value = ymd(new Date(a)); convStart.value = hm(new Date(a)); convEnd.value = hm(new Date(Math.min(a + 60 * 6e4, now - 6e4))); }
@@ -1597,7 +1606,7 @@ function openConv(c, mode){
 }
 [convNum, convName, convSub, convScript, convDay, convStart, convEnd].forEach(el => el.addEventListener('input', updateConv));
 convSub.addEventListener('input', () => { convSub.dataset.touched = '1'; });
-$('#convStatus').addEventListener('input', updateConv); $('#convE2ee').addEventListener('change', updateConv);
+$('#convStatus').addEventListener('input', updateConv); $('#convLink').addEventListener('input', updateConv); $('#convE2ee').addEventListener('change', updateConv);
 [convLive, convPace].forEach(el => el.addEventListener('change', updateConv));
 $('#convChips').addEventListener('pointerdown', e => { if (e.target.closest('[data-who]')) e.preventDefault(); });
 $('#convChips').addEventListener('click', e => {
@@ -1648,6 +1657,7 @@ $('#convGo').addEventListener('click', () => {
   const c = convMode === 'ms' ? getOrCreateMs(convName.value, convSub.value.split('\n').map(x => x.trim()).filter(Boolean).join('\n')) : getOrCreate(p.num, convName.value.trim()), ph = convPh.get();
   if (ph){ c.photo = ph; c.photoBy = 'user'; convPh.set(null); updateConv(); }
   save(); renderList();
+  if (p.profileOnly){ save(); renderList(); openChat(c.id); renderChat(); toast('Perfil guardado'); return; }
   (c.style === 'ms' ? Promise.resolve(true) : WA.check(c)).then(ok => {
     const ch = getChat(c.id); if (!ch) return;
     if (ok === false){
