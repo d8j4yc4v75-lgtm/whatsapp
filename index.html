@@ -5,7 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" id="sbStyle">
+<script>
+// En modo oscuro la app se dibuja también detrás de la hora y la batería (así el encabezado difuminado llega hasta arriba).
+// En modo claro se deja la barra normal, porque con «black-translucent» la hora sale siempre en blanco.
+try { if (!matchMedia('(prefers-color-scheme: dark)').matches) document.getElementById('sbStyle').content = 'default'; } catch(e){}
+</script>
 <meta name="apple-mobile-web-app-title" content="Chats">
 <meta name="theme-color" content="#f9f9f9" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0b0b0b" media="(prefers-color-scheme: dark)">
@@ -314,13 +319,13 @@ svg{display:block}
 .m.press .b{transform:scale(.96)}
 .ms-only{display:none!important}
 /* ======== estilo Messenger (Simular 2) ======== */
-:root{--msBg:#fff; --msBar:rgba(255,255,255,.82); --msIn:#f0f0f0; --msInText:#050505; --msOut:#0a7cff; --msBlue:#0a7cff; --msIcon:#0a7cff; --msPill:#f0f2f5; --msBtn:#e4e6eb; --msName:#050505; --msSub:#050505; --msSub2:#65676b; --msE2ee:#65676b; --msLink:#0a7cff; --msTime:#65676b; --msDown:#e4e6eb}
-@media (prefers-color-scheme: dark){:root{--msBg:#000; --msBar:rgba(0,0,0,.72); --msIn:#333334; --msInText:#fff; --msOut:#116dff; --msBlue:#326bf6; --msIcon:#4560f5; --msPill:#333334; --msBtn:#191919; --msName:#fff; --msSub:#e2e5e9; --msSub2:#b0b3b8; --msE2ee:#b0b3b8; --msLink:#5271ff; --msTime:#b0b3b8; --msDown:#333334}}
+:root{--msBg:#fff; --msBar:rgba(255,255,255,.7); --msBarB:rgba(255,255,255,.88); --msIn:#f0f0f0; --msInText:#050505; --msOut:#0a7cff; --msBlue:#0a7cff; --msIcon:#0a7cff; --msPill:#f0f2f5; --msBtn:#e4e6eb; --msName:#050505; --msSub:#050505; --msSub2:#65676b; --msE2ee:#65676b; --msLink:#0a7cff; --msTime:#65676b; --msDown:#e4e6eb}
+@media (prefers-color-scheme: dark){:root{--msBg:#000; --msBar:rgba(0,0,0,.5); --msBarB:rgba(0,0,0,.8); --msIn:#333334; --msInText:#fff; --msOut:#116dff; --msBlue:#326bf6; --msIcon:#4560f5; --msPill:#333334; --msBtn:#191919; --msName:#fff; --msSub:#e2e5e9; --msSub2:#b0b3b8; --msE2ee:#b0b3b8; --msLink:#5271ff; --msTime:#b0b3b8; --msDown:#333334}}
 #chat.ms{background:var(--msBg)}
 #chat.ms::before,#chat.ms #floatingDay{display:none}
 #chat.ms .ms-only{display:flex!important}
 #chat.ms .wa-only{display:none!important}
-#chat.ms .nav{background:var(--msBar);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);padding-left:calc(8px + var(--sl));padding-right:calc(12px + var(--sr))}
+#chat.ms .nav{background:var(--msBar);-webkit-backdrop-filter:blur(50px) saturate(190%);backdrop-filter:blur(50px) saturate(190%);padding-left:calc(8px + var(--sl));padding-right:calc(12px + var(--sr))}
 #chat.ms .navrow{gap:8px}
 #chat.ms .back{background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;color:var(--msBlue);padding:0 2px;min-width:0;gap:2px;height:44px}
 #chat.ms #backCount:not(:empty){display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 6px;border-radius:12px;background:var(--msBlue);color:#fff;font-size:15px;font-weight:600}
@@ -358,7 +363,7 @@ svg{display:block}
 .ms-st{display:flex;justify-content:flex-end;margin:3px 1px 0;color:var(--msTime)}
 #chat.ms .typing-b .b{height:37px;padding:0 14px}
 /* barra de escribir estilo Messenger */
-#chat.ms .composer{background:var(--msBar);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);padding:8px calc(4px + var(--sr)) calc(var(--sb) + 8px) calc(4px + var(--sl));gap:0;align-items:flex-end}
+#chat.ms .composer{background:var(--msBarB);-webkit-backdrop-filter:blur(50px) saturate(190%);backdrop-filter:blur(50px) saturate(190%);padding:8px calc(4px + var(--sr)) calc(var(--sb) + 8px) calc(4px + var(--sl));gap:0;align-items:flex-end}
 #chat.ms .composer .cbtn{width:44px;height:40px;color:var(--msIcon)}
 #chat.ms .composer.has .ms-tool{display:none!important}
 #chat.ms .composer:not(.has) .ms-chev{display:none!important}
@@ -897,7 +902,7 @@ function renderChat(keepScroll){
   $('#cName').textContent = title(c);
   $('#cStatus').textContent = typing.has(c.id) ? 'escribiendo…' : (c.name || '');
   const isMs = c.style === 'ms';
-  chatEl.classList.toggle('ms', isMs); input.placeholder = isMs ? 'Aa' : '';
+  chatEl.classList.toggle('ms', isMs); input.placeholder = isMs ? 'Aa' : ''; if (topKind !== (isMs ? 'ms' : 'wa')) setTop(isMs ? 'ms' : 'wa');
   if (isMs){
     $('#cStatus').textContent = c.msStatus || '';
     $('#msgs').innerHTML = msBody(c); queueTint();
@@ -1195,9 +1200,19 @@ function openChat(id, push = true){
   layoutChat(); requestAnimationFrame(scrollBottom);
   if (push) try { history.pushState({ chat: id }, ''); } catch(e){}
 }
+// color de la franja de la hora (theme-color y fondo de la página) igual al encabezado de la pantalla actual
+let topKind = 'list';
+function setTop(kind){
+  topKind = kind;
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const col = { list: dark ? '#0b0b0b' : '#ffffff', wa: dark ? '#131313' : '#f6f6f6', ms: dark ? '#000000' : '#ffffff' }[kind];
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', col));
+  document.documentElement.style.backgroundColor = col; document.body.style.backgroundColor = col;
+}
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => setTop(topKind)); } catch(e){}
 function closeChat(){
   if (!current) return;
-  current = null; $('#input').blur();
+  current = null; $('#input').blur(); setTop('list');
   hideFloatingDay();
   chatEl.style.transition = listEl.style.transition = shade.style.transition = '';
   chatEl.style.transform = listEl.style.transform = shade.style.opacity = '';
