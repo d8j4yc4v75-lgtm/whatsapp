@@ -565,6 +565,7 @@ svg{display:block}
       <div class="group">
         <input id="convNum" type="tel" inputmode="tel" placeholder="Número (ej. +52 55 1234 5678)" autocomplete="off">
         <input id="convName" type="text" placeholder="Nombre (opcional)" autocapitalize="words" autocomplete="off">
+        <input id="convBadge" type="number" inputmode="numeric" min="0" max="999" placeholder="Chats sin leer junto a la flecha (ej. 7)" autocomplete="off">
       </div>
       <div class="foot" id="convWho"></div>
       <div id="msFields" hidden>
@@ -759,7 +760,7 @@ function colorFor(s){ let h = 0; for (const c of String(s)) h = (h*31 + c.charCo
 const normNum = s => String(s).replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
 const getChat = id => state.chats.find(c => c.id === id);
 const canon = n => normNum(fmtNum(n)); // 5579087877, 55 7908 7877 y +52 55 7908 7877 son el mismo número
-const findByNum = n => { const k = canon(n); return state.chats.find(c => canon(c.number) === k); };
+const findByNum = n => { const k = canon(n); if (!k.replace('+', '')) return undefined; return state.chats.find(c => c.style !== 'ms' && canon(c.number) === k); };
 function fmtNum(raw){
   const r = String(raw || ''); let d = r.replace(/\D/g, '');
   if (!/^\s*\+/.test(r) && d.length === 10) d = '52' + d;
@@ -894,7 +895,8 @@ function renderList(){
       </div></button>`;
   }).join('');
   const un = state.chats.reduce((s,c) => s + (c.id !== current ? c.unread : 0), 0);
-  $('#backCount').textContent = un ? un : '';
+  const cc = current && getChat(current), badge = cc && cc.backBadge > 0 ? cc.backBadge : un;
+  $('#backCount').textContent = badge ? badge : '';
   $('#unCount').textContent = un ? ' ' + un : '';
   $('#unreadTab').textContent = un ? un : '';
 }
@@ -1573,7 +1575,7 @@ function convPlan(){
   if (convMode === 'ms'){ if (!convName.value.trim()) return { list, err: 'Escribe el nombre del contacto' }; }
   else if (!validNum(num)) return { list, err: num ? 'Número no válido' : 'Escribe el número del contacto' };
   if ($('#convLink').value.trim() && convMode === 'ms' && !normLink($('#convLink').value)) return { list, err: 'El link de «Ver perfil» no es válido (ej. facebook.com/usuario)' };
-  if (!list.length) return convMode === 'ms' ? { list, profileOnly: true } : { list, err: 'Escribe al menos un mensaje' };
+  if (!list.length) return { list, num, profileOnly: true };
   if (live) return { list, num, live };
   if (!convDay.value || !convStart.value || (list.length > 1 && !convEnd.value)) return { list, err: 'Completa día, hora de inicio y de fin' };
   if (list.length > 1 && convStart.value === convEnd.value) return { list, err: '“Termina” debe ser distinta de “Empieza”' };
@@ -1590,12 +1592,12 @@ function updateConv(){
   $('#convTimeRows').classList.toggle('off', convLive.checked); $('#convPaceRow').hidden = !convLive.checked;
   const info = $('#convInfo'); info.classList.toggle('err', !!p.err);
   if (p.err) info.textContent = p.err;
-  else if (p.profileOnly) info.textContent = 'Sin guion: solo se guardan los datos del perfil (foto, estado, líneas, link de «Ver perfil»).';
+  else if (p.profileOnly) info.textContent = convMode === 'ms' ? 'Sin guion: solo se guardan los datos del perfil (foto, estado, líneas, link de «Ver perfil», chats sin leer).' : 'Sin guion: solo se guardan los datos del chat (nombre, foto, chats sin leer).';
   else if (p.live) info.textContent = 'Los mensajes aparecen uno por uno, con “escribiendo…” antes de cada respuesta. Se abre el chat para que lo veas.';
   else { const t0 = p.times[0], t1 = p.times[p.times.length - 1], r = rangeTxt(t0, t1);
     info.textContent = (list.length > 1 ? `${list.length} mensajes repartidos ` : 'Un mensaje: ') + r.charAt(0).toLowerCase() + r.slice(1) + '.'; }
   $('#convGo').disabled = !!p.err;
-  $('#convGo').textContent = list.length ? (convLive.checked ? `Reproducir ${list.length} mensajes` : `Simular ${list.length} mensajes`) : p.profileOnly ? 'Guardar perfil' : 'Simular conversación';
+  $('#convGo').textContent = list.length ? (convLive.checked ? `Reproducir ${list.length} mensajes` : `Simular ${list.length} mensajes`) : p.profileOnly ? (convMode === 'ms' ? 'Guardar perfil' : 'Guardar') : 'Simular conversación';
   const times = p.times || list.map(() => Date.now());
   $('#convPrev').innerHTML = list.length ? list.slice(0, 8).map((m, i) => `<div class="m ${m.mine ? 'me' : 'them'} tail gap"><div class="b">${esc(m.text)}<span class="meta">${hhmm(times[i])}</span></div></div>`).join('') + (list.length > 8 ? `<div class="chatempty" style="margin:8px 4px 0">+ ${list.length - 8} más</div>` : '')
     : '<div class="chatempty" style="margin:4px">Escribe el guion</div>';
@@ -1613,12 +1615,13 @@ function openConv(c, mode){
   const now = Date.now();
   setConvMode(c ? (c.style === 'ms' ? 'ms' : 'wa') : (mode || 'wa'));
   if (c){
-    convNum.value = c.number; convName.value = c.name || ''; convScript.value = ''; convPh.set(null);
+    convNum.value = c.number; convName.value = c.name || ''; convScript.value = ''; convPh.set(null); $('#convBadge').value = c.backBadge || '';
     if (c.style === 'ms'){ convSub.value = c.msSub ?? MS_SUB; $('#convStatus').value = c.msStatus || ''; $('#convLink').value = c.msLink || ''; $('#convE2ee').checked = c.msE2ee !== false; }
     const lm = last(c), a = lm ? lm.ts + 2 * 6e4 : now - 60 * 6e4;
     if (now - a < 5 * 6e4){ convLive.checked = true; convDay.value = ymd(new Date(now)); }
     else { convLive.checked = false; convDay.value = ymd(new Date(a)); convStart.value = hm(new Date(a)); convEnd.value = hm(new Date(Math.min(a + 60 * 6e4, now - 6e4))); }
   } else {
+    $('#convBadge').value = '';
     convDay.value = ymd(new Date(now));
     if (!convStart.value || !convEnd.value){ convStart.value = hm(new Date(now - 60 * 6e4)); convEnd.value = hm(new Date(now - 6e4)); }
   }
@@ -1678,7 +1681,9 @@ $('#convGo').addEventListener('click', () => {
   const c = convMode === 'ms' ? getOrCreateMs(convName.value, convSub.value.split('\n').map(x => x.trim()).filter(Boolean).join('\n')) : getOrCreate(p.num, convName.value.trim()), ph = convPh.get();
   if (ph){ c.photo = ph; c.photoBy = 'user'; convPh.set(null); updateConv(); }
   save(); renderList();
-  if (p.profileOnly){ save(); renderList(); openChat(c.id); renderChat(); toast('Perfil guardado'); return; }
+  const bv = $('#convBadge').value.trim();
+  if (bv === '' || !(+bv > 0)) delete c.backBadge; else c.backBadge = Math.min(999, Math.round(+bv));
+  if (p.profileOnly){ save(); renderList(); openChat(c.id); renderChat(); renderList(); toast(convMode === 'ms' ? 'Perfil guardado' : 'Chat guardado'); return; }
   (c.style === 'ms' ? Promise.resolve(true) : WA.check(c)).then(ok => {
     const ch = getChat(c.id); if (!ch) return;
     if (ok === false){
